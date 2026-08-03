@@ -3,6 +3,7 @@ import type { FSWatcher } from 'chokidar'
 import { listSpritePresets, readLibrary, watchAssets } from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
 import { getServerInfo } from './mastra-server'
+import { getMascotWindow, setMascotInteractive } from './mascot-window'
 import { getPaths } from './paths'
 import { bus } from '../mastra/events'
 import type { ProviderAccount, Theme } from '../shared/types'
@@ -11,6 +12,7 @@ export const IPC = {
   getBootstrap: 'mochi:bootstrap',
   getLibrary: 'mochi:library',
   listPresets: 'mochi:list-presets',
+  mascotInteractive: 'mochi:mascot-interactive',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -109,21 +111,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     delete process.env[provider.envVar]
   })
 
-  // Live asset folders → renderer
-  watcher = watchAssets(() => {
-    getWindow()?.webContents.send(IPC.libraryChanged)
+  ipcMain.handle(IPC.mascotInteractive, (_e, interactive: boolean) => {
+    setMascotInteractive(Boolean(interactive))
   })
+
+  /** Both windows get every event — the overlay is a second view of the same
+   *  state, not a separate app, so neither may miss a sticker or a state change. */
+  const broadcast = (channel: string, payload?: unknown): void => {
+    for (const win of [getWindow(), getMascotWindow()]) {
+      if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+    }
+  }
+
+  // Live asset folders → renderer
+  watcher = watchAssets(() => broadcast(IPC.libraryChanged))
 
   // Mastra tools → renderer. This is the wire that makes the mascot react to the
   // agent instead of only to clicks (M1-18).
   bus.on('sticker', (payload) => {
+    broadcast(IPC.stickerFired, payload)
     const win = getWindow()
-    win?.webContents.send(IPC.stickerFired, payload)
     if (win && !win.isFocused()) win.flashFrame(true)
   })
-  bus.on('mascot-state', (payload) => {
-    getWindow()?.webContents.send(IPC.mascotState, payload)
-  })
+  bus.on('mascot-state', (payload) => broadcast(IPC.mascotState, payload))
 
   app.on('before-quit', () => {
     void watcher?.close()

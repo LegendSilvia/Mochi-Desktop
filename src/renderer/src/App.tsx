@@ -4,7 +4,6 @@ import { useStore } from './state/context'
 import { TitleBar } from './components/shell/TitleBar'
 import { Rail } from './components/shell/Rail'
 import { CommandPalette } from './components/shell/CommandPalette'
-import { MascotLayer } from './components/mascot/MascotLayer'
 import { NewSession } from './screens/NewSession'
 import { Session } from './screens/Session'
 import { Agents } from './screens/Agents'
@@ -85,7 +84,8 @@ function Shell(): React.JSX.Element {
           <Screens />
         </main>
       </div>
-      <MascotLayer />
+      {/* The mascot now lives in its own always-on-top window so it can float
+          over the desktop rather than only over Mochi — see main/mascot-window. */}
       <CommandPalette />
       <Shortcuts />
     </div>

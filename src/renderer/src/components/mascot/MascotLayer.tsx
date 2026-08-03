@@ -44,7 +44,7 @@ function readStoredPos(): Pos | null {
  *  2. The idle animation lives in a CSS class that is never changed by a
  *     re-render, so the loop doesn't restart and visibly jump.
  */
-export function MascotLayer(): React.JSX.Element | null {
+export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): React.JSX.Element | null {
   const { settings, mascotState, mascotNote, burst, spriteSrc, fireSticker } = useStore()
   const cfg = settings.mascot
 
@@ -75,15 +75,44 @@ export function MascotLayer(): React.JSX.Element | null {
     if (frame.current === null) frame.current = requestAnimationFrame(write)
   }, [write])
 
-  const clamp = useCallback((p: Pos): Pos => {
-    const el = wrapRef.current
-    const w = el?.offsetWidth ?? 140
-    const h = el?.offsetHeight ?? 180
-    return {
-      x: Math.min(Math.max(p.x, 8), Math.max(8, window.innerWidth - w - 8)),
-      y: Math.min(Math.max(p.y, TITLEBAR_H), Math.max(TITLEBAR_H, window.innerHeight - h - 8))
+  const clamp = useCallback(
+    (p: Pos): Pos => {
+      const el = wrapRef.current
+      const w = el?.offsetWidth ?? 140
+      const h = el?.offsetHeight ?? 180
+      // In the overlay there is no title bar or rail to avoid — the whole work
+      // area is fair game, so only keep it from sliding off the edge.
+      const top = overlay ? 8 : TITLEBAR_H
+      return {
+        x: Math.min(Math.max(p.x, 8), Math.max(8, window.innerWidth - w - 8)),
+        y: Math.min(Math.max(p.y, top), Math.max(top, window.innerHeight - h - 8))
+      }
+    },
+    [overlay]
+  )
+
+  // Click-through. The overlay covers the entire work area, so it must ignore
+  // the mouse everywhere except over the sprite itself — otherwise it would eat
+  // every click meant for the windows underneath.
+  const interactive = useRef(false)
+  useEffect(() => {
+    if (!overlay) return
+    const onMove = (e: MouseEvent): void => {
+      const el = wrapRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const inside =
+        e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+      if (inside === interactive.current) return
+      interactive.current = inside
+      void window.mochi?.mascotInteractive(inside)
     }
-  }, [])
+    window.addEventListener('mousemove', onMove)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      void window.mochi?.mascotInteractive(false)
+    }
+  }, [overlay])
 
   // Initial placement. A stored position that would cover the rail or the title
   // bar is rejected outright rather than clamped — clamping it would park the

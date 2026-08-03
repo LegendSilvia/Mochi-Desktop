@@ -190,6 +190,42 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     [state.settings.mascot.stickerModes, stickerSrc, soundSrc]
   )
 
+  // The idle rule. It shipped in the seeded rules but nothing ever fired it, so
+  // "no input for 20 minutes" never happened. Any real interaction re-arms the
+  // timer; it fires once per quiet spell rather than repeating every 20 minutes,
+  // because a mascot that nags on a loop stops being nice quite fast.
+  useEffect(() => {
+    if (!state.ready) return
+    const rule = state.rules.find((r) => r.event === 'idle-20min' && r.enabled)
+    if (!rule) return
+
+    // Overridable so the behaviour can actually be exercised without waiting
+    // twenty minutes; unset in normal use.
+    const stored = Number(localStorage.getItem('mochi:idle-ms'))
+    const wait = Number.isFinite(stored) && stored > 0 ? stored : 20 * 60 * 1000
+
+    let timer: ReturnType<typeof setTimeout>
+    const arm = (): void => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        fireSticker({
+          stickerId: rule.stickerId,
+          caption: 'still here whenever you are',
+          modes: [rule.showAs]
+        })
+        dispatch({ type: 'mascot-state', state: 'sleeping', note: 'resting — poke me' })
+      }, wait)
+    }
+
+    const events: Array<keyof WindowEventMap> = ['keydown', 'pointerdown', 'wheel', 'focus']
+    events.forEach((e) => window.addEventListener(e, arm))
+    arm()
+    return () => {
+      clearTimeout(timer)
+      events.forEach((e) => window.removeEventListener(e, arm))
+    }
+  }, [state.ready, state.rules, fireSticker])
+
   // Agent-driven events: sendSticker()/setMascotState() from Mastra tools, and
   // the asset watcher. This is what makes the mascot react to the agent.
   useEffect(() => {

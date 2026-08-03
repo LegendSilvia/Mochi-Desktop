@@ -40,6 +40,17 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
+    build: {
+      rollupOptions: {
+        // Two entries: the app window, and the transparent always-on-top window
+        // the mascot floats in so it can sit over the whole desktop rather than
+        // being trapped inside the app.
+        input: {
+          index: resolve('src/renderer/index.html'),
+          mascot: resolve('src/renderer/mascot.html')
+        }
+      }
+    },
     plugins: [react()]
   }
 })

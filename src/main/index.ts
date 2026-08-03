@@ -7,6 +7,7 @@ import { getPaths } from './paths'
 import { applyProviderKeysToEnv, load } from './store'
 import { startMastraServer, stopMastraServer } from './mastra-server'
 import { IPC, registerIpc } from './ipc'
+import { createMascotWindow, destroyMascotWindow } from './mascot-window'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -127,6 +128,7 @@ app.whenReady().then(async () => {
 
   registerIpc(getWindow)
   createWindow()
+  createMascotWindow()
   registerShortcuts()
 
   app.on('activate', () => {
@@ -136,6 +138,12 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  // The overlay is frameless and skips the taskbar, so nothing else would ever
+  // close it — without this the app can't actually exit.
+  destroyMascotWindow()
 })
 
 app.on('will-quit', () => {
