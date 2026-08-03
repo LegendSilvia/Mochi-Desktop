@@ -5,8 +5,9 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { bus } from '../mastra/events'
 import { load } from './store'
+import { readLibrary } from './assets'
 import { MASCOT_STATES } from '../shared/types'
-import type { MascotState } from '../shared/types'
+import type { AgentLoadout, MascotState } from '../shared/types'
 
 /**
  * The subscription backend.
@@ -116,6 +117,32 @@ function buildMochiServer(): ReturnType<typeof createSdkMcpServer> {
 }
 
 /**
+ * The agent's persona, plus the sticker names it is actually allowed to send.
+ *
+ * The allow-list has to reach the model as text: `sendSticker` takes a free-form
+ * name, so the only way to constrain the choice is to tell it what exists. An
+ * empty list means "anything in the folder" rather than "nothing", so a fresh
+ * loadout isn't mute until someone curates it.
+ */
+function buildSystemPrompt(agent: AgentLoadout): string {
+  const parts = [agent.instructions, `Expected output: ${agent.expectedOutput}`]
+
+  const allowed = agent.allowedStickerIds ?? []
+  const names = readLibrary(agent.spritePreset)
+    .stickers.filter((s) => allowed.length === 0 || allowed.includes(s.id))
+    .map((s) => s.name)
+
+  if (names.length > 0) {
+    parts.push(
+      allowed.length > 0
+        ? `When you use sendSticker, you may only send these: ${names.join(', ')}. Do not invent other names.`
+        : `Stickers available to sendSticker: ${names.join(', ')}.`
+    )
+  }
+  return parts.join('\n\n')
+}
+
+/**
  * Claude Code owns the conversation history, so we keep its session id per Mochi
  * session and resume rather than replaying the transcript on every turn.
  */
@@ -221,9 +248,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
           for await (const raw of query({
             prompt,
             options: {
-              systemPrompt: agent
-                ? `${agent.instructions}\n\nExpected output: ${agent.expectedOutput}`
-                : undefined,
+              systemPrompt: agent ? buildSystemPrompt(agent) : undefined,
               model: modelName || undefined,
               mcpServers: { mochi: mochiServer },
               allowedTools: [

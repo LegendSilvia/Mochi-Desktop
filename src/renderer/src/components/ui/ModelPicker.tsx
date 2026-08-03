@@ -21,9 +21,35 @@ export function ModelPicker({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
+  const [up, setUp] = useState(false)
+  const [space, setSpace] = useState(280)
+  const [connected, setConnected] = useState<string[] | null>(null)
+  const [showAll, setShowAll] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
 
   const known = findModel(value)
+
+  // Which providers are actually usable right now: one with a stored key, a
+  // local runtime, or Anthropic when the Claude subscription is on. Listing
+  // models you can't reach is just a menu of future errors.
+  useEffect(() => {
+    if (!open) return
+    void window.mochi?.providers().then((list) => {
+      setConnected(list.filter((p) => p.connected).map((p) => p.id))
+    })
+  }, [open])
+
+  // Decide which way to open, and how tall, from the room actually available.
+  useEffect(() => {
+    if (!open) return
+    const rect = boxRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const below = window.innerHeight - rect.bottom - 16
+    const above = rect.top - 16
+    const flip = below < 240 && above > below
+    setUp(flip)
+    setSpace(Math.max(160, Math.floor((flip ? above : below) - 52)))
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -34,10 +60,18 @@ export function ModelPicker({
     return () => window.removeEventListener('mousedown', close)
   }, [open])
 
+  // Anthropic stays offered even without a stored key, because the Claude
+  // subscription reaches it without one.
+  const usable = (p: string): boolean =>
+    showAll || connected === null || connected.includes(p) || p === 'anthropic'
+
+  const hiddenCount = MODEL_CATALOG.filter((g) => !usable(g.provider)).length
+
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    if (!needle) return MODEL_CATALOG
-    return MODEL_CATALOG.map((g) => ({
+    const base = MODEL_CATALOG.filter((g) => usable(g.provider))
+    if (!needle) return base
+    return base.map((g) => ({
       ...g,
       models: g.models.filter(
         (m) =>
@@ -46,7 +80,8 @@ export function ModelPicker({
           m.hint.toLowerCase().includes(needle)
       )
     })).filter((g) => g.models.length > 0)
-  }, [q])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, connected, showAll])
 
   const custom = q.trim().includes('/') && !findModel(q.trim())
 
@@ -61,7 +96,11 @@ export function ModelPicker({
       </button>
 
       {open && (
-        <div className="mp-pop">
+        <div
+          className="mp-pop"
+          data-up={up}
+          style={{ ['--mp-space' as string]: `${space}px` }}
+        >
           <div className="mp-search">
             <Search size={13} strokeWidth={1.8} />
             <input
@@ -124,6 +163,12 @@ export function ModelPicker({
                 ))}
               </div>
             ))}
+
+            {hiddenCount > 0 && !showAll && (
+              <button className="mp-more" onClick={() => setShowAll(true)}>
+                Show {hiddenCount} provider{hiddenCount > 1 ? 's' : ''} you haven&apos;t connected
+              </button>
+            )}
 
             {groups.length === 0 && !custom && (
               <p className="meta mp-empty">

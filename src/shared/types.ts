@@ -116,6 +116,11 @@ export interface AgentLoadout {
   canPushWithoutAsking: boolean
   /** Folder under the sprites root, e.g. `sprout`. */
   spritePreset: string
+  /**
+   * Stickers this agent may send. Empty or absent means "any" — a fresh loadout
+   * shouldn't be mute until you curate a list.
+   */
+  allowedStickerIds?: string[]
   accent?: string
 }
 

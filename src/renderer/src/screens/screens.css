@@ -1358,3 +1358,58 @@
   position: relative;
   flex-shrink: 0;
 }
+
+/* Rules table: fixed viewport with its own scrollbar. It used to grow by a row
+   every time you armed a moment, pushing the "Arm another" button off screen. */
+.rules-bar .tbl-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+/* Keep the header readable while the body scrolls under it. */
+.rules-bar .rules-tbl thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg2);
+}
+
+/* Per-agent sticker allow-list. Bounded and scrollable — a big sticker folder
+   should not push the rest of the panel off the screen. */
+.allow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.allow-tile {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  background: var(--surf);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  overflow: hidden;
+  opacity: 0.45;
+  transition: opacity 140ms ease, border-color 140ms ease;
+}
+.allow-tile:hover {
+  opacity: 0.8;
+}
+.allow-tile[data-on='true'] {
+  opacity: 1;
+  border-color: var(--ac);
+}
+.allow-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

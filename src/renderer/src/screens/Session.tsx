@@ -403,10 +403,33 @@ export function Session(): React.JSX.Element {
               }}
             />
             <div className="composer-bar">
-              <button className="composer-icon" aria-label="Attach">
+              <button
+                className="composer-icon"
+                aria-label="Attach a file"
+                title="Attach a file"
+                onClick={() => {
+                  void window.mochi?.pickPaths('file').then((paths) => {
+                    if (!paths.length) return
+                    // Paths go into the message text: both backends run with
+                    // file tools, so naming the file is what lets the agent open
+                    // it — an upload would have nowhere to land.
+                    setInput((v) => `${v}${v && !v.endsWith(' ') ? ' ' : ''}${paths.join(' ')} `)
+                  })
+                }}
+              >
                 <Paperclip size={15} strokeWidth={1.8} />
               </button>
-              <button className="composer-icon" aria-label="Workspace">
+              <button
+                className="composer-icon"
+                aria-label="Set the workspace folder"
+                title={activeSession.workspacePath ?? 'Set the workspace folder'}
+                data-on={Boolean(activeSession.workspacePath)}
+                onClick={() => {
+                  void window.mochi?.pickPaths('folder').then((paths) => {
+                    if (paths[0]) patchSession({ workspacePath: paths[0], kind: 'code' })
+                  })
+                }}
+              >
                 <FolderTree size={15} strokeWidth={1.8} />
               </button>
               <button

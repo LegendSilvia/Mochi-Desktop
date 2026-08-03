@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, Notification, nativeTheme, shell, app } from 'electron'
+import { BrowserWindow, dialog, ipcMain, Notification, nativeTheme, shell, app } from 'electron'
 import type { FSWatcher } from 'chokidar'
 import { listSpritePresets, readLibrary, watchAssets } from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
@@ -13,6 +13,7 @@ export const IPC = {
   getLibrary: 'mochi:library',
   listPresets: 'mochi:list-presets',
   mascotInteractive: 'mochi:mascot-interactive',
+  pickPaths: 'mochi:pick-paths',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -113,6 +114,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.mascotInteractive, (_e, interactive: boolean) => {
     setMascotInteractive(Boolean(interactive))
+  })
+
+  /** Native picker for the composer's attach and workspace buttons. Returns the
+   *  chosen paths, or an empty list when the user cancels. */
+  ipcMain.handle(IPC.pickPaths, async (_e, kind: 'file' | 'folder') => {
+    const win = getWindow()
+    if (!win) return []
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: kind === 'folder' ? ['openDirectory'] : ['openFile', 'multiSelections']
+    })
+    return canceled ? [] : filePaths
   })
 
   /** Both windows get every event — the overlay is a second view of the same

@@ -18,6 +18,7 @@ const IPC = {
   getLibrary: 'mochi:library',
   listPresets: 'mochi:list-presets',
   mascotInteractive: 'mochi:mascot-interactive',
+  pickPaths: 'mochi:pick-paths',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -66,6 +67,8 @@ export interface MochiApi {
   listPresets: () => Promise<string[]>
   /** Overlay window only: let clicks through, or capture them over the sprite. */
   mascotInteractive: (interactive: boolean) => Promise<void>
+  /** Native open dialog for the composer's attach and workspace buttons. */
+  pickPaths: (kind: 'file' | 'folder') => Promise<string[]>
   saveState: (patch: StatePatch) => Promise<void>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -93,6 +96,7 @@ const api: MochiApi = {
   library: (spritePreset) => ipcRenderer.invoke(IPC.getLibrary, spritePreset),
   listPresets: () => ipcRenderer.invoke(IPC.listPresets),
   mascotInteractive: (interactive) => ipcRenderer.invoke(IPC.mascotInteractive, interactive),
+  pickPaths: (kind) => ipcRenderer.invoke(IPC.pickPaths, kind),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),

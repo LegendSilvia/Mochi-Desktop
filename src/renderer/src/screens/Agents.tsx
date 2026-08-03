@@ -17,7 +17,7 @@ function makeId(name: string, taken: string[]): string {
 
 /** Agents & loadouts. A loadout *is* an agent — there is no separate mascot entity. */
 export function Agents(): React.JSX.Element {
-  const { agents, settings, dispatch, spriteSrc } = useStore()
+  const { agents, settings, dispatch, spriteSrc, library } = useStore()
   const [selectedId, setSelectedId] = useState(agents[0]?.id ?? '')
   const [filter, setFilter] = useState('')
   const selected = agents.find((a) => a.id === selectedId) ?? agents[0]
@@ -267,6 +267,44 @@ export function Agents(): React.JSX.Element {
                   label="Push without asking"
                 />
               </Row>
+              <div className="field">
+                <span className="field-label">Stickers it may send</span>
+                <span className="meta">
+                  {selected.allowedStickerIds?.length
+                    ? `${selected.allowedStickerIds.length} picked — it will only use these`
+                    : 'none picked — it may use any sticker in your folder'}
+                </span>
+                <div className="allow-grid">
+                  {(library?.stickers ?? []).map((s) => {
+                    const on = selected.allowedStickerIds?.includes(s.id) ?? false
+                    return (
+                      <button
+                        key={s.id}
+                        className="allow-tile"
+                        data-on={on}
+                        title={s.name}
+                        aria-pressed={on}
+                        onClick={() => {
+                          const current = selected.allowedStickerIds ?? []
+                          patch({
+                            allowedStickerIds: on
+                              ? current.filter((id) => id !== s.id)
+                              : [...current, s.id]
+                          })
+                        }}
+                      >
+                        {s.src ? <img src={s.src} alt={s.name} /> : <span className="mono">{s.name}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+                {selected.allowedStickerIds?.length ? (
+                  <button className="pill-ghost tiny" onClick={() => patch({ allowedStickerIds: [] })}>
+                    clear — allow any
+                  </button>
+                ) : null}
+              </div>
+
               <Row label="Mascot preset" hint={`mascots/${selected.spritePreset}/`}>
                 <button
                   className="pill-ghost"
