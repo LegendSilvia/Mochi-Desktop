@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Plus, Copy, Trash2, Search, Star } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { ArtPlaceholder, Row, ScreenHeader, Slider, Toggle } from '@renderer/components/ui/Controls'
+import { ModelPicker } from '@renderer/components/ui/ModelPicker'
 import type { AgentLoadout } from '@shared/types'
 import './screens.css'
 
@@ -213,17 +214,10 @@ export function Agents(): React.JSX.Element {
                   onChange={(e) => patch({ expectedOutput: e.target.value })}
                 />
               </label>
-              <label className="field">
+              <div className="field">
                 <span className="field-label">Model</span>
-                <input
-                  className="field-input mono"
-                  value={selected.model}
-                  onChange={(e) => patch({ model: e.target.value })}
-                />
-                <span className="meta">
-                  Mastra model-router format: <span className="mono">provider/model</span>
-                </span>
-              </label>
+                <ModelPicker value={selected.model} onChange={(model) => patch({ model })} />
+              </div>
             </section>
 
             <section className="config-card">

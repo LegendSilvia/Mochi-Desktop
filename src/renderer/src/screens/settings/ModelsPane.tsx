@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { Row, ScreenHeader, Toggle } from '@renderer/components/ui/Controls'
+import { ModelPicker } from '@renderer/components/ui/ModelPicker'
 import type { ProviderAccount } from '@shared/types'
 
 export function ModelsPane(): React.JSX.Element {
@@ -124,19 +125,18 @@ export function ModelsPane(): React.JSX.Element {
                 ['evalGrader', 'Eval grader']
               ] as const
             ).map(([key, label]) => (
-              <label className="field" key={key}>
+              <div className="field" key={key}>
                 <span className="field-label">{label}</span>
-                <input
-                  className="field-input mono"
+                <ModelPicker
                   value={settings.modelRoles[key]}
-                  onChange={(e) =>
+                  onChange={(model) =>
                     dispatch({
                       type: 'settings',
-                      patch: { modelRoles: { ...settings.modelRoles, [key]: e.target.value } }
+                      patch: { modelRoles: { ...settings.modelRoles, [key]: model } }
                     })
                   }
                 />
-              </label>
+              </div>
             ))}
             <Row label="Run on my Claude subscription">
               <Toggle
