@@ -18,6 +18,7 @@ import { KEYS } from '@renderer/lib/platform'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
 import { ToolPart } from '@renderer/components/chat/ToolPart'
+import { Thinking } from '@renderer/components/chat/Thinking'
 import './screens.css'
 
 export function Session(): React.JSX.Element {
@@ -234,6 +235,8 @@ export function Session(): React.JSX.Element {
               })}
             </div>
           ))}
+
+          <Thinking messages={messages} status={status} />
 
           {error && <div className="banner-warn">{error.message}</div>}
         </div>

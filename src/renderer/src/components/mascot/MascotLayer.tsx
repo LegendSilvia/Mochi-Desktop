@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { playSound, isQuietNow } from '@renderer/lib/audio'
 import type { IdleMotion, MascotShell } from '@shared/types'
@@ -88,7 +88,10 @@ export function MascotLayer(): React.JSX.Element | null {
   // Initial placement. A stored position that would cover the rail or the title
   // bar is rejected outright rather than clamped — clamping it would park the
   // mascot flush against the rail edge, which is exactly what we're avoiding.
-  useEffect(() => {
+  // useLayoutEffect, not useEffect: an effect runs *after* paint, so the very
+  // first frame drew the mascot at its untransformed origin — the top-left
+  // corner — before jumping to place.
+  useLayoutEffect(() => {
     const stored = cfg.rememberPosition ? readStoredPos() : null
     const usable = stored && !(stored.x < RAIL_W || stored.y < TITLEBAR_H) ? stored : null
     const el = wrapRef.current
@@ -104,6 +107,12 @@ export function MascotLayer(): React.JSX.Element | null {
     // while the user is dragging the window edge.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // The position lives on the DOM node, not in React state, so any render that
+  // hands us a *new* node loses it. Re-asserting it after every commit costs one
+  // style write and makes the mascot's placement independent of how React
+  // chooses to reconcile the tree.
+  useLayoutEffect(write)
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -131,10 +140,14 @@ export function MascotLayer(): React.JSX.Element | null {
         write()
         if (cfg.rememberPosition) localStorage.setItem(POS_KEY, JSON.stringify(pos.current))
         if (cfg.bounceOnDrop && moved.current) {
-          const el = wrapRef.current
+          // On the sprite, not the wrapper: the wrapper's transform is what
+          // positions the mascot, and an animation there would override it for
+          // the duration and snap the mascot to the corner mid-bounce.
+          const el = spriteRef.current
           if (el) {
+            el.style.animation = 'none'
+            void el.offsetWidth
             el.style.animation = 'mo-settle 420ms cubic-bezier(.2,1.4,.4,1)'
-            setTimeout(() => el && (el.style.animation = ''), 440)
           }
         }
         // A click without movement fires a sticker.
@@ -188,8 +201,11 @@ export function MascotLayer(): React.JSX.Element | null {
 
   return (
     <>
+      {/* Keyed: without it React reuses the mascot's own node for this overlay
+          when it appears, rebuilding the wrapper and dropping the transform that
+          positions it — which read as the mascot teleporting to the corner. */}
       {showOverlay && burst && (
-        <div className="mo-overlay" aria-hidden>
+        <div className="mo-overlay" key="mo-overlay" aria-hidden>
           <div className="mo-overlay-scrim" />
           <div className="mo-overlay-card">
             {burst.stickerSrc ? (
@@ -205,6 +221,7 @@ export function MascotLayer(): React.JSX.Element | null {
       <div
         ref={wrapRef}
         className="mo-wrap"
+        key="mo-wrap"
         style={{ opacity: cfg.opacity }}
         onPointerDown={onPointerDown}
         role="button"
