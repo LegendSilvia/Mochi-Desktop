@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Plus,
   Search,
@@ -8,7 +8,14 @@ import {
   ChevronRight,
   MessageSquare,
   GitBranch,
-  SlidersHorizontal
+  SlidersHorizontal,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Pencil,
+  Archive,
+  ArchiveRestore,
+  Trash2
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import type { Screen } from '@renderer/state/screens'
@@ -29,21 +36,67 @@ function dayLabel(ts: number): string {
  * 248px rail, modelled on Claude Desktop: fixed head, scrolling body, footer.
  *
  * Pinned and Recents are both drop zones — dragging a session between them is
- * what pins and unpins it.
+ * what pins and unpins it. Each row also carries a menu (rename / pin / archive
+ * / delete), because dragging is a nice affordance but a poor only-affordance.
  */
 export function Rail(): React.JSX.Element {
-  const { screen, sessions, dispatch, activeSessionId, library, pinOpen, recOpen } = useStore()
+  const {
+    screen,
+    sessions,
+    agents,
+    dispatch,
+    activeSessionId,
+    library,
+    pinOpen,
+    recOpen,
+    archOpen
+  } = useStore()
   const [dragId, setDragId] = useState<string | null>(null)
   const [hovering, setHovering] = useState<'pinned' | 'recents' | null>(null)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState('')
+  const renameRef = useRef<HTMLInputElement>(null)
 
-  const pinned = sessions.filter((s) => s.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
-  const recents = sessions.filter((s) => !s.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
+  const live = sessions.filter((s) => !s.archived)
+  const pinned = live.filter((s) => s.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
+  const recents = live.filter((s) => !s.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
+  const archived = sessions.filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt)
 
-  const setPinned = (id: string, pinned: boolean): void => {
+  // Any click outside closes an open row menu.
+  useEffect(() => {
+    if (!menuFor) return
+    const close = (): void => setMenuFor(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [menuFor])
+
+  useEffect(() => {
+    if (renamingId) renameRef.current?.select()
+  }, [renamingId])
+
+  const patch = (id: string, next: Partial<Session>): void => {
     dispatch({
       type: 'sessions',
-      sessions: sessions.map((s) => (s.id === id ? { ...s, pinned } : s))
+      sessions: sessions.map((s) => (s.id === id ? { ...s, ...next } : s))
     })
+  }
+
+  const remove = (id: string): void => {
+    const rest = sessions.filter((s) => s.id !== id)
+    dispatch({ type: 'sessions', sessions: rest })
+    // Deleting the open session would leave the chat pointing at nothing.
+    if (id === activeSessionId) {
+      const next = rest.find((s) => !s.archived)
+      if (next) dispatch({ type: 'active', id: next.id })
+      else dispatch({ type: 'screen', screen: 'new' })
+    }
+  }
+
+  const commitRename = (id: string): void => {
+    const title = draftTitle.trim()
+    if (title) patch(id, { title })
+    setRenamingId(null)
   }
 
   const openSession = (id: string): void => {
@@ -68,29 +121,111 @@ export function Rail(): React.JSX.Element {
     </button>
   )
 
+  const rowMenu = (s: Session): React.JSX.Element => (
+    <div className="rail-menu" onClick={(e) => e.stopPropagation()}>
+      <button
+        className="rail-menu-item"
+        onClick={() => {
+          setDraftTitle(s.title)
+          setRenamingId(s.id)
+          setMenuFor(null)
+        }}
+      >
+        <Pencil size={13} strokeWidth={1.8} />
+        Rename
+      </button>
+      <button
+        className="rail-menu-item"
+        onClick={() => {
+          patch(s.id, { pinned: !s.pinned })
+          setMenuFor(null)
+        }}
+      >
+        {s.pinned ? <PinOff size={13} strokeWidth={1.8} /> : <Pin size={13} strokeWidth={1.8} />}
+        {s.pinned ? 'Unpin' : 'Pin'}
+      </button>
+      <button
+        className="rail-menu-item"
+        onClick={() => {
+          patch(s.id, { archived: !s.archived, pinned: false })
+          setMenuFor(null)
+        }}
+      >
+        {s.archived ? (
+          <ArchiveRestore size={13} strokeWidth={1.8} />
+        ) : (
+          <Archive size={13} strokeWidth={1.8} />
+        )}
+        {s.archived ? 'Unarchive' : 'Archive'}
+      </button>
+      <div className="rail-menu-sep" />
+      <button
+        className="rail-menu-item danger"
+        onClick={() => {
+          remove(s.id)
+          setMenuFor(null)
+        }}
+      >
+        <Trash2 size={13} strokeWidth={1.8} />
+        Delete
+      </button>
+    </div>
+  )
+
   const sessionRow = (s: Session): React.JSX.Element => (
     <div
       key={s.id}
       className="rail-session"
       data-active={s.id === activeSessionId}
-      draggable
+      data-menu={menuFor === s.id}
+      draggable={renamingId !== s.id}
       onDragStart={() => setDragId(s.id)}
       onDragEnd={() => {
         setDragId(null)
         setHovering(null)
       }}
-      onClick={() => openSession(s.id)}
+      onClick={() => renamingId !== s.id && openSession(s.id)}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && openSession(s.id)}
+      onKeyDown={(e) => e.key === 'Enter' && renamingId !== s.id && openSession(s.id)}
     >
       {s.kind === 'code' ? (
         <GitBranch size={13} strokeWidth={1.8} className="ic-code" />
       ) : (
         <MessageSquare size={13} strokeWidth={1.8} className="ic-chat" />
       )}
-      <span className="rail-session-title">{s.title}</span>
+
+      {renamingId === s.id ? (
+        <input
+          ref={renameRef}
+          className="rail-rename"
+          value={draftTitle}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setDraftTitle(e.target.value)}
+          onBlur={() => commitRename(s.id)}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter') commitRename(s.id)
+            if (e.key === 'Escape') setRenamingId(null)
+          }}
+        />
+      ) : (
+        <span className="rail-session-title">{s.title}</span>
+      )}
+
+      <button
+        className="rail-session-more"
+        aria-label={`Actions for ${s.title}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          setMenuFor((m) => (m === s.id ? null : s.id))
+        }}
+      >
+        <MoreHorizontal size={14} strokeWidth={1.8} />
+      </button>
+
       {s.busy ? <span className="rail-spinner" aria-label="busy" /> : <span className="rail-dot" />}
+      {menuFor === s.id && rowMenu(s)}
     </div>
   )
 
@@ -106,7 +241,7 @@ export function Rail(): React.JSX.Element {
       onDragLeave={() => setHovering((h) => (h === which ? null : h))}
       onDrop={(e) => {
         e.preventDefault()
-        if (dragId) setPinned(dragId, which === 'pinned')
+        if (dragId) patch(dragId, { pinned: which === 'pinned', archived: false })
         setDragId(null)
         setHovering(null)
       }}
@@ -123,7 +258,10 @@ export function Rail(): React.JSX.Element {
           <span>New session</span>
           <span className="rail-kbd mono">{KEYS.newSession()}</span>
         </button>
-        <button className="rail-search">
+        <button
+          className="rail-search"
+          onClick={() => dispatch({ type: 'toggle', key: 'searchOpen', value: true })}
+        >
           <Search size={13} strokeWidth={1.8} />
           <span>Search</span>
           <span className="rail-kbd mono">{KEYS.search()}</span>
@@ -131,7 +269,7 @@ export function Rail(): React.JSX.Element {
       </div>
 
       <div className="rail-body">
-        {dest('agents', Users, 'Agents & loadouts', 4)}
+        {dest('agents', Users, 'Agents & loadouts', agents.length)}
         {dest('mascot', Sparkles, 'Mascot studio')}
         {dest('stickers', StickerIcon, 'Stickers & sound', library?.stickers.length ?? 0)}
 
@@ -171,9 +309,24 @@ export function Rail(): React.JSX.Element {
               )
             })
           )}
+
+        {archived.length > 0 && (
+          <>
+            <button
+              className="rail-group"
+              onClick={() => dispatch({ type: 'toggle', key: 'archOpen' })}
+              aria-expanded={archOpen}
+            >
+              <ChevronRight size={12} strokeWidth={2} className="rail-caret" data-open={archOpen} />
+              <span>Archived</span>
+              <span className="rail-count mono">{archived.length}</span>
+            </button>
+            {archOpen && <div className="rail-drop">{archived.map(sessionRow)}</div>}
+          </>
+        )}
       </div>
 
-      <AccountPopover sessionCount={sessions.length} />
+      <AccountPopover sessionCount={live.length} />
     </aside>
   )
 }

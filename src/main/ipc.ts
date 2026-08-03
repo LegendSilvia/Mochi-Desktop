@@ -26,7 +26,10 @@ export const IPC = {
 
 /** Providers Mastra's model router knows, with the env var each one reads. */
 const PROVIDERS: Array<Omit<ProviderAccount, 'account' | 'connected'>> = [
-  { id: 'anthropic', name: 'Anthropic', billedVia: 'subscription', envVar: 'ANTHROPIC_API_KEY' },
+  // 'api key', not 'subscription': this list is the key store, and a key stored
+  // here is billed per token. The subscription path does not use a key at all —
+  // it runs through the Agent SDK and is toggled separately in Settings → Models.
+  { id: 'anthropic', name: 'Anthropic', billedVia: 'api key', envVar: 'ANTHROPIC_API_KEY' },
   { id: 'openai', name: 'OpenAI', billedVia: 'api key', envVar: 'OPENAI_API_KEY' },
   { id: 'google', name: 'Google', billedVia: 'api key', envVar: 'GOOGLE_API_KEY' },
   { id: 'ollama', name: 'Ollama', billedVia: 'local' },

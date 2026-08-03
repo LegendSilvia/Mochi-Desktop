@@ -138,14 +138,19 @@ export function ModelsPane(): React.JSX.Element {
                 />
               </label>
             ))}
-            <Row label="Prefer the subscription when both work">
+            <Row label="Run on my Claude subscription">
               <Toggle
                 dense
                 on={settings.preferSubscription}
                 onChange={(v) => dispatch({ type: 'settings', patch: { preferSubscription: v } })}
-                label="Prefer subscription"
+                label="Run on my Claude subscription"
               />
             </Row>
+            <p className="meta">
+              {settings.preferSubscription
+                ? 'Sessions run through the Claude Agent SDK using your Claude Code login, so no API key is charged. Anthropic models only, and it stops when your plan limit is reached rather than spilling over to API billing.'
+                : 'Sessions run through Mastra against the provider APIs, billed per token to the keys above.'}
+            </p>
             <Row label="Fall back to Ollama when offline">
               <Toggle
                 dense

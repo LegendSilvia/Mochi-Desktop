@@ -41,8 +41,10 @@ export interface State {
   mascotNote: string
   pinOpen: boolean
   recOpen: boolean
+  archOpen: boolean
   menuOpen: boolean
   mentionOpen: boolean
+  searchOpen: boolean
   newAgentId: string
   newSessionType: Session['type']
   /** Latest sticker event; the mascot layer watches this. */
@@ -60,7 +62,11 @@ export type Action =
   | { type: 'library'; library: AssetLibrary }
   | { type: 'active'; id: string }
   | { type: 'mascot-state'; state: MascotState; note?: string }
-  | { type: 'toggle'; key: 'pinOpen' | 'recOpen' | 'menuOpen' | 'mentionOpen'; value?: boolean }
+  | {
+      type: 'toggle'
+      key: 'pinOpen' | 'recOpen' | 'archOpen' | 'menuOpen' | 'mentionOpen' | 'searchOpen'
+      value?: boolean
+    }
   | { type: 'new-agent'; id: string }
   | { type: 'new-type'; value: Session['type'] }
   | { type: 'burst'; burst: StickerBurst | null }

@@ -18,8 +18,10 @@ const initial: State = {
   mascotNote: 'waiting on you',
   pinOpen: true,
   recOpen: true,
+  archOpen: false,
   menuOpen: false,
   mentionOpen: false,
+  searchOpen: false,
   newAgentId: DEFAULT_SETTINGS.defaultAgentId,
   newSessionType: DEFAULT_SETTINGS.defaultSessionType,
   burst: null

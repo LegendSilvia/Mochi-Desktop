@@ -128,6 +128,8 @@ export interface Session {
   /** Extra agents pulled in with `@name`. The original agent stays supervisor. */
   subagentIds: string[]
   pinned: boolean
+  /** Archived sessions drop out of Recents into their own collapsed group. */
+  archived?: boolean
   busy: boolean
   /** Epoch ms. Drives the Today / Yesterday / Last week grouping. */
   updatedAt: number

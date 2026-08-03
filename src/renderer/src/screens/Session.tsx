@@ -31,19 +31,33 @@ const TOOL_STATE_LABEL: Record<string, string> = {
 }
 
 export function Session(): React.JSX.Element {
-  const { activeSession, agentById, server, dispatch, mentionOpen, agents, sessions, fireSticker } =
-    useStore()
+  const {
+    activeSession,
+    agentById,
+    server,
+    dispatch,
+    mentionOpen,
+    agents,
+    sessions,
+    fireSticker,
+    settings
+  } = useStore()
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
 
   const agent = activeSession ? agentById(activeSession.agentId) : undefined
 
-  // The transport is rebuilt when the agent or the server port changes. The port
-  // is chosen at runtime, so this cannot be a module-level constant.
+  // The transport is rebuilt when the agent, the server port or the backend
+  // changes. The port is chosen at runtime, so this cannot be a module-level
+  // constant. Both routes speak the same UI-message-stream protocol; they differ
+  // only in what pays — /chat bills an API key, /agent-sdk/chat draws on the
+  // Claude subscription via the Agent SDK.
+  const onSubscription = settings.preferSubscription
   const transport = useMemo(() => {
     if (!server || !agent) return undefined
-    return new DefaultChatTransport({ api: `${server.baseUrl}/chat/${agent.id}` })
-  }, [server, agent])
+    const route = onSubscription ? 'agent-sdk/chat' : 'chat'
+    return new DefaultChatTransport({ api: `${server.baseUrl}/${route}/${agent.id}` })
+  }, [server, agent, onSubscription])
 
   const { messages, sendMessage, status, error } = useChat({
     transport,
@@ -121,6 +135,11 @@ export function Session(): React.JSX.Element {
           )}
           <span className="session-spacer" />
           <span className="chip">{agent.model}</span>
+          <span className="chip" title={onSubscription
+            ? 'Running through the Claude Agent SDK on your Claude subscription — no API key involved.'
+            : 'Running through Mastra against the Anthropic API — billed per token to your API key.'}>
+            {onSubscription ? 'subscription' : 'api key'}
+          </span>
           {activeSession.type !== 'scratch' && agent.workingMemory && (
             <span className="chip accent">memory on</span>
           )}

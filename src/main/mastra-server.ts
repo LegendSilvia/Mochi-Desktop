@@ -1,8 +1,11 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { HonoBindings, HonoVariables, MastraServer } from '@mastra/hono'
 import { createReadStream } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createMastra } from '../mastra/index'
+import { registerAgentSdkRoute } from './agent-sdk-route'
 import { databaseUrl } from './paths'
 import { load } from './store'
 import type { ServerInfo } from '../shared/types'
@@ -34,8 +37,38 @@ export async function startMastraServer(appVersion: string): Promise<ServerInfo>
   })
 
   const app = new Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>()
+
+  // CORS has to be registered here, on the app, before any route.
+  //
+  // `createMastra` sets `server.cors`, but that config only applies to Mastra's
+  // own standalone server — embedding via `new MastraServer({ app, mastra })`
+  // never reads it. The result was that every renderer fetch failed the preflight
+  // with a 404 and surfaced as "Failed to fetch", on the Mastra route as much as
+  // the Agent SDK one. It went unnoticed because both routes answer a non-browser
+  // client (curl, a script) perfectly well; only a browser enforces CORS.
+  const allowedOrigins = new Set(
+    ['http://localhost:5173', 'file://', 'null', process.env['ELECTRON_RENDERER_URL']].filter(
+      (o): o is string => Boolean(o)
+    )
+  )
+  app.use(
+    '*',
+    cors({
+      // Packaged builds load the renderer over file://, which Chromium sends as
+      // either `file://` or the opaque origin `null`. Both are accepted; anything
+      // else is refused, and the server is bound to loopback regardless.
+      origin: (origin) => (allowedOrigins.has(origin) ? origin : null),
+      allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization']
+    })
+  )
+
   const server = new MastraServer({ app, mastra })
   await server.init()
+
+  // The subscription backend rides the same server so the renderer only ever
+  // needs one base URL. Mastra owns /chat/:agentId, this owns /agent-sdk/chat/:agentId.
+  registerAgentSdkRoute(app, appVersion)
 
   const port = await new Promise<number>((resolve, reject) => {
     try {
@@ -74,7 +107,10 @@ async function resolveMastraVersion(): Promise<string> {
   try {
     const url = await import.meta.resolve?.('@mastra/core/package.json')
     if (url) {
-      const text = await readAll(new URL(url).pathname)
+      // fileURLToPath, not URL.pathname: on Windows the latter yields
+      // `/E:/…/package.json`, which fs resolves to `E:\E:\…` and throws ENOENT,
+      // so the version silently fell back to "unknown" in the title bar.
+      const text = await readAll(fileURLToPath(url))
       return (JSON.parse(text) as { version: string }).version
     }
   } catch {
