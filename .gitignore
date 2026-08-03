@@ -1,3 +1,21 @@
 # Machine-local agent config. The mastra skill lives in .agents/skills/mastra;
 # recreate the Claude Code symlink with `npx skills add mastra-ai/skills`.
 .claude/
+
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+
+# Secrets — API keys belong in the Windows Credential Manager (safeStorage),
+# never in a committed file. See M12-03.
+.env
+.env.*
+!.env.example
+
+# Local Mastra state
+.mastra/
+*.db
+*.db-journal
