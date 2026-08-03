@@ -179,6 +179,17 @@ export interface AppSettings {
     evalGrader: string
   }
   preferSubscription: boolean
+  /**
+   * How `@agent` delegation behaves.
+   *
+   * `capped`/`uncapped` open a genuinely separate agent session per subagent —
+   * real memory isolation, but each one draws on the same subscription window.
+   * `simulated` keeps everything in one session and is free, at the cost of the
+   * isolation being nominal; the UI says so rather than implying otherwise.
+   */
+  delegationMode: 'capped' | 'uncapped' | 'simulated'
+  /** Concurrent subagents allowed under `capped`. */
+  delegationLimit: number
   fallbackToOllamaOffline: boolean
   storageProvider: 'libsql' | 'postgres' | 'upstash'
   /** Agent may call sendSticker() on its own, beyond the armed rules. */

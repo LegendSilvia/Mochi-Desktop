@@ -1,5 +1,5 @@
 import type { ToolUIPart } from 'ai'
-import { Check, Play, AudioLines, HelpCircle } from 'lucide-react'
+import { Check, Play, AudioLines, HelpCircle, Network, Lock } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { playSound } from '@renderer/lib/audio'
 import './chat.css'
@@ -87,6 +87,35 @@ export function ToolPart({
     )
   }
 
+  if (name === 'delegate') {
+    const input = (part.input ?? {}) as { agentId?: string; prompt?: string }
+    const answer = readText(part.output)
+    const running = !answer && !failed
+    return (
+      <div className="delegation">
+        <div className="delegation-head">
+          <Network size={13} strokeWidth={1.8} className="warm" />
+          <span>
+            delegated to <span className="mono">{input.agentId ?? 'agent'}</span>
+          </span>
+          <span className="session-spacer" />
+          <span className="meta">{running ? 'working…' : 'done'}</span>
+        </div>
+        <div className="delegation-body">
+          <div className="delegation-prompt">prompt → {input.prompt}</div>
+          <div className="delegation-rule" />
+          <div className="delegation-answer">{answer || '…'}</div>
+          <div className="delegation-foot">
+            <Lock size={11} strokeWidth={1.8} />
+            {settings.delegationMode === 'simulated'
+              ? 'simulated — answered in this same session, memory is not actually isolated'
+              : `memory isolated — ${input.agentId ?? 'it'} keeps only this exchange, not your whole thread`}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (name === 'askUser') {
     const input = (part.input ?? {}) as AskInput
     const options = input.options ?? []
@@ -125,6 +154,18 @@ export function ToolPart({
       {failed && part.errorText && <div className="tool-error mono">{part.errorText}</div>}
     </div>
   )
+}
+
+/** Tool results arrive as MCP content blocks; pull the plain text out of them. */
+function readText(output: unknown): string {
+  if (typeof output === 'string') return output
+  if (!Array.isArray(output)) return ''
+  return output
+    .map((b) => (b as { type?: string; text?: string }))
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text as string)
+    .join('\n')
+    .trim()
 }
 
 /** Tool args are shown at a glance, so prefer the one field that identifies the

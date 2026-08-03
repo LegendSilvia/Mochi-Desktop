@@ -99,6 +99,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     evalGrader: 'openai/gpt-5-mini'
   },
   preferSubscription: true,
+  // Capped by default: real isolation, but a fan-out of three subagents costs
+  // roughly four turns against the same 5-hour window, and failing closed on
+  // quota is worse than being a little slower.
+  delegationMode: 'capped',
+  delegationLimit: 2,
   fallbackToOllamaOffline: false,
   storageProvider: 'libsql',
   agentMayPickStickers: true
