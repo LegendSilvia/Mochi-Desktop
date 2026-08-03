@@ -37,7 +37,16 @@ export function Session(): React.JSX.Element {
     stickerPickerOpen
   } = useStore()
   const [input, setInput] = useState('')
+  const [headMenu, setHeadMenu] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+
+  // Clicking anywhere else dismisses the header menu.
+  useEffect(() => {
+    if (!headMenu) return
+    const close = (): void => setHeadMenu(false)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [headMenu])
 
   const agent = activeSession ? agentById(activeSession.agentId) : undefined
 
@@ -112,6 +121,13 @@ export function Session(): React.JSX.Element {
     send()
   }
 
+  const patchSession = (next: Partial<typeof activeSession>): void => {
+    dispatch({
+      type: 'sessions',
+      sessions: sessions.map((s) => (s.id === activeSession.id ? { ...s, ...next } : s))
+    })
+  }
+
   const send = (): void => {
     const text = input.trim()
     if (!text) return
@@ -170,9 +186,53 @@ export function Session(): React.JSX.Element {
           {activeSession.type === 'scratch' && (
             <span className="chip">scratch · nothing saved</span>
           )}
-          <button className="tb-icon" aria-label="Session menu">
-            <MoreVertical size={15} strokeWidth={1.8} />
-          </button>
+          <div className="head-menu-wrap">
+            <button
+              className="tb-icon"
+              aria-label="Session menu"
+              aria-expanded={headMenu}
+              onClick={() => setHeadMenu((v) => !v)}
+            >
+              <MoreVertical size={15} strokeWidth={1.8} />
+            </button>
+            {headMenu && (
+              <div className="rail-menu" onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="rail-menu-item"
+                  onClick={() => {
+                    patchSession({ pinned: !activeSession.pinned })
+                    setHeadMenu(false)
+                  }}
+                >
+                  {activeSession.pinned ? 'Unpin' : 'Pin'} this session
+                </button>
+                <button
+                  className="rail-menu-item"
+                  onClick={() => {
+                    patchSession({ archived: true, pinned: false })
+                    setHeadMenu(false)
+                    dispatch({ type: 'screen', screen: 'new' })
+                  }}
+                >
+                  Archive
+                </button>
+                <div className="rail-menu-sep" />
+                <button
+                  className="rail-menu-item danger"
+                  onClick={() => {
+                    dispatch({
+                      type: 'sessions',
+                      sessions: sessions.filter((s) => s.id !== activeSession.id)
+                    })
+                    setHeadMenu(false)
+                    dispatch({ type: 'screen', screen: 'new' })
+                  }}
+                >
+                  Delete session
+                </button>
+              </div>
+            )}
+          </div>
         </header>
 
         {activeSession.branch && (
@@ -375,7 +435,7 @@ export function Session(): React.JSX.Element {
         </div>
       </div>
 
-      <SessionPanel />
+      <SessionPanel messages={messages} />
     </div>
   )
 }
