@@ -1,0 +1,424 @@
+/*
+ * Design tokens.
+ *
+ * Dark is the default and the whole palette is swapped wholesale on theme change.
+ * Contrast is a *multiplier* over the base palette, not three hand-written
+ * palettes — `--k` scales the alpha of the four soft tokens.
+ *
+ * Hard constraint from the user: soft, low-contrast, easy on the eyes. No pure
+ * black, no pure white, no saturated accents, nothing square-cornered.
+ */
+
+:root {
+  /* contrast multiplier: whisper .62 · calm 1 · crisp 1.5 */
+  --k: 1;
+
+  /* accent + semantic — theme-independent */
+  --ac: #9dc98a;
+  --acs: color-mix(in srgb, var(--ac) 15%, transparent);
+  --warm: #e0b487;
+  --rose: #d99a9a;
+  --blue: #8fb2d8;
+  /* primary-button text on accent: near-black green, never #000 */
+  --on-ac: #16201a;
+
+  --r-pill: 999px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-card: 18px;
+  --r-mascot: 26px;
+  --r-modal: 24px;
+
+  --font-ui: 'Plus Jakarta Sans', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  --titlebar-h: 46px;
+  --rail-w: 248px;
+  /* Windows draws its caption buttons here; nothing interactive may sit under it. */
+  --overlay-w: 138px;
+}
+
+:root[data-theme='dark'] {
+  --bg: #15171a;
+  --bg2: #191c20;
+  --surf: #1e2227;
+  --surf2: #242930;
+  --line: rgba(255, 255, 255, calc(0.065 * var(--k)));
+  --line2: rgba(255, 255, 255, calc(0.11 * var(--k)));
+  --tx: #e9e7e2;
+  --tx2: rgba(233, 231, 226, calc(0.62 * var(--k)));
+  --tx3: rgba(233, 231, 226, calc(0.36 * var(--k)));
+  --shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
+  --scrollthumb: rgba(150, 150, 150, 0.24);
+}
+
+:root[data-theme='light'] {
+  --bg: #faf8f4;
+  --bg2: #f3f0ea;
+  --surf: #ffffff;
+  --surf2: #f0ece5;
+  --line: rgba(58, 52, 44, calc(0.075 * var(--k)));
+  --line2: rgba(58, 52, 44, calc(0.13 * var(--k)));
+  --tx: #2f2b26;
+  --tx2: rgba(47, 43, 38, calc(0.62 * var(--k)));
+  --tx3: rgba(47, 43, 38, calc(0.4 * var(--k)));
+  --shadow: 0 22px 60px rgba(80, 66, 48, 0.13);
+  --scrollthumb: rgba(120, 115, 105, 0.26);
+}
+
+:root[data-contrast='whisper'] {
+  --k: 0.62;
+}
+:root[data-contrast='calm'] {
+  --k: 1;
+}
+:root[data-contrast='crisp'] {
+  --k: 1.5;
+}
+
+/* ---------- reset + base ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--tx);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* Windows renders text heavier than macOS; this keeps the 10px uppercase
+     section labels from turning into mush. */
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Focus is never the browser default. */
+:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---------- scrollbars ---------- */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollthumb);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-pill);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- shared primitives ---------- */
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+
+.meta {
+  font-size: 10.5px;
+  color: var(--tx3);
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--surf2);
+  border-radius: 7px;
+  padding: 2px 7px;
+  color: var(--tx2);
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--acs);
+  color: var(--ac);
+}
+
+.badge.wip {
+  background: color-mix(in srgb, var(--warm) 15%, transparent);
+  color: var(--warm);
+}
+
+.card {
+  background: var(--surf);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+
+.pill-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  background: var(--ac);
+  color: var(--on-ac);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.pill-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pill-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: var(--surf);
+  border: 1px solid var(--line);
+  color: var(--tx2);
+  font-size: 12px;
+}
+.pill-ghost:hover {
+  color: var(--tx);
+  border-color: var(--line2);
+}
+.pill-ghost[data-on='true'] {
+  background: var(--acs);
+  border-color: transparent;
+  color: var(--ac);
+  font-weight: 600;
+}
+
+/* ---------- motion ---------- */
+
+@keyframes mo-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+@keyframes mo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes mo-sway {
+  0%,
+  100% {
+    transform: rotate(-2.2deg);
+  }
+  50% {
+    transform: rotate(2.2deg);
+  }
+}
+
+@keyframes mo-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleX(0.86);
+    opacity: 0.34;
+  }
+}
+
+@keyframes mo-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mo-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes mo-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes mo-shimmer {
+  from {
+    background-position: -220px 0;
+  }
+  to {
+    background-position: 220px 0;
+  }
+}
+
+/* sticker choreography */
+@keyframes mo-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes mo-squash {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  30% {
+    transform: scale(1.16) rotate(-7deg);
+  }
+  62% {
+    transform: scale(0.97) rotate(4deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes mo-bubble {
+  0% {
+    transform: translateY(6px) scale(0.92);
+    opacity: 0;
+  }
+  14% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  84% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-4px) scale(0.96);
+    opacity: 0;
+  }
+}
+
+@keyframes mo-overlay-card {
+  0% {
+    transform: scale(0.7) rotate(-6deg);
+    opacity: 0;
+  }
+  22% {
+    transform: scale(1.04) rotate(2deg);
+    opacity: 1;
+  }
+  46% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  88% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.94) rotate(0deg);
+    opacity: 0;
+  }
+}
+
+@keyframes mo-scrim {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  16%,
+  82% {
+    opacity: 1;
+  }
+}
+
+@keyframes mo-settle {
+  0% {
+    transform: translateY(5px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

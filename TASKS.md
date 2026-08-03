@@ -12,6 +12,12 @@ moves fast.
 Design source: `design_handoff_mochi_console/` (prototype HTML + README). The
 prototype is a **look-and-behaviour reference, not code to port**.
 
+> **Build state (first pass).** M0 and M1 are complete, along with the non-WIP
+> screens from the handoff. Statuses below reflect what is actually in the repo —
+> `ready` means built and verified, not merely designed. Workflows, Browser,
+> Traces & evals and the Supervised/Standing session types are gated as `wip` in
+> the UI on purpose.
+
 ## How to read this
 
 | Field | Meaning |
@@ -81,23 +87,23 @@ so the decision is visible and reversible. Everything else has a real task.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M0-01 | Scaffold electron-vite + React + TS (`npm create @quick-start/electron@latest --template react-ts`) | planned |
-| M0-02 | `npx mastra@latest init`; commit `src/mastra/` (config, agents, tools) | planned |
-| M0-03 | TS config: `target`/`module` **ES2022**, `moduleResolution: bundler`. CommonJS breaks Mastra | planned |
-| M0-04 | Decide + document the renderer↔Mastra transport (see above); write it as an ADR | planned |
-| M0-05 | Embed the Mastra server in the main process; pick a free port, expose it to the renderer | planned |
-| M0-06 | `chatRoute()` wired for agent-scoped chat (`/chat/:agentId`) | planned |
-| M0-07 | CSP + CORS for the chosen origin/port — not `origin: '*'` in production | planned |
-| M0-08 | Typed IPC bridge for main-only concerns (fs, keychain, window, toasts) | planned |
-| M0-09 | LibSQL storage under `%APPDATA%\Mochi\`; run migrations on first launch | planned |
-| M0-10 | Design tokens as CSS custom properties; dark default, light swap, contrast multiplier (×0.62 / ×1 / ×1.5) | planned |
-| M0-11 | Title bar shows the **resolved** Mastra version, not a hard-coded string | planned |
-| M0-12 | Bundle Plus Jakarta Sans + JetBrains Mono locally as `@font-face` (neither ships with Windows) | planned |
-| M0-13 | Lucide icon set, 1.7–1.9 stroke, round caps | planned |
-| M0-14 | Platform key-label helper — `Ctrl`/`Alt` on Windows, `⌘`/`⌥` later. Never hard-code a glyph | planned |
-| M0-15 | Frameless `BrowserWindow`, `titleBarStyle: 'hidden'` + `titleBarOverlay`; re-apply overlay colours on theme change | planned |
-| M0-16 | App shell: 1440×888 design size, `minWidth: 1180`, `minHeight: 760`; verify at 125% and 150% scaling | planned |
-| M0-17 | Restyled scrollbars; 2px accent focus ring, 2px offset — never the browser default | planned |
+| M0-01 | Scaffold electron-vite + React + TS (`npm create @quick-start/electron@latest --template react-ts`) | ready |
+| M0-02 | `npx mastra@latest init`; commit `src/mastra/` (config, agents, tools) | ready |
+| M0-03 | TS config: `target`/`module` **ES2022**, `moduleResolution: bundler`. CommonJS breaks Mastra | ready |
+| M0-04 | Decide + document the renderer↔Mastra transport (see above); write it as an ADR | ready |
+| M0-05 | Embed the Mastra server in the main process; pick a free port, expose it to the renderer | ready |
+| M0-06 | `chatRoute()` wired for agent-scoped chat (`/chat/:agentId`) | ready |
+| M0-07 | CSP + CORS for the chosen origin/port — not `origin: '*'` in production | ready |
+| M0-08 | Typed IPC bridge for main-only concerns (fs, keychain, window, toasts) | ready |
+| M0-09 | LibSQL storage under `%APPDATA%\Mochi\`; run migrations on first launch | ready |
+| M0-10 | Design tokens as CSS custom properties; dark default, light swap, contrast multiplier (×0.62 / ×1 / ×1.5) | ready |
+| M0-11 | Title bar shows the **resolved** Mastra version, not a hard-coded string | ready |
+| M0-12 | Bundle Plus Jakarta Sans + JetBrains Mono locally as `@font-face` (neither ships with Windows) | ready |
+| M0-13 | Lucide icon set, 1.7–1.9 stroke, round caps | ready |
+| M0-14 | Platform key-label helper — `Ctrl`/`Alt` on Windows, `⌘`/`⌥` later. Never hard-code a glyph | ready |
+| M0-15 | Frameless `BrowserWindow`, `titleBarStyle: 'hidden'` + `titleBarOverlay`; re-apply overlay colours on theme change | ready |
+| M0-16 | App shell: 1440×888 design size, `minWidth: 1180`, `minHeight: 760`; verify at 125% and 150% scaling | ready |
+| M0-17 | Restyled scrollbars; 2px accent focus ring, 2px offset — never the browser default | ready |
 
 ## M1 · Mascot layer (the differentiator — build before any Mastra screen)
 
@@ -105,24 +111,24 @@ Docs: Mochi-specific, no Mastra equivalent. Screen: app-level overlay.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M1-01 | Overlay element at `z-index: 40`, column layout: bubble · shell · ground shadow | planned |
-| M1-02 | Four shell variants: `bare`, `card` (default), `orb`, `terrarium`; `.35s ease` transition | planned |
-| M1-03 | Sprite 112px default, range 72–200, `object-fit: contain`, `pointer-events: none` | planned |
-| M1-04 | Idle loops `breathe` / `float` / `sway` / `still` — **must not restart on re-render** | planned |
-| M1-05 | Ground ellipse 66×8, `blur(5px)`, animated in step with the idle loop | planned |
-| M1-06 | Drag via pointer capture → `transform: translate3d()` direct, one write per frame, never through React state | planned |
-| M1-07 | Persist position to `localStorage['mochi.mascot.pos']`; settle bounce 420ms `cubic-bezier(.2,1.4,.4,1)` | planned |
-| M1-08 | On load, clamp into frame; **reject** a stored position covering rail or title bar (`x < 252 \|\| y < 92`) | planned |
-| M1-09 | Six states: `idle` `thinking` `tool-running` `error` `done` `sleeping` | planned |
-| M1-10 | `fireSticker()` — one call: sound + squash-stretch (720ms) + state label + render. This is the core contract | planned |
-| M1-11 | Choreography `chat` — sticker pops in thread, 620ms | planned |
-| M1-12 | Choreography `bubble` — speech bubble, 2600ms in/hold/out, random line from the copy set | planned |
-| M1-13 | Choreography `overlay` — full-frame scrim + 280px card, 1500ms | planned |
-| M1-14 | Web Audio playback of user files; gentle envelope; resume suspended `AudioContext` on first gesture | planned |
-| M1-15 | Recreate `AudioContext` on `devicechange` (headphones unplugged mid-session) | planned |
-| M1-16 | Respect global sound toggle + quiet hours before any sound | planned |
-| M1-17 | Windows toast + taskbar flash when a sticker fires while unfocused; register an AppUserModelID | planned |
-| M1-18 | Bind mascot state to **live agent state** from Mastra streaming — the layer is worthless if it doesn't react | planned |
+| M1-01 | Overlay element at `z-index: 40`, column layout: bubble · shell · ground shadow | ready |
+| M1-02 | Four shell variants: `bare`, `card` (default), `orb`, `terrarium`; `.35s ease` transition | ready |
+| M1-03 | Sprite 112px default, range 72–200, `object-fit: contain`, `pointer-events: none` | ready |
+| M1-04 | Idle loops `breathe` / `float` / `sway` / `still` — **must not restart on re-render** | ready |
+| M1-05 | Ground ellipse 66×8, `blur(5px)`, animated in step with the idle loop | ready |
+| M1-06 | Drag via pointer capture → `transform: translate3d()` direct, one write per frame, never through React state | ready |
+| M1-07 | Persist position to `localStorage['mochi.mascot.pos']`; settle bounce 420ms `cubic-bezier(.2,1.4,.4,1)` | ready |
+| M1-08 | On load, clamp into frame; **reject** a stored position covering rail or title bar (`x < 252 \|\| y < 92`) | ready |
+| M1-09 | Six states: `idle` `thinking` `tool-running` `error` `done` `sleeping` | ready |
+| M1-10 | `fireSticker()` — one call: sound + squash-stretch (720ms) + state label + render. This is the core contract | ready |
+| M1-11 | Choreography `chat` — sticker pops in thread, 620ms | ready |
+| M1-12 | Choreography `bubble` — speech bubble, 2600ms in/hold/out, random line from the copy set | ready |
+| M1-13 | Choreography `overlay` — full-frame scrim + 280px card, 1500ms | ready |
+| M1-14 | Web Audio playback of user files; gentle envelope; resume suspended `AudioContext` on first gesture | ready |
+| M1-15 | Recreate `AudioContext` on `devicechange` (headphones unplugged mid-session) | ready |
+| M1-16 | Respect global sound toggle + quiet hours before any sound | ready |
+| M1-17 | Windows toast + taskbar flash when a sticker fires while unfocused; register an AppUserModelID | ready |
+| M1-18 | Bind mascot state to **live agent state** from Mastra streaming — the layer is worthless if it doesn't react | ready |
 
 ## M2 · Agents core
 
@@ -130,11 +136,11 @@ Docs: `/docs/agents/*`. Screen: Agents & loadouts, Session.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M2-01 | Agent CRUD — loadout **is** the agent (persona, sprite, stickers, voice, tools, model, memory, sliders) | planned |
-| M2-02 | Agents & loadouts grid: 52px avatar, chips, status line, dashed "New loadout" tile | planned |
-| M2-03 | Config panel — identity (name, id, instructions, expected output, model) | planned |
-| M2-04 | Behaviour panel — chattiness + sticker-frequency sliders, memory/recall/voice toggles | planned |
-| M2-05 | Tools on agents — `/docs/agents/using-tools` | planned |
+| M2-01 | Agent CRUD — loadout **is** the agent (persona, sprite, stickers, voice, tools, model, memory, sliders) | ready |
+| M2-02 | Agents & loadouts grid: 52px avatar, chips, status line, dashed "New loadout" tile | ready |
+| M2-03 | Config panel — identity (name, id, instructions, expected output, model) | ready |
+| M2-04 | Behaviour panel — chattiness + sticker-frequency sliders, memory/recall/voice toggles | ready |
+| M2-05 | Tools on agents — `/docs/agents/using-tools` | ready |
 | M2-06 | Structured output — `/docs/agents/structured-output` | planned |
 | M2-07 | Agent approval — `/docs/agents/agent-approval`; surfaces as "what it may do here" chips | planned |
 | M2-08 | Supervisor agents + `@mention` delegation — `/docs/agents/supervisor-agents` | planned |
@@ -148,7 +154,7 @@ Docs: `/docs/agents/*`. Screen: Agents & loadouts, Session.
 | M2-16 | A2A connection — `/docs/agents/a2a` | planned |
 | M2-17 | ACP connection — `/docs/agents/acp` | planned |
 | M2-18 | SDK agents — `/docs/agents/sdk-agents` | planned |
-| M2-19 | Mochi-native tools `sendSticker()` and `setMascotState()` as first-class agent tools | planned |
+| M2-19 | Mochi-native tools `sendSticker()` and `setMascotState()` as first-class agent tools | ready |
 
 ## M3 · Session (Agent Controller)
 
@@ -156,24 +162,24 @@ Docs: `/docs/agent-controller/*`, `/guides/concepts/streaming`. Screen: Session.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M3-01 | Session model + rail list with Pinned / Recents, drag to re-group | planned |
+| M3-01 | Session model + rail list with Pinned / Recents, drag to re-group | ready |
 | M3-02 | Agent Controller session — `/docs/agent-controller/session` | planned |
 | M3-03 | Controller modes — `/docs/agent-controller/modes` | planned |
 | M3-04 | Threads and state — `/docs/agent-controller/threads-and-state` | planned |
 | M3-05 | Subagents — `/docs/agent-controller/subagents` | planned |
 | M3-06 | Tool approvals — `/docs/agent-controller/tool-approvals` | planned |
-| M3-07 | Streaming render: text parts, tool parts, approval states (`input-streaming` → `output-error`) | planned |
-| M3-08 | Message list — user bubble, agent message, tool-call group card | planned |
-| M3-09 | Sticker message tile (186px) + play pill + 5-bar waveform + rule caption | planned |
+| M3-07 | Streaming render: text parts, tool parts, approval states (`input-streaming` → `output-error`) | ready |
+| M3-08 | Message list — user bubble, agent message, tool-call group card | ready |
+| M3-09 | Sticker message tile (186px) + play pill + 5-bar waveform + rule caption | wip — fires via overlay/bubble; in-thread tile pending |
 | M3-10 | Diff card with gutter, `+n` accent / `−n` rose tinted rows | planned |
 | M3-11 | Repo strip — branch, `+22 −0` chip, workspace path; only when the session touches code | planned |
 | M3-12 | Branch strip above composer with **Review** action | planned |
-| M3-13 | Composer + toolbar (attach, workspace, `@agent`, sticker, mic, send) + hint row | planned |
-| M3-14 | `@mention` popover — "Sprout stays the supervisor" | planned |
-| M3-15 | Right panel: mascot card, agents-in-session, this-run timeline, rules armed, background tasks, files touched, open file, permission chips | planned |
-| M3-16 | Start-a-session screen — agent required, default pre-selected, 4 session types | planned |
+| M3-13 | Composer + toolbar (attach, workspace, `@agent`, sticker, mic, send) + hint row | ready |
+| M3-14 | `@mention` popover — "Sprout stays the supervisor" | ready |
+| M3-15 | Right panel: mascot card, agents-in-session, this-run timeline, rules armed, background tasks, files touched, open file, permission chips | ready |
+| M3-16 | Start-a-session screen — agent required, default pre-selected, 4 session types | ready |
 | M3-17 | Session types `Supervised` and `Standing` behind a feature flag | wip |
-| M3-18 | `Scratch` session type — no memory, nothing saved | planned |
+| M3-18 | `Scratch` session type — no memory, nothing saved | ready |
 
 ## M4 · Memory
 
@@ -181,13 +187,13 @@ Docs: `/docs/memory/*`. Screen: Settings → Memory.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M4-01 | Memory overview wiring — `/docs/memory/overview` | planned |
-| M4-02 | Message history — `/docs/memory/message-history` | planned |
-| M4-03 | Working memory as editable fact cards + "add a fact" | planned |
-| M4-04 | Semantic recall — toggle, top-matches slider, scope pills | planned |
+| M4-01 | Memory overview wiring — `/docs/memory/overview` | ready |
+| M4-02 | Message history — `/docs/memory/message-history` | ready |
+| M4-03 | Working memory as editable fact cards + "add a fact" | wip — UI built, not yet bound to Mastra working memory |
+| M4-04 | Semantic recall — toggle, top-matches slider, scope pills | ready |
 | M4-05 | Observational memory — `/docs/memory/observational-memory` | planned |
 | M4-06 | Memory processors — `/docs/memory/memory-processors` | planned |
-| M4-07 | Thread list + "where it lives" panel | planned |
+| M4-07 | Thread list + "where it lives" panel | ready |
 | M4-08 | Multi-user threads — `/docs/memory/multi-user-threads` | n/a — single-user desktop; revisit if Mochi gets sharing |
 
 ## M5 · Workflows
@@ -242,11 +248,11 @@ Docs: `/docs/mcp/*`, `/docs/agents/using-tools`. Screen: Settings → Tools & MC
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M8-01 | Tool table — id / description / from | planned |
+| M8-01 | Tool table — id / description / from | ready |
 | M8-02 | MCP client + server cards with live status — `/docs/mcp/overview` | planned |
 | M8-03 | MCP Apps — `/docs/mcp/mcp-apps` | planned |
 | M8-04 | Tool providers / integrations — `/docs/agent-builder/integrations` | planned |
-| M8-05 | `sendSticker` + `setMascotState` listed as first-class Mochi tools | planned |
+| M8-05 | `sendSticker` + `setMascotState` listed as first-class Mochi tools | ready |
 
 ## M9 · Channels (two-way command, not notifications)
 
@@ -277,7 +283,7 @@ Docs: `/docs/voice/*`. Screen: Settings → Voice.
 | M10-02 | Speech to text + push-to-talk (`Alt Space` as a global shortcut — collides with the Windows system menu) | planned |
 | M10-03 | Speech to speech | planned |
 | M10-04 | Realtime voice | planned |
-| M10-05 | VOICEVOX card — endpoint `localhost:50021`, speaker, style, speed/pitch/intonation, "Hear it" | planned |
+| M10-05 | VOICEVOX card — endpoint `localhost:50021`, speaker, style, speed/pitch/intonation, "Hear it" | planned — skipped by decision; local HTTP TTS, not MCP. See README |
 | M10-06 | Mascot lip-sync, ducking, "speak every reply" (off by default) | planned |
 | M10-07 | Detect VOICEVOX/Ollama not running; friendly state + install link, never silent failure | planned |
 
@@ -302,16 +308,16 @@ Docs: `/models/*`. Screen: Settings → Models & providers.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M12-01 | Provider table — Provider / Billed via / Account, with `subscription` `api key` `local` chips | planned |
-| M12-02 | Add-a-provider card — *Sign in with a plan* ↔ *Paste an API key* | planned |
-| M12-03 | Store keys in Windows Credential Manager via `safeStorage`, **never** a JSON file | planned |
-| M12-04 | Model router `"provider/model"` format; validate against the live registry, never a hard-coded list | planned |
-| M12-05 | *Which model does what* — conversation / quick jobs / embeddings / eval grader | planned |
-| M12-06 | Prefer-subscription and fall-back-to-Ollama-when-offline toggles | planned |
+| M12-01 | Provider table — Provider / Billed via / Account, with `subscription` `api key` `local` chips | ready |
+| M12-02 | Add-a-provider card — *Sign in with a plan* ↔ *Paste an API key* | ready |
+| M12-03 | Store keys in Windows Credential Manager via `safeStorage`, **never** a JSON file | ready |
+| M12-04 | Model router `"provider/model"` format; validate against the live registry, never a hard-coded list | ready |
+| M12-05 | *Which model does what* — conversation / quick jobs / embeddings / eval grader | ready |
+| M12-06 | Prefer-subscription and fall-back-to-Ollama-when-offline toggles | ready |
 | M12-07 | Embeddings config — `/models/embeddings` | planned |
 | M12-08 | Gateways — `/models/gateways` | planned |
-| M12-09 | Spend tracker with cap, progress bar, 80% warning toggle | planned |
-| M12-10 | Environment variables — `/models/environment-variables` | planned |
+| M12-09 | Spend tracker with cap, progress bar, 80% warning toggle | wip — UI built, figures are placeholder |
+| M12-10 | Environment variables — `/models/environment-variables` | ready |
 
 ## M13 · Storage
 
@@ -319,10 +325,10 @@ Docs: `/docs/storage/overview`. Screen: Settings → Storage.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M13-01 | LibSQL (default, local) | planned |
+| M13-01 | LibSQL (default, local) | ready |
 | M13-02 | Postgres option — `@mastra/pg` | planned |
 | M13-03 | Upstash option | planned |
-| M13-04 | Table listing: `mastra_threads`, `mastra_messages`, `mastra_vectors`, `mochi_mascot_presets`, `mochi_sticker_events` | planned |
+| M13-04 | Table listing: `mastra_threads`, `mastra_messages`, `mastra_vectors`, `mochi_mascot_presets`, `mochi_sticker_events` | ready |
 | M13-05 | Mochi-owned tables + migrations for presets and sticker events | planned |
 
 ## M14 · Observability & Evals
@@ -364,31 +370,31 @@ Screen: Stickers & sound, Mascot studio.
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M16-01 | Sticker grid, tag filter pills, dashed `+` tile | planned |
-| M16-02 | Sound list with play buttons + drop target for wav/mp3/ogg | planned |
-| M16-03 | Rules table — When / Sticker / Sound / Show as / How often / on-off | planned |
-| M16-04 | "Agent may also pick freely" toggle → exposes `sendSticker()` | planned |
+| M16-01 | Sticker grid, tag filter pills, dashed `+` tile | ready |
+| M16-02 | Sound list with play buttons + drop target for wav/mp3/ogg | ready |
+| M16-03 | Rules table — When / Sticker / Sound / Show as / How often / on-off | ready |
+| M16-04 | "Agent may also pick freely" toggle → exposes `sendSticker()` | ready |
 | M16-05 | Rate limiting — `always` / `once per hour` / `once` | planned |
-| M16-06 | Mascot studio: 6 state tiles, drop target (filename → state), recolour swatches, hue-shift | planned |
-| M16-07 | Studio stage — 190px sprite, radial accent wash, live state chips | planned |
-| M16-08 | Size/opacity sliders, idle-motion pills, physics toggles | planned |
-| M16-09 | State → sprite → sound table | planned |
-| M16-10 | Personality panel + hotkeys | planned |
-| M16-11 | `chokidar`-style folder watcher — dropping a PNG updates the grid live | planned |
+| M16-06 | Mascot studio: 6 state tiles, drop target (filename → state), recolour swatches, hue-shift | ready |
+| M16-07 | Studio stage — 190px sprite, radial accent wash, live state chips | ready |
+| M16-08 | Size/opacity sliders, idle-motion pills, physics toggles | ready |
+| M16-09 | State → sprite → sound table | ready |
+| M16-10 | Personality panel + hotkeys | ready |
+| M16-11 | `chokidar`-style folder watcher — dropping a PNG updates the grid live | ready |
 
 ## M17 · Shell, settings, polish
 
 | ID | Task | Status |
 | --- | --- | --- |
-| M17-01 | Settings modal shell — 1120×690, grouped nav (You / Agent / Work / Reach / System) | planned |
-| M17-02 | Rail: head, scroll body, footer + account popover | planned |
-| M17-03 | Drag-to-pin / drag-to-unpin with dashed accent drop zones | planned |
+| M17-01 | Settings modal shell — 1120×690, grouped nav (You / Agent / Work / Reach / System) | ready |
+| M17-02 | Rail: head, scroll body, footer + account popover | ready |
+| M17-03 | Drag-to-pin / drag-to-unpin with dashed accent drop zones | ready |
 | M17-04 | Search pill + `Ctrl K` palette over agents, tools, stickers | planned |
 | M17-05 | Full keyboard map (see handoff table); user-rebindable | planned |
-| M17-06 | Theme + contrast + accent switching, live | planned |
-| M17-07 | **Design notes & coverage** pane — renders this backlog's coverage matrix in-app | planned |
-| M17-08 | Defaults pane — default agent, default session type, on-launch behaviour | planned |
-| M17-09 | Placeholder `art?` tiles wherever user artwork is absent | planned |
+| M17-06 | Theme + contrast + accent switching, live | ready |
+| M17-07 | **Design notes & coverage** pane — renders this backlog's coverage matrix in-app | ready |
+| M17-08 | Defaults pane — default agent, default session type, on-launch behaviour | ready |
+| M17-09 | Placeholder `art?` tiles wherever user artwork is absent | ready |
 
 ## M18 · Packaging & release
 

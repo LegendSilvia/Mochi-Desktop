@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mochi</title>
+    <!--
+      The embedded Mastra server binds to a free port on 127.0.0.1 chosen at
+      runtime, so connect-src cannot name it. Loopback-only is the tightest
+      form that still works; it does not open the CSP to the wider network.
+      Sprites, stickers and sounds come in over the mochi-asset: protocol,
+      which is contained to the three asset folders in the main process.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               connect-src 'self' http://127.0.0.1:* http://localhost:*;
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               font-src 'self' data:;
+               media-src 'self' mochi-asset:;
+               img-src 'self' data: mochi-asset:"
+    />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

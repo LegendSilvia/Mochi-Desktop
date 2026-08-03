@@ -1,0 +1,93 @@
+import { createContext, useContext } from 'react'
+import type {
+  AgentLoadout,
+  AppSettings,
+  AssetLibrary,
+  MascotState,
+  ServerInfo,
+  Session,
+  StickerMode,
+  StickerRule
+} from '@shared/types'
+import type { Screen } from './screens'
+
+/**
+ * Store shape, context and hook.
+ *
+ * These live apart from `store.tsx` so that file exports only the provider
+ * component — Fast Refresh gives up on a module that mixes components with
+ * other exports.
+ */
+
+export interface StickerBurst {
+  id: number
+  stickerSrc: string | null
+  soundSrc: string | null
+  modes: StickerMode[]
+  caption: string
+}
+
+export interface State {
+  ready: boolean
+  screen: Screen
+  settings: AppSettings
+  agents: AgentLoadout[]
+  sessions: Session[]
+  rules: StickerRule[]
+  library: AssetLibrary | null
+  server: ServerInfo | null
+  activeSessionId: string
+  mascotState: MascotState
+  mascotNote: string
+  pinOpen: boolean
+  recOpen: boolean
+  menuOpen: boolean
+  mentionOpen: boolean
+  newAgentId: string
+  newSessionType: Session['type']
+  /** Latest sticker event; the mascot layer watches this. */
+  burst: StickerBurst | null
+}
+
+export type Action =
+  | { type: 'ready'; payload: Partial<State> }
+  | { type: 'screen'; screen: Screen }
+  | { type: 'settings'; patch: Partial<AppSettings> }
+  | { type: 'mascot-config'; patch: Partial<AppSettings['mascot']> }
+  | { type: 'agents'; agents: AgentLoadout[] }
+  | { type: 'sessions'; sessions: Session[] }
+  | { type: 'rules'; rules: StickerRule[] }
+  | { type: 'library'; library: AssetLibrary }
+  | { type: 'active'; id: string }
+  | { type: 'mascot-state'; state: MascotState; note?: string }
+  | { type: 'toggle'; key: 'pinOpen' | 'recOpen' | 'menuOpen' | 'mentionOpen'; value?: boolean }
+  | { type: 'new-agent'; id: string }
+  | { type: 'new-type'; value: Session['type'] }
+  | { type: 'burst'; burst: StickerBurst | null }
+
+export interface FireStickerOptions {
+  stickerId?: string | null
+  caption?: string
+  modes?: StickerMode[]
+}
+
+export interface Store extends State {
+  dispatch: React.Dispatch<Action>
+  inSettings: boolean
+  activeSession: Session | undefined
+  agentById: (id: string) => AgentLoadout | undefined
+  stickerSrc: (id: string | null) => string | null
+  soundSrc: (id: string | null) => string | null
+  spriteSrc: (state: MascotState) => string | null
+  /** Fire a sticker + sound as one event. The single entry point — M1-10. */
+  fireSticker: (opts?: FireStickerOptions) => void
+  reloadLibrary: () => void
+}
+
+export const StoreCtx = createContext<Store | null>(null)
+
+export function useStore(): Store {
+  const ctx = useContext(StoreCtx)
+  if (!ctx) throw new Error('useStore must be used inside <StoreProvider>')
+  return ctx
+}
