@@ -83,10 +83,29 @@ function buildMochiServer(): ReturnType<typeof createSdkMcpServer> {
     }
   )
 
+  // Mirrors askUserTool in src/mastra/tools — see the note there on why this
+  // returns immediately instead of blocking for the answer.
+  const askUser = tool(
+    'askUser',
+    'Ask the user a question and offer specific answers they can click. Use this ' +
+      'when you need a decision before continuing — which approach to take, whether ' +
+      'to push, which file to touch. Prefer it over a plain question in your reply, ' +
+      'because the answers become one tap instead of typing. Keep options short.',
+    {
+      question: z.string().describe('The question, one short sentence'),
+      options: z.array(z.string()).describe('Between 2 and 5 answers the user can pick from'),
+      allowOther: z
+        .boolean()
+        .optional()
+        .describe('Also let the user type a free-form answer. Defaults to true.')
+    },
+    async () => ({ content: [{ type: 'text' as const, text: JSON.stringify({ asked: true }) }] })
+  )
+
   return createSdkMcpServer({
     name: 'mochi',
     version: '0.1.0',
-    tools: [sendSticker, setMascotState],
+    tools: [sendSticker, setMascotState, askUser],
     // Load both tools into the turn-1 prompt instead of leaving them behind tool
     // search. Deferred loading made the harness spend a round trip on ToolSearch
     // and then emit a stray extra reply when the "new tools available" reminder
@@ -207,7 +226,11 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 : undefined,
               model: modelName || undefined,
               mcpServers: { mochi: mochiServer },
-              allowedTools: [`${TOOL_PREFIX}sendSticker`, `${TOOL_PREFIX}setMascotState`],
+              allowedTools: [
+                `${TOOL_PREFIX}sendSticker`,
+                `${TOOL_PREFIX}setMascotState`,
+                `${TOOL_PREFIX}askUser`
+              ],
               env: subscriptionEnv(appVersion),
               ...(resume ? { resume } : {}),
               maxTurns: 24

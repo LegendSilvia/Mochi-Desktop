@@ -10,7 +10,6 @@ import {
   FolderTree,
   GitBranch,
   MoreVertical,
-  Check,
   Lock,
   Network
 } from 'lucide-react'
@@ -18,17 +17,8 @@ import { useStore } from '@renderer/state/context'
 import { KEYS, hasMod } from '@renderer/lib/platform'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
+import { ToolPart } from '@renderer/components/chat/ToolPart'
 import './screens.css'
-
-/** AI SDK tool-part states, mapped to the words the design uses. */
-const TOOL_STATE_LABEL: Record<string, string> = {
-  'input-streaming': 'sending',
-  'input-available': 'ready',
-  'approval-requested': 'waiting on you',
-  'approval-responded': 'answered',
-  'output-available': 'done',
-  'output-error': 'failed'
-}
 
 export function Session(): React.JSX.Element {
   const {
@@ -199,29 +189,12 @@ export function Session(): React.JSX.Element {
                 }
 
                 if (part.type.startsWith('tool-')) {
-                  const tool = part as unknown as ToolUIPart
-                  const name = tool.type.split('-').slice(1).join('-')
-                  const failed = tool.state === 'output-error'
                   return (
-                    <div key={pi} className="tool-card">
-                      <div className="tool-row">
-                        {failed ? (
-                          <span className="tool-x">!</span>
-                        ) : (
-                          <Check size={13} strokeWidth={2.2} className="tool-check" />
-                        )}
-                        <span className="mono tool-id">{name}</span>
-                        <span className="mono tool-arg">
-                          {tool.input ? JSON.stringify(tool.input) : ''}
-                        </span>
-                        <span className="mono tool-dur">
-                          {TOOL_STATE_LABEL[tool.state ?? 'output-available']}
-                        </span>
-                      </div>
-                      {failed && tool.errorText && (
-                        <div className="tool-error mono">{tool.errorText}</div>
-                      )}
-                    </div>
+                    <ToolPart
+                      key={pi}
+                      part={part as unknown as ToolUIPart}
+                      onChoose={(text) => sendMessage({ text })}
+                    />
                   )
                 }
                 return null
