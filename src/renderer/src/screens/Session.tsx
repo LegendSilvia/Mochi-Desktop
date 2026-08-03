@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { KEYS } from '@renderer/lib/platform'
+import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
 import { ToolPart } from '@renderer/components/chat/ToolPart'
@@ -62,10 +63,22 @@ export function Session(): React.JSX.Element {
     return new DefaultChatTransport({ api: `${server.baseUrl}/${route}/${agent.id}` })
   }, [server, agent, onSubscription])
 
+  // Seeded once per session id — useChat only reads `messages` when it builds a
+  // new Chat, which is exactly when the id changes.
+  const initialMessages = useMemo(() => loadMessages(activeSession?.id), [activeSession?.id])
+
   const { messages, sendMessage, status, error } = useChat({
     transport,
-    id: activeSession?.id
+    id: activeSession?.id,
+    messages: initialMessages
   })
+
+  // Write the transcript back once the turn settles. Saving mid-stream would
+  // rewrite the whole thread on every token for no benefit.
+  useEffect(() => {
+    if (status === 'streaming' || status === 'submitted') return
+    saveMessages(activeSession?.id, messages)
+  }, [messages, status, activeSession?.id])
 
   // Drive the mascot from the live stream. This is the wire that makes the
   // mascot mean something rather than being decoration.
@@ -220,6 +233,7 @@ export function Session(): React.JSX.Element {
                 <button
                   className="rail-menu-item danger"
                   onClick={() => {
+                    forgetMessages(activeSession.id)
                     dispatch({
                       type: 'sessions',
                       sessions: sessions.filter((s) => s.id !== activeSession.id)
