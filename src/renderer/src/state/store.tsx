@@ -22,10 +22,15 @@ const initial: State = {
   menuOpen: false,
   mentionOpen: false,
   searchOpen: false,
+  stickerPickerOpen: false,
   newAgentId: DEFAULT_SETTINGS.defaultAgentId,
   newSessionType: DEFAULT_SETTINGS.defaultSessionType,
-  burst: null
+  burst: null,
+  pendingSend: null
 }
+
+/** Overlays that float above the app — only one may be open at a time. */
+const POPOVER_KEYS = ['menuOpen', 'mentionOpen', 'searchOpen', 'stickerPickerOpen'] as const
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -53,14 +58,28 @@ function reducer(state: State, action: Action): State {
       return { ...state, activeSessionId: action.id }
     case 'mascot-state':
       return { ...state, mascotState: action.state, mascotNote: action.note ?? state.mascotNote }
-    case 'toggle':
-      return { ...state, [action.key]: action.value ?? !state[action.key] }
+    case 'toggle': {
+      const next = action.value ?? !state[action.key]
+      // Popovers are mutually exclusive: opening one closes the rest, so the
+      // sticker picker can't sit on top of the mention list. Doing it here
+      // rather than at each call site means a new popover can't reintroduce the
+      // overlap by forgetting to close its siblings.
+      if (next && (POPOVER_KEYS as readonly string[]).includes(action.key)) {
+        const closed = Object.fromEntries(
+          POPOVER_KEYS.filter((k) => k !== action.key).map((k) => [k, false])
+        )
+        return { ...state, ...closed, [action.key]: true }
+      }
+      return { ...state, [action.key]: next }
+    }
     case 'new-agent':
       return { ...state, newAgentId: action.id }
     case 'new-type':
       return { ...state, newSessionType: action.value }
     case 'burst':
       return { ...state, burst: action.burst }
+    case 'pending-send':
+      return { ...state, pendingSend: action.text }
     default:
       return state
   }

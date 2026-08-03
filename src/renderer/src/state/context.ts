@@ -45,10 +45,17 @@ export interface State {
   menuOpen: boolean
   mentionOpen: boolean
   searchOpen: boolean
+  stickerPickerOpen: boolean
   newAgentId: string
   newSessionType: Session['type']
   /** Latest sticker event; the mascot layer watches this. */
   burst: StickerBurst | null
+  /**
+   * First message typed on the Start-a-session screen, handed to the chat once
+   * it mounts. Without this the text was only ever used for the session title
+   * and then dropped on the floor.
+   */
+  pendingSend: string | null
 }
 
 export type Action =
@@ -64,12 +71,20 @@ export type Action =
   | { type: 'mascot-state'; state: MascotState; note?: string }
   | {
       type: 'toggle'
-      key: 'pinOpen' | 'recOpen' | 'archOpen' | 'menuOpen' | 'mentionOpen' | 'searchOpen'
+      key:
+        | 'pinOpen'
+        | 'recOpen'
+        | 'archOpen'
+        | 'menuOpen'
+        | 'mentionOpen'
+        | 'searchOpen'
+        | 'stickerPickerOpen'
       value?: boolean
     }
   | { type: 'new-agent'; id: string }
   | { type: 'new-type'; value: Session['type'] }
   | { type: 'burst'; burst: StickerBurst | null }
+  | { type: 'pending-send'; text: string | null }
 
 export interface FireStickerOptions {
   stickerId?: string | null

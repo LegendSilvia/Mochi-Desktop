@@ -14,7 +14,7 @@ import {
   Network
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
-import { KEYS, hasMod } from '@renderer/lib/platform'
+import { KEYS } from '@renderer/lib/platform'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
 import { ToolPart } from '@renderer/components/chat/ToolPart'
@@ -31,10 +31,11 @@ export function Session(): React.JSX.Element {
     sessions,
     fireSticker,
     settings,
-    library
+    library,
+    pendingSend,
+    stickerPickerOpen
   } = useStore()
   const [input, setInput] = useState('')
-  const [stickerPickerOpen, setStickerPickerOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
   const agent = activeSession ? agentById(activeSession.agentId) : undefined
@@ -72,12 +73,42 @@ export function Session(): React.JSX.Element {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
+  // Deliver the message typed on the Start-a-session screen. Waits for the
+  // transport, since sending before it exists silently drops the turn, and
+  // clears immediately so a re-render can't send it twice.
+  useEffect(() => {
+    if (!pendingSend || !transport) return
+    dispatch({ type: 'pending-send', text: null })
+    sendMessage({ text: pendingSend })
+  }, [pendingSend, transport, sendMessage, dispatch])
+
   if (!activeSession || !agent) {
     return (
       <div className="screen-body empty-state">
         <p>No session open. Start one from the rail.</p>
       </div>
     )
+  }
+
+  /**
+   * Ctrl+Enter = approve. The thing worth approving is whatever the agent last
+   * asked with `askUser`, so this answers it with its first option — the
+   * affirmative one by convention. Falls back to sending what's typed when
+   * there's no open question, so the chord is never a dead key.
+   */
+  const approveLatest = (): void => {
+    for (let m = messages.length - 1; m >= 0; m--) {
+      for (const part of messages[m].parts) {
+        if (part.type !== 'tool-askUser') continue
+        const input = (part as unknown as { input?: { options?: string[] } }).input
+        const first = input?.options?.[0]
+        if (first) {
+          sendMessage({ text: first })
+          return
+        }
+      }
+    }
+    send()
   }
 
   const send = (): void => {
@@ -263,7 +294,7 @@ export function Session(): React.JSX.Element {
                     title={s.name}
                     onClick={() => {
                       fireSticker({ stickerId: s.id, caption: s.name })
-                      setStickerPickerOpen(false)
+                      dispatch({ type: 'toggle', key: 'stickerPickerOpen', value: false })
                     }}
                   >
                     {s.src ? <img src={s.src} alt={s.name} /> : <span className="mono">{s.name}</span>}
@@ -285,10 +316,13 @@ export function Session(): React.JSX.Element {
               placeholder={`Message ${agent.name}…`}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && hasMod(e)) {
-                  e.preventDefault()
-                  send()
-                }
+                if (e.key !== 'Enter') return
+                // Enter sends. Win/Cmd+Enter is the newline. Ctrl+Enter approves
+                // the question the agent is currently waiting on.
+                if (e.metaKey) return // default: newline
+                e.preventDefault()
+                if (e.ctrlKey) approveLatest()
+                else send()
               }}
             />
             <div className="composer-bar">
@@ -310,7 +344,7 @@ export function Session(): React.JSX.Element {
                 className="composer-icon"
                 aria-label="Send a sticker"
                 data-on={stickerPickerOpen}
-                onClick={() => setStickerPickerOpen((v) => !v)}
+                onClick={() => dispatch({ type: 'toggle', key: 'stickerPickerOpen' })}
               >
                 <StickerIcon size={15} strokeWidth={1.8} />
               </button>
@@ -330,8 +364,9 @@ export function Session(): React.JSX.Element {
           </div>
           <div className="composer-hints meta">
             <span className="mono">{KEYS.send()}</span> send ·{' '}
+            <span className="mono">{KEYS.newline()}</span> new line ·{' '}
+            <span className="mono">{KEYS.approve()}</span> approve ·{' '}
             <span className="mono">{KEYS.stickerPicker()}</span> sticker picker ·{' '}
-            <span className="mono">{KEYS.pushToTalk()}</span> hold to talk ·{' '}
             <span className="mono">{KEYS.hideMascot()}</span> hide mascot
           </div>
         </div>

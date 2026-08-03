@@ -47,7 +47,12 @@ export function NewSession(): React.JSX.Element {
     }
     dispatch({ type: 'sessions', sessions: [session, ...sessions] })
     dispatch({ type: 'active', id: session.id })
+    // Hand the typed message to the chat rather than only using it as a title —
+    // the session screen sends it as soon as its transport is up.
+    const first = draft.trim()
+    if (first) dispatch({ type: 'pending-send', text: first })
     dispatch({ type: 'screen', screen: 'chat' })
+    setDraft('')
   }
 
   return (
@@ -121,6 +126,13 @@ export function NewSession(): React.JSX.Element {
               rows={3}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // Same contract as the session composer: Enter commits,
+                // Win/Cmd+Enter is the newline.
+                if (e.key !== 'Enter' || e.metaKey) return
+                e.preventDefault()
+                start()
+              }}
               placeholder={`What should ${selected.name} do?`}
             />
             <div className="composer-bar">

@@ -8,14 +8,17 @@
 
 const isMac = (): boolean => navigator.platform.toLowerCase().includes('mac')
 
-export type ChordKey = 'mod' | 'alt' | 'shift' | 'enter' | 'space'
+export type ChordKey = 'mod' | 'alt' | 'shift' | 'enter' | 'space' | 'meta'
 
 const LABEL: Record<ChordKey, { win: string; mac: string }> = {
   mod: { win: 'Ctrl', mac: '⌘' },
   alt: { win: 'Alt', mac: '⌥' },
   shift: { win: 'Shift', mac: '⇧' },
   enter: { win: 'Enter', mac: '↵' },
-  space: { win: 'Space', mac: 'space' }
+  space: { win: 'Space', mac: 'space' },
+  // The physical Windows/Command key, as distinct from `mod` — on Windows the
+  // two are different keys and the composer binds both.
+  meta: { win: 'Win', mac: '⌘' }
 }
 
 /** `chord('mod', 'K')` → "Ctrl K" on Windows, "⌘K" on macOS. */
@@ -33,7 +36,9 @@ export const KEYS = {
   hideMascot: () => chord('mod', 'M'),
   snapMascot: () => chord('mod', 'shift', 'M'),
   pushToTalk: () => chord('alt', 'space'),
-  send: () => chord('mod', 'enter')
+  send: () => chord('enter'),
+  newline: () => chord('meta', 'enter'),
+  approve: () => chord('mod', 'enter')
 }
 
 /** True when the platform's primary modifier is held. */
