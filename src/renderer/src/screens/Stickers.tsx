@@ -1,13 +1,21 @@
 import { useMemo, useState } from 'react'
-import { Play, Plus, FolderOpen } from 'lucide-react'
+import { Play, Plus, FolderOpen, Trash2 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { ArtPlaceholder, ScreenHeader, Toggle } from '@renderer/components/ui/Controls'
 import { playSound, isQuietNow } from '@renderer/lib/audio'
-import type { StickerMode, StickerRule } from '@shared/types'
+import type { StickerEvent, StickerMode, StickerRule } from '@shared/types'
 import './screens.css'
 
 const MODES: StickerMode[] = ['chat', 'bubble', 'overlay']
 const RATES: StickerRule['howOften'][] = ['always', 'once-per-hour', 'once']
+const EVENTS: StickerEvent[] = [
+  'tests-green',
+  'task-finished',
+  'thanked',
+  'tool-error',
+  'idle-20min',
+  'manual'
+]
 
 export function Stickers(): React.JSX.Element {
   const { library, rules, dispatch, settings, stickerSrc, fireSticker } = useStore()
@@ -26,6 +34,24 @@ export function Stickers(): React.JSX.Element {
 
   const patchRule = (id: string, p: Partial<StickerRule>): void => {
     dispatch({ type: 'rules', rules: rules.map((r) => (r.id === id ? { ...r, ...p } : r)) })
+  }
+
+  const addRule = (): void => {
+    const rule: StickerRule = {
+      id: `rule-${Date.now().toString(36)}`,
+      when: 'a new moment',
+      event: 'manual',
+      stickerId: library?.stickers[0]?.id ?? null,
+      soundId: library?.sounds[0]?.id ?? null,
+      showAs: 'chat',
+      howOften: 'always',
+      enabled: true
+    }
+    dispatch({ type: 'rules', rules: [...rules, rule] })
+  }
+
+  const removeRule = (id: string): void => {
+    dispatch({ type: 'rules', rules: rules.filter((r) => r.id !== id) })
   }
 
   return (
@@ -140,7 +166,30 @@ export function Stickers(): React.JSX.Element {
             <tbody>
               {rules.map((r) => (
                 <tr key={r.id} data-off={!r.enabled}>
-                  <td>{r.when}</td>
+                  <td>
+                    <div className="rule-when">
+                      <input
+                        className="cell-input"
+                        value={r.when}
+                        aria-label="Rule description"
+                        onChange={(e) => patchRule(r.id, { when: e.target.value })}
+                      />
+                      <select
+                        className="cell-select mono"
+                        value={r.event}
+                        aria-label="Event that fires this rule"
+                        onChange={(e) =>
+                          patchRule(r.id, { event: e.target.value as StickerEvent })
+                        }
+                      >
+                        {EVENTS.map((ev) => (
+                          <option key={ev} value={ev}>
+                            {ev}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </td>
                   <td>
                     <span className="rule-sticker">
                       {stickerSrc(r.stickerId) ? (
@@ -148,10 +197,36 @@ export function Stickers(): React.JSX.Element {
                       ) : (
                         <ArtPlaceholder size={20} />
                       )}
-                      <span className="mono">{r.stickerId ?? '—'}</span>
+                      <select
+                        className="cell-select"
+                        value={r.stickerId ?? ''}
+                        aria-label="Sticker for this rule"
+                        onChange={(e) => patchRule(r.id, { stickerId: e.target.value || null })}
+                      >
+                        <option value="">— none —</option>
+                        {(library?.stickers ?? []).map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
                     </span>
                   </td>
-                  <td className="mono">{r.soundId ?? '—'}</td>
+                  <td>
+                    <select
+                      className="cell-select"
+                      value={r.soundId ?? ''}
+                      aria-label="Sound for this rule"
+                      onChange={(e) => patchRule(r.id, { soundId: e.target.value || null })}
+                    >
+                      <option value="">— none —</option>
+                      {(library?.sounds ?? []).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td>
                     <select
                       className="cell-select"
@@ -183,18 +258,33 @@ export function Stickers(): React.JSX.Element {
                     </select>
                   </td>
                   <td>
-                    <Toggle
-                      dense
-                      on={r.enabled}
-                      onChange={(v) => patchRule(r.id, { enabled: v })}
-                      label={`Enable rule: ${r.when}`}
-                    />
+                    <div className="rule-end">
+                      <Toggle
+                        dense
+                        on={r.enabled}
+                        onChange={(v) => patchRule(r.id, { enabled: v })}
+                        label={`Enable rule: ${r.when}`}
+                      />
+                      <button
+                        className="loadout-act danger"
+                        aria-label={`Delete rule: ${r.when}`}
+                        title="Delete rule"
+                        onClick={() => removeRule(r.id)}
+                      >
+                        <Trash2 size={13} strokeWidth={1.8} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        <button className="rule-add" onClick={addRule}>
+          <Plus size={14} strokeWidth={2} />
+          Arm another moment
+        </button>
       </div>
     </>
   )
