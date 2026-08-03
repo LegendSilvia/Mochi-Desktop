@@ -203,6 +203,47 @@ type MochiHono = Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>
 export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void {
   const mochiServer = buildMochiServer()
 
+  /**
+   * Name a session from what it turned out to be about.
+   *
+   * Titles were the first 48 characters of whatever you typed, so a session
+   * opened with "hi" stayed called "hi" forever. This runs a single toolless
+   * turn on the opening exchange — cheap, and it draws on the same subscription
+   * as everything else rather than needing a key of its own.
+   */
+  app.post('/agent-sdk/title', async (c) => {
+    const { text } = (await c.req.json()) as { text?: string }
+    if (!text?.trim()) return c.json({ title: null })
+
+    try {
+      let title = ''
+      for await (const raw of query({
+        prompt:
+          'Give this conversation a title of at most six words. Reply with the title ' +
+          'alone — no quotes, no punctuation at the end, no preamble.\n\n' +
+          text.slice(0, 4000),
+        options: {
+          systemPrompt: 'You write short, concrete titles. You never explain yourself.',
+          allowedTools: [],
+          env: subscriptionEnv(appVersion),
+          maxTurns: 1
+        }
+      })) {
+        const message = raw as SdkMessage
+        if (message.type !== 'assistant') continue
+        for (const block of message.message?.content ?? []) {
+          if (block.type === 'text' && block.text) title += block.text
+        }
+      }
+
+      const cleaned = title.trim().replace(/^["'\s]+|["'.\s]+$/g, '').split('\n')[0]
+      return c.json({ title: cleaned.slice(0, 60) || null })
+    } catch {
+      // A failed rename should never surface as a broken session.
+      return c.json({ title: null })
+    }
+  })
+
   app.post('/agent-sdk/chat/:agentId', async (c) => {
     const agentId = c.req.param('agentId')
     const body = (await c.req.json()) as { id?: string; messages?: IncomingMessage[] }

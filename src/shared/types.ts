@@ -140,6 +140,9 @@ export interface Session {
   pinned: boolean
   /** Archived sessions drop out of Recents into their own collapsed group. */
   archived?: boolean
+  /** Set once the agent has named this session, so it is only titled once and a
+   *  manual rename is never overwritten. */
+  autoTitled?: boolean
   busy: boolean
   /** Epoch ms. Drives the Today / Yesterday / Last week grouping. */
   updatedAt: number

@@ -96,6 +96,46 @@ export function Session(): React.JSX.Element {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
+  // Let the agent name the session once the first exchange lands. Only ever
+  // runs once per session, and never touches a title you set yourself.
+  useEffect(() => {
+    if (!server || !activeSession || activeSession.autoTitled) return
+    if (status !== 'ready') return
+    const firstUser = messages.find((m) => m.role === 'user')
+    const firstReply = messages.find((m) => m.role === 'assistant')
+    if (!firstUser || !firstReply) return
+
+    const flatten = (m: (typeof messages)[number]): string =>
+      m.parts
+        .filter((p) => p.type === 'text')
+        .map((p) => (p as { text: string }).text)
+        .join(' ')
+
+    const body = `User: ${flatten(firstUser)}\nAssistant: ${flatten(firstReply)}`.trim()
+    if (body.length < 12) return
+
+    let cancelled = false
+    // Marked before the request so a re-render mid-flight can't fire a second one.
+    patchSession({ autoTitled: true })
+    void fetch(`${server.baseUrl}/agent-sdk/title`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: body })
+    })
+      .then((r) => r.json() as Promise<{ title: string | null }>)
+      .then(({ title }) => {
+        if (cancelled || !title) return
+        patchSession({ title })
+      })
+      .catch(() => {
+        /* keep the typed title */
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, messages.length, activeSession?.id, activeSession?.autoTitled, server])
+
   // Deliver the message typed on the Start-a-session screen. Waits for the
   // transport, since sending before it exists silently drops the turn, and
   // clears immediately so a re-render can't send it twice.
