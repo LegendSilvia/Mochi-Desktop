@@ -1,0 +1,3 @@
+# Machine-local agent config. The mastra skill lives in .agents/skills/mastra;
+# recreate the Claude Code symlink with `npx skills add mastra-ai/skills`.
+.claude/
