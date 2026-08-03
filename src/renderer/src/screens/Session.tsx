@@ -30,9 +30,11 @@ export function Session(): React.JSX.Element {
     agents,
     sessions,
     fireSticker,
-    settings
+    settings,
+    library
   } = useStore()
   const [input, setInput] = useState('')
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
   const agent = activeSession ? agentById(activeSession.agentId) : undefined
@@ -247,6 +249,34 @@ export function Session(): React.JSX.Element {
         )}
 
         <div className="composer-wrap">
+          {stickerPickerOpen && (
+            <div className="sticker-pop">
+              <div className="sticker-pop-head">
+                <span>Send a sticker</span>
+                <span className="meta">{library?.stickers.length ?? 0} in your folder</span>
+              </div>
+              <div className="sticker-pop-grid">
+                {(library?.stickers ?? []).map((s) => (
+                  <button
+                    key={s.id}
+                    className="sticker-pop-tile"
+                    title={s.name}
+                    onClick={() => {
+                      fireSticker({ stickerId: s.id, caption: s.name })
+                      setStickerPickerOpen(false)
+                    }}
+                  >
+                    {s.src ? <img src={s.src} alt={s.name} /> : <span className="mono">{s.name}</span>}
+                  </button>
+                ))}
+              </div>
+              {(library?.stickers.length ?? 0) === 0 && (
+                <p className="meta">
+                  No stickers yet — drop some into your stickers folder and they show up here.
+                </p>
+              )}
+            </div>
+          )}
           <div className="composer">
             <textarea
               className="composer-input"
@@ -279,7 +309,8 @@ export function Session(): React.JSX.Element {
               <button
                 className="composer-icon"
                 aria-label="Send a sticker"
-                onClick={() => fireSticker()}
+                data-on={stickerPickerOpen}
+                onClick={() => setStickerPickerOpen((v) => !v)}
               >
                 <StickerIcon size={15} strokeWidth={1.8} />
               </button>
