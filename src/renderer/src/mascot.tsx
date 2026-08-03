@@ -7,6 +7,9 @@ import { StoreProvider } from './state/store'
 import { MascotLayer } from './components/mascot/MascotLayer'
 import './styles/tokens.css'
 import './components/mascot/mascot.css'
+// Last: it undoes the opaque body background tokens.css sets, which would
+// otherwise paint a solid sheet across the whole desktop.
+import './styles/overlay.css'
 
 /**
  * Entry point for the overlay window.
