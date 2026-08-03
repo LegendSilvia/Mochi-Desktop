@@ -250,6 +250,34 @@ export interface ProviderAccount {
   envVar?: string
 }
 
+/** A file in the document library that backs retrieval. */
+export interface RagDoc {
+  id: string
+  path: string
+  title: string
+  bytes: number
+  chunks: number
+  /** How many chunks have an embedding. Zero means keyword-only for this file. */
+  embedded: number
+}
+
+/** One retrieved passage. `how` records which half of the hybrid search found it. */
+export interface RagHit {
+  text: string
+  title: string
+  path: string
+  score: number
+  how: 'keyword' | 'vector' | 'both'
+}
+
+/** What can currently turn text into vectors, if anything. */
+export interface EmbedderInfo {
+  kind: 'ollama' | 'openai' | 'none'
+  model: string
+  ready: boolean
+  detail: string
+}
+
 /** Payload the main process pushes when an agent event should fire a sticker. */
 export interface StickerFireEvent {
   ruleId: string | null

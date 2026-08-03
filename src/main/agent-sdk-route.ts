@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { bus } from '../mastra/events'
 import { load } from './store'
 import { readLibrary } from './assets'
+import { search } from './rag'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -142,6 +143,32 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
     }
   )
 
+  const searchDocs = tool(
+    'searchDocs',
+    'Search the documents the user has added to Mochi. Use this before answering ' +
+      'anything that depends on their own notes, specs or code rather than general ' +
+      'knowledge. Returns the most relevant passages with the file they came from — ' +
+      'quote and cite them rather than paraphrasing from memory.',
+    {
+      query: z.string().describe('What to look for, in natural language'),
+      limit: z.number().optional().describe('How many passages to return. Defaults to 6.')
+    },
+    async ({ query: q, limit }) => {
+      const hits = await search(q, limit ?? 6)
+      if (hits.length === 0) {
+        return {
+          content: [
+            { type: 'text' as const, text: 'No matching passages. The library may be empty.' }
+          ]
+        }
+      }
+      const text = hits
+        .map((h, i) => `[${i + 1}] ${h.title} (${h.how})\n${h.text}`)
+        .join('\n\n---\n\n')
+      return { content: [{ type: 'text' as const, text }] }
+    }
+  )
+
   const sendSticker = tool(
     'sendSticker',
     'Send a sticker to the user. Use this to celebrate a finished task, acknowledge ' +
@@ -196,7 +223,7 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
   return createSdkMcpServer({
     name: 'mochi',
     version: '0.1.0',
-    tools: [sendSticker, setMascotState, askUser, delegate],
+    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs],
     // Load both tools into the turn-1 prompt instead of leaving them behind tool
     // search. Deferred loading made the harness spend a round trip on ToolSearch
     // and then emit a stray extra reply when the "new tools available" reminder
@@ -437,7 +464,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 `${TOOL_PREFIX}sendSticker`,
                 `${TOOL_PREFIX}setMascotState`,
                 `${TOOL_PREFIX}askUser`,
-                `${TOOL_PREFIX}delegate`
+                `${TOOL_PREFIX}delegate`,
+                `${TOOL_PREFIX}searchDocs`
               ],
               env: subscriptionEnv(appVersion),
               ...(resume ? { resume } : {}),

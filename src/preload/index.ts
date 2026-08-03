@@ -10,7 +10,10 @@ import type {
   Session,
   StickerEvent,
   StickerRule,
-  Theme
+  Theme,
+  RagDoc,
+  RagHit,
+  EmbedderInfo
 } from '../shared/types'
 
 const IPC = {
@@ -19,6 +22,11 @@ const IPC = {
   listPresets: 'mochi:list-presets',
   mascotInteractive: 'mochi:mascot-interactive',
   pickPaths: 'mochi:pick-paths',
+  ragAdd: 'mochi:rag-add',
+  ragList: 'mochi:rag-list',
+  ragRemove: 'mochi:rag-remove',
+  ragSearch: 'mochi:rag-search',
+  ragEmbedder: 'mochi:rag-embedder',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -69,6 +77,12 @@ export interface MochiApi {
   mascotInteractive: (interactive: boolean) => Promise<void>
   /** Native open dialog for the composer's attach and workspace buttons. */
   pickPaths: (kind: 'file' | 'folder') => Promise<string[]>
+  /** Document library backing the searchDocs tool. */
+  ragAdd: (paths: string[]) => Promise<{ added: number; skipped: string[] }>
+  ragList: () => Promise<RagDoc[]>
+  ragRemove: (id: string) => Promise<void>
+  ragSearch: (q: string) => Promise<RagHit[]>
+  ragEmbedder: () => Promise<EmbedderInfo>
   saveState: (patch: StatePatch) => Promise<void>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -97,6 +111,11 @@ const api: MochiApi = {
   listPresets: () => ipcRenderer.invoke(IPC.listPresets),
   mascotInteractive: (interactive) => ipcRenderer.invoke(IPC.mascotInteractive, interactive),
   pickPaths: (kind) => ipcRenderer.invoke(IPC.pickPaths, kind),
+  ragAdd: (paths) => ipcRenderer.invoke(IPC.ragAdd, paths),
+  ragList: () => ipcRenderer.invoke(IPC.ragList),
+  ragRemove: (id) => ipcRenderer.invoke(IPC.ragRemove, id),
+  ragSearch: (q) => ipcRenderer.invoke(IPC.ragSearch, q),
+  ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),

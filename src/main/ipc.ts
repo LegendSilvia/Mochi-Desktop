@@ -4,6 +4,7 @@ import { listSpritePresets, readLibrary, watchAssets } from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
 import { getServerInfo } from './mastra-server'
 import { getMascotWindow, setMascotInteractive } from './mascot-window'
+import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { getPaths } from './paths'
 import { bus } from '../mastra/events'
 import type { ProviderAccount, Theme } from '../shared/types'
@@ -14,6 +15,11 @@ export const IPC = {
   listPresets: 'mochi:list-presets',
   mascotInteractive: 'mochi:mascot-interactive',
   pickPaths: 'mochi:pick-paths',
+  ragAdd: 'mochi:rag-add',
+  ragList: 'mochi:rag-list',
+  ragRemove: 'mochi:rag-remove',
+  ragSearch: 'mochi:rag-search',
+  ragEmbedder: 'mochi:rag-embedder',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -126,6 +132,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })
     return canceled ? [] : filePaths
   })
+
+  ipcMain.handle(IPC.ragAdd, (_e, paths: string[]) => addDocuments(paths))
+  ipcMain.handle(IPC.ragList, () => listDocuments())
+  ipcMain.handle(IPC.ragRemove, (_e, id: string) => removeDocument(id))
+  ipcMain.handle(IPC.ragSearch, (_e, q: string) => search(q))
+  ipcMain.handle(IPC.ragEmbedder, () => embedderInfo())
 
   /** Both windows get every event — the overlay is a second view of the same
    *  state, not a separate app, so neither may miss a sticker or a state change. */
