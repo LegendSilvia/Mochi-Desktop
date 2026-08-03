@@ -92,6 +92,11 @@ export interface MascotConfig {
   rememberPosition: boolean
   /** Unprompted-talk likelihood, 0–10. */
   talksUnprompted: number
+  /**
+   * Sound played when the mascot enters each state. Absent or null means silent
+   * for that state — only `done`/`error` are worth a noise by default.
+   */
+  stateSounds?: Partial<Record<MascotState, string | null>>
   bubbleStyle: 'soft' | 'square' | 'none'
 }
 
@@ -116,6 +121,11 @@ export interface AgentLoadout {
   canPushWithoutAsking: boolean
   /** Folder under the sprites root, e.g. `sprout`. */
   spritePreset: string
+  /**
+   * Stickers this agent may send. Empty or absent means "any" — a fresh loadout
+   * shouldn't be mute until you curate a list.
+   */
+  allowedStickerIds?: string[]
   accent?: string
 }
 
@@ -128,6 +138,8 @@ export interface Session {
   /** Extra agents pulled in with `@name`. The original agent stays supervisor. */
   subagentIds: string[]
   pinned: boolean
+  /** Archived sessions drop out of Recents into their own collapsed group. */
+  archived?: boolean
   busy: boolean
   /** Epoch ms. Drives the Today / Yesterday / Last week grouping. */
   updatedAt: number

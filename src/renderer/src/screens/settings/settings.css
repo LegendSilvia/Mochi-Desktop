@@ -1,0 +1,246 @@
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 38px;
+  background: rgba(8, 10, 12, 0.5);
+  backdrop-filter: blur(5px);
+}
+
+.settings-card {
+  width: min(1120px, 100%);
+  height: min(690px, 100%);
+  display: flex;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-modal);
+  box-shadow: var(--shadow);
+}
+
+.settings-nav {
+  width: 232px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+}
+
+.settings-nav-head {
+  height: 46px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-nav-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-group .section-label {
+  padding: 0 8px 4px;
+}
+
+.settings-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--tx2);
+  text-align: left;
+}
+.settings-nav-row:hover {
+  background: var(--surf);
+  color: var(--tx);
+}
+.settings-nav-row[data-active='true'] {
+  background: var(--acs);
+  color: var(--ac);
+  font-weight: 600;
+}
+
+.settings-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.pane-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.pane-note {
+  margin-top: 12px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 0;
+  cursor: pointer;
+}
+.radio-row input {
+  margin-top: 4px;
+  accent-color: var(--ac);
+}
+.radio-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.fact-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.thread-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.thread-row:last-child {
+  border-bottom: 0;
+}
+.thread-title {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spend {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.spend-amount {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.spend-bar {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surf2);
+  overflow: hidden;
+}
+.spend-fill {
+  height: 100%;
+  background: var(--ac);
+  border-radius: var(--r-pill);
+}
+
+/* ---------- WIP pane ---------- */
+
+.wip-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+.wip-sprite {
+  width: 104px;
+  height: 104px;
+  opacity: 0.45;
+}
+.wip-sprite img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.wip-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.wip-body {
+  margin: 0;
+  max-width: 460px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--tx2);
+}
+.wip-chips {
+  justify-content: center;
+  max-width: 460px;
+}
+
+/* ---------- notes ---------- */
+
+.note-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--tx2);
+  line-height: 1.6;
+}
+
+.status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.status-ready {
+  background: var(--acs);
+  color: var(--ac);
+}
+.status-wip {
+  background: color-mix(in srgb, var(--warm) 15%, transparent);
+  color: var(--warm);
+}
+.status-planned {
+  background: var(--surf2);
+  color: var(--tx3);
+}
+.status-na {
+  background: var(--surf2);
+  color: var(--tx3);
+  text-decoration: line-through;
+}

@@ -1,0 +1,237 @@
+/* ---------- slider ---------- */
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to right, var(--ac) 0 var(--pct), var(--surf2) var(--pct) 100%);
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--ac);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* ---------- toggle ---------- */
+
+.toggle {
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--r-pill);
+  background: var(--surf2);
+  position: relative;
+  transition: background 0.18s ease;
+}
+.toggle[data-dense='true'] {
+  width: 30px;
+  height: 18px;
+}
+.toggle[data-on='true'] {
+  background: var(--ac);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--tx3);
+  transition:
+    left 0.18s ease,
+    background 0.18s ease;
+}
+.toggle[data-dense='true'] .toggle-knob {
+  width: 14px;
+  height: 14px;
+}
+.toggle[data-on='true'] .toggle-knob {
+  left: calc(100% - 18px);
+  background: var(--surf);
+}
+.toggle[data-dense='true'][data-on='true'] .toggle-knob {
+  left: calc(100% - 16px);
+}
+
+/* ---------- rows ---------- */
+
+.ctl-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ctl-row:last-child {
+  border-bottom: 0;
+}
+
+.ctl-row-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ctl-row-label {
+  font-size: 12.5px;
+  color: var(--tx);
+}
+
+.ctl-row-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 120px;
+  justify-content: flex-end;
+}
+
+.pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ---------- screen chrome ---------- */
+
+.screen-head {
+  height: 58px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.screen-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.screen-head h1 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.screen-head p {
+  margin: 1px 0 0;
+  font-size: 11.5px;
+  color: var(--tx3);
+}
+
+.screen-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.art-placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--surf2);
+  border-radius: var(--r-card);
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ---------- generic table ---------- */
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tbl th {
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--surf2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.tbl th:first-child {
+  border-top-left-radius: var(--r-md);
+}
+.tbl th:last-child {
+  border-top-right-radius: var(--r-md);
+}
+.tbl td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx2);
+  vertical-align: middle;
+}
+.tbl tr[data-off='true'] {
+  opacity: 0.55;
+}
+
+.tbl-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+/* ---------- dashed drop target ---------- */
+
+.drop-target {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 18px;
+  border: 1.5px dashed var(--line2);
+  border-radius: var(--r-card);
+  color: var(--tx3);
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+}
+.drop-target:hover,
+.drop-target[data-over='true'] {
+  border-color: var(--ac);
+  background: var(--acs);
+  color: var(--ac);
+}
+
+.note-accent {
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  background: var(--acs);
+  color: var(--ac);
+  font-size: 11.5px;
+  line-height: 1.55;
+}

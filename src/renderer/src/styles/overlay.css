@@ -1,0 +1,30 @@
+/*
+ * Overlay window only.
+ *
+ * tokens.css paints `body { background: var(--bg) }`, which in a transparent
+ * window means an opaque sheet over the entire desktop — the window was
+ * correctly transparent, the page inside it was not. This is imported last so
+ * it wins, and it must stay last.
+ */
+
+html,
+body,
+#root {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* The overlay covers the whole work area, so the page itself must never eat a
+   click — only the mascot does, via the main process toggling mouse events. */
+#root {
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+/* ...but the mascot itself is grabbable. */
+.mo-wrap {
+  pointer-events: auto;
+}

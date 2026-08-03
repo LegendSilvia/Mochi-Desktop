@@ -52,9 +52,44 @@ export const setMascotStateTool = createTool({
   }
 })
 
+/**
+ * Ask the user a question with pickable answers.
+ *
+ * The tool returns as soon as the question is posed rather than blocking on an
+ * answer: the renderer draws the options from the tool *input*, and a click
+ * sends the chosen text back as an ordinary user turn. That keeps the agent
+ * loop free of a suspend/resume dance and behaves identically on both the
+ * Mastra and Agent SDK backends, which have very different pause semantics.
+ */
+export const askUserTool = createTool({
+  id: 'askUser',
+  description:
+    'Ask the user a question and offer specific answers they can click. Use this ' +
+    'when you need a decision before continuing — which approach to take, whether ' +
+    'to push, which file to touch. Prefer it over a plain question in your reply, ' +
+    'because the answers become one tap instead of typing. Keep options short.',
+  inputSchema: z.object({
+    question: z.string().describe('The question, one short sentence'),
+    options: z
+      .array(z.string())
+      .min(2)
+      .max(5)
+      .describe('Between 2 and 5 answers the user can pick from'),
+    allowOther: z
+      .boolean()
+      .optional()
+      .describe('Also let the user type a free-form answer. Defaults to true.')
+  }),
+  outputSchema: z.object({
+    asked: z.boolean()
+  }),
+  execute: async () => ({ asked: true })
+})
+
 export const mochiTools = {
   sendSticker: sendStickerTool,
-  setMascotState: setMascotStateTool
+  setMascotState: setMascotStateTool,
+  askUser: askUserTool
 }
 
 export type MochiToolId = keyof typeof mochiTools
