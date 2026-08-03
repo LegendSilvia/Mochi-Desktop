@@ -16,6 +16,7 @@ import type {
 const IPC = {
   getBootstrap: 'mochi:bootstrap',
   getLibrary: 'mochi:library',
+  listPresets: 'mochi:list-presets',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -60,6 +61,8 @@ export interface MascotStatePayload {
 export interface MochiApi {
   bootstrap: () => Promise<Bootstrap>
   library: (spritePreset?: string) => Promise<AssetLibrary>
+  /** Mascot folders available under `mascots/` — the sprite sets to swap between. */
+  listPresets: () => Promise<string[]>
   saveState: (patch: StatePatch) => Promise<void>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -85,6 +88,7 @@ function on<T>(channel: string, cb: (payload: T) => void): () => void {
 const api: MochiApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.getBootstrap),
   library: (spritePreset) => ipcRenderer.invoke(IPC.getLibrary, spritePreset),
+  listPresets: () => ipcRenderer.invoke(IPC.listPresets),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),

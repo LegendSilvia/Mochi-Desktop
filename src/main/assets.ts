@@ -29,6 +29,27 @@ function assetUrl(kind: 'sprites' | 'stickers' | 'sounds', preset: string, file:
   return `mochi-asset://${kind}/${preset ? `${preset}/` : ''}${file}`
 }
 
+/**
+ * Every mascot folder the user has dropped in.
+ *
+ * A preset is just a directory under `mascots/`, so this is the list the studio
+ * offers when swapping the whole sprite set. `sprout` is always included even
+ * when the folder is empty, so a fresh install still has something to select.
+ */
+export function listSpritePresets(): string[] {
+  const { sprites } = getPaths()
+  let dirs: string[] = []
+  try {
+    dirs = readdirSync(sprites, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+  } catch {
+    dirs = []
+  }
+  if (!dirs.includes('sprout')) dirs.unshift('sprout')
+  return dirs.sort((a, b) => a.localeCompare(b))
+}
+
 export function readLibrary(spritePreset = 'sprout'): AssetLibrary {
   const paths = getPaths()
   const presetDir = join(paths.sprites, spritePreset)

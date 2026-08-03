@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain, Notification, nativeTheme, shell, app } from 'electron'
 import type { FSWatcher } from 'chokidar'
-import { readLibrary, watchAssets } from './assets'
+import { listSpritePresets, readLibrary, watchAssets } from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
 import { getServerInfo } from './mastra-server'
 import { getPaths } from './paths'
@@ -10,6 +10,7 @@ import type { ProviderAccount, Theme } from '../shared/types'
 export const IPC = {
   getBootstrap: 'mochi:bootstrap',
   getLibrary: 'mochi:library',
+  listPresets: 'mochi:list-presets',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -47,6 +48,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   }))
 
   ipcMain.handle(IPC.getLibrary, (_e, spritePreset?: string) => readLibrary(spritePreset))
+
+  ipcMain.handle(IPC.listPresets, () => listSpritePresets())
 
   ipcMain.handle(IPC.saveState, (_e, patch) => save(patch))
 

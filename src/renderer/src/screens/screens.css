@@ -1241,3 +1241,13 @@
   border-color: color-mix(in srgb, var(--ac) 45%, transparent);
   color: var(--ac);
 }
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.preset-select {
+  min-width: 110px;
+}

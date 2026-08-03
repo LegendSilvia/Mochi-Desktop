@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import {
@@ -36,10 +37,29 @@ const STATE_DOT: Record<MascotState, string> = {
 }
 
 export function MascotStudio(): React.JSX.Element {
-  const { settings, dispatch, library, spriteSrc, mascotState, agents } = useStore()
+  const { settings, dispatch, library, spriteSrc, mascotState, agents, reloadLibrary } = useStore()
   const cfg = settings.mascot
   const preset = agents.find((a) => a.id === settings.defaultAgentId)?.spritePreset ?? 'sprout'
   const stage = spriteSrc(mascotState) ?? spriteSrc('idle')
+  const [presets, setPresets] = useState<string[]>([])
+
+  // Swapping the whole sprite set was the one thing the studio couldn't do: the
+  // folder was read off the default agent and there was no way to change it.
+  useEffect(() => {
+    void window.mochi?.listPresets().then(setPresets)
+  }, [library])
+
+  const usePreset = (next: string): void => {
+    dispatch({
+      type: 'agents',
+      agents: agents.map((a) =>
+        a.id === settings.defaultAgentId ? { ...a, spritePreset: next } : a
+      )
+    })
+    // The library is loaded per preset, so it has to be re-read for the new art
+    // to reach the stage and the mascot layer.
+    reloadLibrary()
+  }
 
   return (
     <>
@@ -50,14 +70,36 @@ export function MascotStudio(): React.JSX.Element {
       <div className="studio">
         {/* Left — sprite set */}
         <div className="studio-left">
-          <button
-            className="folder-chip mono"
-            onClick={() => window.mochi?.openFolder('sprites')}
-            title="Open the folder"
-          >
-            <FolderOpen size={12} strokeWidth={1.8} />
-            mascots/{preset}/
-          </button>
+          <div className="preset-row">
+            <button
+              className="folder-chip mono"
+              onClick={() => window.mochi?.openFolder('sprites')}
+              title="Open the folder"
+            >
+              <FolderOpen size={12} strokeWidth={1.8} />
+              mascots/{preset}/
+            </button>
+            {presets.length > 1 && (
+              <select
+                className="cell-select preset-select"
+                value={preset}
+                aria-label="Sprite set"
+                onChange={(e) => usePreset(e.target.value)}
+              >
+                {presets.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {presets.length <= 1 && (
+            <span className="meta">
+              Drop another folder into <span className="mono">mascots/</span> to swap the whole
+              sprite set.
+            </span>
+          )}
 
           <div className="sprite-grid">
             {MASCOT_STATES.map((s) => {
