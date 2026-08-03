@@ -106,7 +106,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   delegationLimit: 2,
   fallbackToOllamaOffline: false,
   storageProvider: 'libsql',
-  agentMayPickStickers: true
+  agentMayPickStickers: true,
+  mcpServers: [],
+  // Off by default: skills are read off the filesystem, and turning that on
+  // without asking would quietly widen what the agent can reach.
+  skills: { enabled: false, allow: 'all' }
 }
 
 /** The rules table from the handoff, armed on first launch. */

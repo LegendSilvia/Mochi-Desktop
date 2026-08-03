@@ -7,6 +7,7 @@ import { DefaultsPane } from './DefaultsPane'
 import { MemoryPane } from './MemoryPane'
 import { SimplePanes } from './SimplePanes'
 import { NotesPane } from './NotesPane'
+import { ToolsPane } from './ToolsPane'
 import { WipPane } from './WipPane'
 import './settings.css'
 
@@ -79,6 +80,8 @@ export function SettingsModal(): React.JSX.Element {
         return <MemoryPane />
       case 'notes':
         return <NotesPane />
+      case 'tools':
+        return <ToolsPane />
       default:
         return <SimplePanes screen={screen} />
     }

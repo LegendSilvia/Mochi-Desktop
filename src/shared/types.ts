@@ -194,6 +194,32 @@ export interface AppSettings {
   storageProvider: 'libsql' | 'postgres' | 'upstash'
   /** Agent may call sendSticker() on its own, beyond the armed rules. */
   agentMayPickStickers: boolean
+  /** MCP servers offered to agents on the subscription backend. */
+  mcpServers: McpServerSpec[]
+  /**
+   * Agent Skills. `all` hands over every skill the Claude Code install can see;
+   * a list restricts it to those names.
+   */
+  skills: { enabled: boolean; allow: string[] | 'all' }
+}
+
+/**
+ * One MCP server.
+ *
+ * `http` points at a URL; `stdio` launches a local command. Kept deliberately
+ * close to the Agent SDK's own shape so wiring it through is a rename, not a
+ * translation layer that can drift.
+ */
+export interface McpServerSpec {
+  id: string
+  name: string
+  type: 'http' | 'stdio'
+  /** http only. */
+  url?: string
+  /** stdio only. */
+  command?: string
+  args?: string[]
+  enabled: boolean
 }
 
 export interface AssetLibrary {

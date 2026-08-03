@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import type { HonoBindings, HonoVariables } from '@mastra/hono'
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai'
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { bus } from '../mastra/events'
 import { load } from './store'
@@ -232,6 +233,27 @@ function buildSystemPrompt(agent: AgentLoadout): string {
 }
 
 /**
+ * User-configured MCP servers, in the Agent SDK's own shape.
+ *
+ * Only enabled ones are passed, and a server missing the field its transport
+ * needs is skipped rather than handed over half-formed — the SDK's failure for
+ * that is a stalled startup, which is far harder to read than an absent tool.
+ */
+function userMcpServers(): Record<string, McpServerConfig> {
+  const { settings } = load()
+  const out: Record<string, McpServerConfig> = {}
+  for (const server of settings.mcpServers ?? []) {
+    if (!server.enabled) continue
+    if (server.type === 'http' && server.url) {
+      out[server.name] = { type: 'http', url: server.url }
+    } else if (server.type === 'stdio' && server.command) {
+      out[server.name] = { type: 'stdio', command: server.command, args: server.args ?? [] }
+    }
+  }
+  return out
+}
+
+/**
  * Who this session may delegate to.
  *
  * `@agent` adds ids to the session; without telling the supervisor they exist,
@@ -360,7 +382,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     const chatId = body.id ?? agentId
     const prompt = latestUserText(body.messages)
 
-    const { agents } = load()
+    const { agents, settings } = load()
     const agent = agents.find((a) => a.id === agentId)
 
     // The subscription only covers Anthropic models. An agent pinned to
@@ -405,7 +427,12 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     .join('\n\n')
                 : undefined,
               model: modelName || undefined,
-              mcpServers: { mochi: mochiServer },
+              mcpServers: { mochi: mochiServer, ...userMcpServers() },
+              // Skills live on the filesystem, so they stay off until asked for —
+              // enabling them silently would widen what the agent can reach.
+              ...(settings.skills?.enabled
+                ? { skills: settings.skills.allow, settingSources: ['project' as const] }
+                : {}),
               allowedTools: [
                 `${TOOL_PREFIX}sendSticker`,
                 `${TOOL_PREFIX}setMascotState`,
