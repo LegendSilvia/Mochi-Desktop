@@ -92,6 +92,11 @@ export interface MascotConfig {
   rememberPosition: boolean
   /** Unprompted-talk likelihood, 0–10. */
   talksUnprompted: number
+  /**
+   * Sound played when the mascot enters each state. Absent or null means silent
+   * for that state — only `done`/`error` are worth a noise by default.
+   */
+  stateSounds?: Partial<Record<MascotState, string | null>>
   bubbleStyle: 'soft' | 'square' | 'none'
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { playSound, isQuietNow } from '@renderer/lib/audio'
-import type { IdleMotion, MascotShell } from '@shared/types'
+import type { IdleMotion, MascotShell, MascotState } from '@shared/types'
 import './mascot.css'
 
 const POS_KEY = 'mochi.mascot.pos'
@@ -45,7 +45,7 @@ function readStoredPos(): Pos | null {
  *     re-render, so the loop doesn't restart and visibly jump.
  */
 export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): React.JSX.Element | null {
-  const { settings, mascotState, mascotNote, burst, spriteSrc, fireSticker } = useStore()
+  const { settings, mascotState, mascotNote, burst, spriteSrc, soundSrc, fireSticker } = useStore()
   const cfg = settings.mascot
 
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -188,6 +188,21 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     },
     [cfg.dragAnywhere, cfg.bounceOnDrop, cfg.rememberPosition, clamp, schedule, write, fireSticker]
   )
+
+  // Play the sound mapped to a state when the mascot enters it. Skips the first
+  // render so opening the app doesn't announce "idle" at you.
+  const lastState = useRef<MascotState | null>(null)
+  useEffect(() => {
+    const previous = lastState.current
+    lastState.current = mascotState
+    if (previous === null || previous === mascotState) return
+    const id = cfg.stateSounds?.[mascotState]
+    if (!id) return
+    const quiet = settings.quietHours.enabled
+      ? isQuietNow(settings.quietHours.from, settings.quietHours.to)
+      : false
+    void playSound(soundSrc(id), { enabled: settings.sound, quiet })
+  }, [mascotState, cfg.stateSounds, settings.sound, settings.quietHours, soundSrc])
 
   // A sticker burst: sound, squash-and-stretch, state label, and the configured
   // render targets — all from one event so they always land together.

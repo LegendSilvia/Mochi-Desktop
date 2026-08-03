@@ -118,13 +118,18 @@ export function MascotStudio(): React.JSX.Element {
             <span className="meta">file name becomes the state</span>
           </button>
 
+          {/* These were inert. They set the app accent, which is what actually
+              recolours the mascot's shell, glow and highlights. */}
           <div className="swatch-row">
             {['#B1DF7D', '#FAEBE7', '#F2D4A0', '#473646', '#9dc98a'].map((c) => (
               <button
                 key={c}
                 className="swatch"
                 style={{ background: c }}
+                data-on={settings.accent.toLowerCase() === c.toLowerCase()}
                 aria-label={`Recolour to ${c}`}
+                aria-pressed={settings.accent.toLowerCase() === c.toLowerCase()}
+                onClick={() => dispatch({ type: 'settings', patch: { accent: c } })}
               />
             ))}
           </div>
@@ -234,14 +239,37 @@ export function MascotStudio(): React.JSX.Element {
         <div className="studio-right">
           <section className="config-card">
             <span className="section-label">State → sprite → sound</span>
+            {/* This row printed cfg.idleMotion and sounds[0] for every state, so
+                it always claimed the same mapping regardless of reality. The
+                sprite half is now read from the loaded set, and the sound half
+                is a real per-state choice the mascot plays on entering it. */}
             {MASCOT_STATES.map((s) => (
               <div className="map-row" key={s}>
                 <span className="map-dot" style={{ background: STATE_DOT[s] }} />
                 <span className="map-state">{MASCOT_STATE_LABELS[s]}</span>
-                <span className="mono map-meta">
-                  {spriteSrc(s) ? 'sprite' : '—'} · {cfg.idleMotion} ·{' '}
-                  {library?.sounds[0]?.id ?? 'chime'}
+                <span className="mono map-meta" title={spriteSrc(s) ? 'sprite found' : 'no sprite'}>
+                  {spriteSrc(s) ? 'sprite' : 'no art'}
                 </span>
+                <select
+                  className="cell-select map-sound"
+                  aria-label={`Sound for ${s}`}
+                  value={cfg.stateSounds?.[s] ?? ''}
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'mascot-config',
+                      patch: {
+                        stateSounds: { ...(cfg.stateSounds ?? {}), [s]: e.target.value || null }
+                      }
+                    })
+                  }
+                >
+                  <option value="">silent</option>
+                  {(library?.sounds ?? []).map((snd) => (
+                    <option key={snd.id} value={snd.id}>
+                      {snd.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             ))}
           </section>
