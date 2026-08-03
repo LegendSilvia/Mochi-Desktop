@@ -3,6 +3,7 @@ import { StoreProvider } from './state/store'
 import { useStore } from './state/context'
 import { TitleBar } from './components/shell/TitleBar'
 import { Rail } from './components/shell/Rail'
+import { CommandPalette } from './components/shell/CommandPalette'
 import { MascotLayer } from './components/mascot/MascotLayer'
 import { NewSession } from './screens/NewSession'
 import { Session } from './screens/Session'
@@ -62,6 +63,9 @@ function Shortcuts(): null {
       } else if (key === ';') {
         e.preventDefault()
         fireSticker()
+      } else if (key === 'k') {
+        e.preventDefault()
+        dispatch({ type: 'toggle', key: 'searchOpen' })
       }
     }
     window.addEventListener('keydown', onKey)
@@ -82,6 +86,7 @@ function Shell(): React.JSX.Element {
         </main>
       </div>
       <MascotLayer />
+      <CommandPalette />
       <Shortcuts />
     </div>
   )
