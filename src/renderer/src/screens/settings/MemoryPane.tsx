@@ -13,13 +13,25 @@ import { Row, ScreenHeader, Slider, Toggle } from '@renderer/components/ui/Contr
 export function MemoryPane(): React.JSX.Element {
   const { agents, settings, dispatch, sessions } = useStore()
   const agent = agents.find((a) => a.id === settings.defaultAgentId) ?? agents[0]
-  const [facts, setFacts] = useState<string[]>([
-    'Prefers Windows; ships Windows builds first.',
-    'Wants soft, low-contrast UI. No pure black or white.',
-    'Working on Mochi, an Electron console for Mastra agents.'
-  ])
+  const [facts, setFacts] = useState<string[]>([])
   const [draft, setDraft] = useState('')
   const [topMatches, setTopMatches] = useState(5)
+
+  // Every control below is bound to an agent. With none created yet there is
+  // nothing to configure, so say that instead of dereferencing undefined.
+  if (!agent) {
+    return (
+      <>
+        <ScreenHeader title="Memory" subtitle="What an agent keeps between sessions." />
+        <div className="screen-body">
+          <p className="meta">
+            No agents yet — create a loadout in Agents &amp; loadouts and its memory settings
+            will show up here.
+          </p>
+        </div>
+      </>
+    )
+  }
 
   const patchAgent = (p: Partial<typeof agent>): void => {
     dispatch({

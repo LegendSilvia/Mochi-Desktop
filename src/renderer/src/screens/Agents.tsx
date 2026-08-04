@@ -3,6 +3,7 @@ import { Plus, Copy, Trash2, Search, Star } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { ArtPlaceholder, Row, ScreenHeader, Slider, Toggle } from '@renderer/components/ui/Controls'
 import { ModelPicker } from '@renderer/components/ui/ModelPicker'
+import { BLANK_AGENT } from '@shared/defaults'
 import type { AgentLoadout } from '@shared/types'
 import './screens.css'
 
@@ -46,18 +47,23 @@ export function Agents(): React.JSX.Element {
   }
 
   const create = (from?: AgentLoadout): void => {
-    const template = from ?? agents[0]
-    if (!template) return
+    // Falls back to BLANK_AGENT rather than agents[0], so the very first loadout
+    // can be built on a fresh install where there is nothing to clone.
+    const template = from ?? agents[0] ?? BLANK_AGENT
     const name = from ? `${from.name} copy` : 'New agent'
     const id = makeId(name, agents.map((a) => a.id))
+    // The first agent becomes the default, or nothing would be selectable on the
+    // Start screen and settings.defaultAgentId would stay dangling.
+    const isFirst = agents.length === 0
     const next: AgentLoadout = {
       ...template,
       id,
       name,
-      isDefault: false,
-      ...(from ? {} : { description: 'a fresh loadout — tell it who it is', instructions: '' })
+      isDefault: isFirst,
+      ...(from ? {} : { description: BLANK_AGENT.description, instructions: '' })
     }
     dispatch({ type: 'agents', agents: [...agents, next] })
+    if (isFirst) dispatch({ type: 'settings', patch: { defaultAgentId: id } })
     setSelectedId(id)
   }
 
@@ -173,7 +179,11 @@ export function Agents(): React.JSX.Element {
           <button className="loadout-new" onClick={() => create()}>
             <Plus size={18} strokeWidth={1.8} />
             <span>New loadout</span>
-            <span className="meta">starts from your default, then edit below</span>
+            <span className="meta">
+              {agents.length === 0
+                ? 'your first agent — then give it a name and instructions below'
+                : 'starts from your default, then edit below'}
+            </span>
           </button>
         </div>
 

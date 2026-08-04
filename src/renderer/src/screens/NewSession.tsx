@@ -31,6 +31,30 @@ export function NewSession(): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const selected = agents.find((a) => a.id === newAgentId) ?? agents[0]
 
+  // A fresh install has no agents at all. Everything below dereferences
+  // `selected`, so bail to an empty state rather than rendering a broken form.
+  if (!selected) {
+    return (
+      <div className="screen-body new-session">
+        <div className="new-col">
+          <div>
+            <h1 className="new-title">Start a session</h1>
+            <p className="new-sub">
+              There are no agents yet. Create a loadout first — a name, a model and a line
+              about who it is — and it becomes your default.
+            </p>
+          </div>
+          <div>
+            <button className="pill-primary" onClick={() => dispatch({ type: 'screen', screen: 'agents' })}>
+              Create your first agent
+              <ArrowRight size={14} strokeWidth={2.2} />
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const start = (): void => {
     const session: Session = {
       id: `s-${Date.now().toString(36)}`,
