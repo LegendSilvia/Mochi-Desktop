@@ -35,6 +35,7 @@ const IPC = {
   ragRemove: 'mochi:rag-remove',
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
+  readText: 'mochi:read-text',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -138,6 +139,8 @@ export interface MochiApi {
   ragRemove: (id: string) => Promise<void>
   ragSearch: (q: string) => Promise<RagHit[]>
   ragEmbedder: () => Promise<EmbedderInfo>
+  /** File contents, so a diff can number its lines. Null when unreadable. */
+  readText: (path: string) => Promise<string | null>
   saveState: (patch: StatePatch) => Promise<PersistedState>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -173,6 +176,7 @@ const api: MochiApi = {
   ragRemove: (id) => ipcRenderer.invoke(IPC.ragRemove, id),
   ragSearch: (q) => ipcRenderer.invoke(IPC.ragSearch, q),
   ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
+  readText: (path) => ipcRenderer.invoke(IPC.readText, path),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),

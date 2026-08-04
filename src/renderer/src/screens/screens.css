@@ -660,6 +660,17 @@
   width: 8px;
   color: var(--tx3);
 }
+/* Right-aligned and fixed width so the signs and code stay in one column
+   however many digits the line numbers run to. Empty when the hunk could not be
+   located, which keeps the gutter rather than reflowing the whole diff. */
+.diff-num {
+  flex-shrink: 0;
+  width: 3.2em;
+  text-align: right;
+  color: var(--tx3);
+  opacity: 0.7;
+  user-select: none;
+}
 .diff-add {
   background: color-mix(in srgb, var(--ac) 12%, transparent);
 }
@@ -697,6 +708,24 @@
 .tool-group-body .tool-diff {
   border-radius: 8px;
   margin: 2px 0 6px;
+}
+
+/* A settled approval reads as a receipt, not as a question — same folded shape
+   as a finished tool call so a turn's history is one consistent stack. */
+.perm-card-settled {
+  padding: 0;
+  overflow: hidden;
+}
+.perm-card-settled .perm-icon {
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.perm-settled-body {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .tool-error {
   padding: 8px 12px;

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ShieldQuestion, Check, X, Infinity as InfinityIcon } from 'lucide-react'
+import { ShieldQuestion, Check, X, Infinity as InfinityIcon, ChevronRight } from 'lucide-react'
 import './chat.css'
 
 /**
@@ -54,19 +54,56 @@ export function PermissionCard({
 
   const target = request.blockedPath || describeTarget(request.input)
 
+  /*
+   * A settled approval folds away.
+   *
+   * While it is waiting this is the most important thing on screen and stays
+   * open. Afterwards it is a receipt, and leaving it at full height pushed the
+   * reply it was about down past the fold — the card said "allowed, carrying
+   * on" in more space than the answer it enabled.
+   */
+  if (stale || sent !== null) {
+    const outcome = stale
+      ? 'asked in an earlier run'
+      : sent === 'allow'
+        ? 'allowed'
+        : 'denied'
+    return (
+      <details className="perm-card perm-card-settled" data-done="true">
+        <summary className="tool-summary">
+          <ChevronRight size={12} strokeWidth={2.2} className="tool-chevron" />
+          <div className="tool-row">
+            <ShieldQuestion size={13} strokeWidth={1.9} className="perm-icon" />
+            <span className="mono tool-id">{request.toolName}</span>
+            <span className="mono tool-arg">{target}</span>
+            <span className="mono tool-dur">{outcome}</span>
+          </div>
+        </summary>
+        <div className="perm-settled-body">
+          {target && <div className="perm-target mono">{target}</div>}
+          <div className="perm-settled meta">
+            {stale
+              ? 'The run that asked this has ended, so the answer no longer goes anywhere.'
+              : sent === 'allow'
+                ? 'You allowed this.'
+                : 'You declined this.'}
+          </div>
+        </div>
+      </details>
+    )
+  }
+
   return (
-    <div className="perm-card" data-done={stale || sent !== null}>
+    <div className="perm-card" data-done={false}>
       <div className="perm-head">
         <ShieldQuestion size={14} strokeWidth={1.9} />
         <span>
-          <strong>{request.toolName}</strong> {stale ? 'asked to run' : 'wants to run'}
+          <strong>{request.toolName}</strong> wants to run
         </span>
       </div>
       {target && <div className="perm-target mono">{target}</div>}
 
-      {stale ? (
-        <div className="perm-settled meta">Asked in an earlier run — no longer waiting.</div>
-      ) : sent === null ? (
+      {
         <div className="perm-actions">
           <button className="pill-primary" onClick={() => answer('allow')}>
             <Check size={13} strokeWidth={2.4} />
@@ -83,11 +120,7 @@ export function PermissionCard({
             Deny
           </button>
         </div>
-      ) : (
-        <div className="perm-settled meta">
-          {sent === 'allow' ? 'Allowed — carrying on.' : 'Denied.'}
-        </div>
-      )}
+      }
     </div>
   )
 }

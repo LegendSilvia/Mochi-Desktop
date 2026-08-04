@@ -13,7 +13,8 @@ import {
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { playSound } from '@renderer/lib/audio'
-import { formatStat, hunkOf } from '@renderer/lib/diffStat'
+import { formatStat, hunkOf, pathOf } from '@renderer/lib/diffStat'
+import { DiffBody } from './DiffBody'
 import './chat.css'
 
 /** AI SDK tool-part states, mapped to the words the design uses. */
@@ -240,20 +241,7 @@ export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | nu
         {row}
       </summary>
       {hunk && (
-        <div className="tool-diff mono">
-          {hunk.removedLines.map((line, i) => (
-            <div className="diff-line diff-del" key={`d${i}`}>
-              <span className="diff-sign">−</span>
-              <span className="diff-text">{line || ' '}</span>
-            </div>
-          ))}
-          {hunk.addedLines.map((line, i) => (
-            <div className="diff-line diff-add" key={`a${i}`}>
-              <span className="diff-sign">+</span>
-              <span className="diff-text">{line || ' '}</span>
-            </div>
-          ))}
-        </div>
+        <DiffBody hunk={hunk} path={pathOf(part.input)} whole={name === 'Write'} />
       )}
       {failed && part.errorText && <div className="tool-error mono">{part.errorText}</div>}
     </details>

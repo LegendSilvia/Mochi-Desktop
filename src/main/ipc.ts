@@ -42,6 +42,7 @@ export const IPC = {
   ragRemove: 'mochi:rag-remove',
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
+  readText: 'mochi:read-text',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -95,6 +96,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   }))
 
   ipcMain.handle(IPC.getLibrary, (_e, spritePreset?: string) => readLibrary(spritePreset))
+
+  /**
+   * Read a text file back, so a diff can say which line it changed.
+   *
+   * The transcript only carries the tool's `old_string`, which is enough to show
+   * what moved but not where it sits — line numbers need the file. Capped
+   * because this exists to number a hunk, not to ship a database into the
+   * renderer, and answers null rather than throwing on anything unreadable: a
+   * missing file just means the diff shows without numbers.
+   */
+  ipcMain.handle(IPC.readText, (_e, path: string): string | null => {
+    try {
+      const text = readFileSync(path, 'utf-8')
+      return text.length > 2_000_000 ? null : text
+    } catch {
+      return null
+    }
+  })
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())
 
