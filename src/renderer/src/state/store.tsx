@@ -3,6 +3,7 @@ import type { MascotState } from '@shared/types'
 import { DEFAULT_AGENTS, DEFAULT_RULES, DEFAULT_SESSIONS, DEFAULT_SETTINGS } from '@shared/defaults'
 import { BUBBLE_LINES, SETTINGS_SCREENS } from './screens'
 import { StoreCtx, type Action, type State, type Store } from './context'
+import { TOURS } from './tours'
 
 const initial: State = {
   ready: false,
@@ -26,7 +27,8 @@ const initial: State = {
   newAgentId: DEFAULT_SETTINGS.defaultAgentId,
   newSessionType: DEFAULT_SETTINGS.defaultSessionType,
   burst: null,
-  pendingSend: null
+  pendingSend: null,
+  tour: null
 }
 
 /** Overlays that float above the app — only one may be open at a time. */
@@ -88,6 +90,24 @@ function reducer(state: State, action: Action): State {
         sessions: action.payload.sessions,
         rules: action.payload.rules
       }
+    // Navigation lives in the reducer rather than an effect: advancing a step and
+    // moving the user to the screen that step is about are one atomic change, and
+    // doing it in an effect would mean a render where the two disagree.
+    case 'tour-start': {
+      const goto = TOURS.find((t) => t.id === action.id)?.steps[0]?.goto
+      return { ...state, tour: { id: action.id, step: 0 }, screen: goto ?? state.screen }
+    }
+    case 'tour-step': {
+      if (!state.tour) return state
+      const goto = TOURS.find((t) => t.id === state.tour?.id)?.steps[action.step]?.goto
+      return {
+        ...state,
+        tour: { ...state.tour, step: action.step },
+        screen: goto ?? state.screen
+      }
+    }
+    case 'tour-end':
+      return { ...state, tour: null }
     default:
       return state
   }
@@ -138,6 +158,9 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
           newSessionType: boot.settings.defaultSessionType
         }
       })
+      // After ready, so the tour reads real persisted state rather than defaults.
+      const pending = TOURS.find((t) => !(boot.settings.toursSeen ?? []).includes(t.id))
+      if (pending) dispatch({ type: 'tour-start', id: pending.id })
     })()
     return () => {
       cancelled = true

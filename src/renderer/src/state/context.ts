@@ -57,6 +57,8 @@ export interface State {
    * and then dropped on the floor.
    */
   pendingSend: string | null
+  /** The running tour, or null. Steps are indexes into its definition. */
+  tour: { id: string; step: number } | null
 }
 
 export type Action =
@@ -87,6 +89,9 @@ export type Action =
   | { type: 'burst'; burst: StickerBurst | null }
   | { type: 'pending-send'; text: string | null }
   | { type: 'sync'; payload: PersistedState }
+  | { type: 'tour-start'; id: string }
+  | { type: 'tour-step'; step: number }
+  | { type: 'tour-end' }
 
 export interface FireStickerOptions {
   stickerId?: string | null
