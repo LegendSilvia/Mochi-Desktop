@@ -26,6 +26,26 @@ import {
   setMascotVisible
 } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
+import {
+  destroyWorkspaces,
+  diagnoseFile,
+  listWorkspaceDir,
+  listWorkspaceSkills,
+  readWorkspaceFile,
+  searchWorkspace,
+  statWorkspacePath,
+  writeWorkspaceFile
+} from './workspace'
+import {
+  killAllTerminals,
+  killTerminal,
+  resizeTerminal,
+  setTerminalEvents,
+  startTerminal,
+  terminalAvailable,
+  terminalBacklog,
+  writeTerminal
+} from './terminal'
 import { getPaths } from './paths'
 import { basename, join } from 'node:path'
 import { bus } from '../mastra/events'
@@ -68,12 +88,29 @@ export const IPC = {
   agentFinished: 'mochi:agent-finished',
   agentExport: 'mochi:agent-export',
   agentImport: 'mochi:agent-import',
+  // Workspace — the folder, shared with the agent
+  wsList: 'mochi:ws-list',
+  wsRead: 'mochi:ws-read',
+  wsWrite: 'mochi:ws-write',
+  wsStat: 'mochi:ws-stat',
+  wsSearch: 'mochi:ws-search',
+  wsDiagnose: 'mochi:ws-diagnose',
+  wsSkills: 'mochi:ws-skills',
+  // Terminal
+  ptyStart: 'mochi:pty-start',
+  ptyWrite: 'mochi:pty-write',
+  ptyResize: 'mochi:pty-resize',
+  ptyKill: 'mochi:pty-kill',
+  ptyBacklog: 'mochi:pty-backlog',
+  ptyAvailable: 'mochi:pty-available',
   // main → renderer
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
   mascotState: 'mochi:mascot-state',
   approval: 'mochi:approval',
-  stateChanged: 'mochi:state-changed'
+  stateChanged: 'mochi:state-changed',
+  ptyData: 'mochi:pty-data',
+  ptyExit: 'mochi:pty-exit'
 } as const
 
 /** Providers Mastra's model router knows, with the env var each one reads. */
@@ -388,6 +425,46 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return canceled ? [] : filePaths
   })
 
+  /*
+   * The folder, as the widgets see it.
+   *
+   * Every one of these goes through the same Mastra Workspace the agent's file
+   * tools use, so the navigator cannot show you a tree the agent cannot reach,
+   * and a save here collides with an agent edit rather than silently winning.
+   * Each answers with a value or an `{ error }` object; none reject, because a
+   * missing folder is an ordinary state for a fresh session rather than a fault.
+   */
+  ipcMain.handle(IPC.wsList, (_e, folder: string, path?: string) => listWorkspaceDir(folder, path))
+  ipcMain.handle(IPC.wsRead, (_e, folder: string, path: string) => readWorkspaceFile(folder, path))
+  ipcMain.handle(
+    IPC.wsWrite,
+    (_e, folder: string, path: string, content: string, expectedMtime?: number | null) =>
+      writeWorkspaceFile(folder, path, content, expectedMtime)
+  )
+  ipcMain.handle(IPC.wsStat, (_e, folder: string, path: string) => statWorkspacePath(folder, path))
+  ipcMain.handle(IPC.wsSearch, (_e, folder: string, query: string) =>
+    searchWorkspace(folder, query)
+  )
+  ipcMain.handle(IPC.wsDiagnose, (_e, folder: string, path: string, content: string) =>
+    diagnoseFile(folder, path, content)
+  )
+  ipcMain.handle(IPC.wsSkills, (_e, folder: string) => listWorkspaceSkills(folder))
+
+  /*
+   * Terminals. A real PTY, not the workspace sandbox — see terminal.ts for why
+   * those are different things.
+   */
+  ipcMain.handle(IPC.ptyAvailable, () => terminalAvailable())
+  ipcMain.handle(IPC.ptyStart, (_e, cwd: string, cols?: number, rows?: number) =>
+    startTerminal(cwd, cols, rows)
+  )
+  ipcMain.handle(IPC.ptyWrite, (_e, id: string, data: string) => writeTerminal(id, data))
+  ipcMain.handle(IPC.ptyResize, (_e, id: string, cols: number, rows: number) =>
+    resizeTerminal(id, cols, rows)
+  )
+  ipcMain.handle(IPC.ptyKill, (_e, id: string) => killTerminal(id))
+  ipcMain.handle(IPC.ptyBacklog, (_e, id: string) => terminalBacklog(id))
+
   ipcMain.handle(IPC.ragAdd, (_e, paths: string[]) => addDocuments(paths))
   ipcMain.handle(IPC.ragList, () => listDocuments())
   ipcMain.handle(IPC.ragRemove, (_e, id: string) => removeDocument(id))
@@ -418,8 +495,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // on screen when a run stops to ask.
   bus.on('approval', (payload) => broadcast(IPC.approval, payload))
 
+  /**
+   * PTY output goes to the app window alone.
+   *
+   * Unlike stickers and mascot state, this is not a second view of shared state
+   * — the overlay has no terminal, and shipping every keystroke of output to a
+   * window that will discard it is pure cost on a hot path.
+   */
+  setTerminalEvents({
+    onData: (id, data) => {
+      const win = getWindow()
+      if (win && !win.isDestroyed()) win.webContents.send(IPC.ptyData, { id, data })
+    },
+    onExit: (id, exitCode) => {
+      const win = getWindow()
+      if (win && !win.isDestroyed()) win.webContents.send(IPC.ptyExit, { id, exitCode })
+    }
+  })
+
   app.on('before-quit', () => {
     void watcher?.close()
     watcher = null
+    // Shells and language servers are child processes. Without this they
+    // outlive the app and pile up across restarts.
+    killAllTerminals()
+    void destroyWorkspaces()
   })
 }

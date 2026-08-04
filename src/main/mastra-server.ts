@@ -8,6 +8,7 @@ import { createMastra } from '../mastra/index'
 import { registerAgentSdkRoute } from './agent-sdk-route'
 import { databaseUrl } from './paths'
 import { load } from './store'
+import { workspaceFor } from './workspace'
 import type { ServerInfo } from '../shared/types'
 
 /**
@@ -33,7 +34,10 @@ export async function startMastraServer(appVersion: string): Promise<ServerInfo>
   const mastra = createMastra({
     databaseUrl: databaseUrl(),
     loadouts: agents,
-    embeddingModel: settings.modelRoles.embeddings
+    embeddingModel: settings.modelRoles.embeddings,
+    // Hands the agent the same folder-keyed Workspace the widgets use, so
+    // "what the agent can reach" and "what you can browse" are one thing.
+    workspaceFor
   })
 
   const app = new Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>()

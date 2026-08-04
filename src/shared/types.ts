@@ -352,6 +352,11 @@ export interface Session {
   threadId?: string
   workspacePath?: string
   branch?: string
+  /** Floating panels open over this chat, with their geometry. Per-session
+   *  because a terminal and an open file belong to the folder you are working
+   *  in, not to the app. Live PTY ids are deliberately not persisted — the shell
+   *  dies with the process, so a restored terminal widget opens a fresh shell. */
+  widgets?: WidgetInstance[]
 }
 
 export interface QuietHours {
@@ -529,4 +534,85 @@ export interface StickerFireEvent {
   soundId: string | null
   modes: StickerMode[]
   caption?: string
+}
+
+/* ---------------------------------------------------------------- widgets */
+
+/**
+ * The floating panels that live over the chat.
+ *
+ * Two families, deliberately in one type. The first five are the old right-hand
+ * panel's sections, which became widgets so that everything overlaying the chat
+ * collapses, moves and resizes by the same rules. The rest are the tools —
+ * navigator, editor, terminal and friends.
+ *
+ * The difference that matters is who creates them: panel widgets appear on their
+ * own once they have something to say, tools are opened by the user or by
+ * another widget (clicking a file in the navigator opens the editor).
+ */
+export type WidgetKind =
+  | 'agents'
+  | 'activity'
+  | 'files'
+  | 'rules'
+  | 'permissions'
+  | 'navigator'
+  | 'editor'
+  | 'terminal'
+  | 'search'
+  | 'skills'
+  | 'tasks'
+
+/** Position and size in chat-relative pixels. Absent until the user drags. */
+export interface WidgetGeom {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface WidgetInstance {
+  id: string
+  kind: WidgetKind
+  /** Widgets are born collapsed — a bubble the user clicks to open. */
+  open: boolean
+  geom?: WidgetGeom
+  /** Editor: the workspace-relative file. Terminal: its title. */
+  path?: string
+  title?: string
+}
+
+/** One row in the file navigator. Mirrors Mastra's `FileEntry`. */
+export interface WsEntry {
+  name: string
+  type: 'file' | 'directory'
+  size?: number
+}
+
+export interface WsHit {
+  path: string
+  score: number
+  excerpt: string
+}
+
+export interface WsDiagnostic {
+  line: number
+  character: number
+  /** LSP severity: 1 error, 2 warning, 3 info, 4 hint. */
+  severity: number
+  message: string
+  source?: string
+}
+
+export interface WsSkill {
+  name: string
+  description?: string
+  path: string
+}
+
+export interface WsFile {
+  text: string
+  /** Handed back on save so a write can refuse when the agent got there first. */
+  mtime: number | null
+  truncated: boolean
 }

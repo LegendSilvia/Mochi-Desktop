@@ -19,7 +19,12 @@ import type {
   EmbedderInfo,
   SpriteFile,
   SpriteSlot,
-  DisplayInfo
+  DisplayInfo,
+  WsEntry,
+  WsFile,
+  WsHit,
+  WsDiagnostic,
+  WsSkill
 } from '../shared/types'
 
 /** Main answers with this instead of rejecting, so a bad folder name surfaces as
@@ -62,11 +67,26 @@ const IPC = {
   agentFinished: 'mochi:agent-finished',
   agentExport: 'mochi:agent-export',
   agentImport: 'mochi:agent-import',
+  wsList: 'mochi:ws-list',
+  wsRead: 'mochi:ws-read',
+  wsWrite: 'mochi:ws-write',
+  wsStat: 'mochi:ws-stat',
+  wsSearch: 'mochi:ws-search',
+  wsDiagnose: 'mochi:ws-diagnose',
+  wsSkills: 'mochi:ws-skills',
+  ptyStart: 'mochi:pty-start',
+  ptyWrite: 'mochi:pty-write',
+  ptyResize: 'mochi:pty-resize',
+  ptyKill: 'mochi:pty-kill',
+  ptyBacklog: 'mochi:pty-backlog',
+  ptyAvailable: 'mochi:pty-available',
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
   mascotState: 'mochi:mascot-state',
   approval: 'mochi:approval',
-  stateChanged: 'mochi:state-changed'
+  stateChanged: 'mochi:state-changed',
+  ptyData: 'mochi:pty-data',
+  ptyExit: 'mochi:pty-exit'
 } as const
 
 export interface Bootstrap {
@@ -177,6 +197,44 @@ export interface MochiApi {
   onSendToSession: (cb: (p: { sessionId: string; text: string }) => void) => () => void
   /** Another window persisted state; merge it so the two never drift. */
   onStateChanged: (cb: (s: PersistedState) => void) => () => void
+
+  /* -------------------------------------------------------- workspace */
+  /** The session folder, through the same Mastra Workspace the agent uses. Each
+   *  answers with a value or `{ error }` — a session with no folder set is an
+   *  ordinary state, not a fault. */
+  wsList: (folder: string, path?: string) => Promise<WsEntry[] | { error: string }>
+  wsRead: (folder: string, path: string) => Promise<WsFile | { error: string }>
+  /** `expectedMtime` makes the write refuse when the agent edited the file
+   *  first; the result then carries `stale` so the editor can offer a reload. */
+  wsWrite: (
+    folder: string,
+    path: string,
+    content: string,
+    expectedMtime?: number | null
+  ) => Promise<{ ok: true; mtime: number | null } | { ok: false; error: string; stale?: boolean }>
+  wsStat: (folder: string, path: string) => Promise<{ error: string } | Record<string, unknown>>
+  wsSearch: (
+    folder: string,
+    query: string
+  ) => Promise<{ hits: WsHit[]; indexedNow: number } | { error: string }>
+  /** Diagnostics for the editor's current buffer, not the file on disk. */
+  wsDiagnose: (folder: string, path: string, content: string) => Promise<WsDiagnostic[]>
+  wsSkills: (folder: string) => Promise<WsSkill[]>
+
+  /* --------------------------------------------------------- terminal */
+  ptyAvailable: () => Promise<{ ok: boolean; error?: string }>
+  ptyStart: (
+    cwd: string,
+    cols?: number,
+    rows?: number
+  ) => Promise<{ ok: true; id: string; pid: number } | { ok: false; error: string }>
+  ptyWrite: (id: string, data: string) => Promise<void>
+  ptyResize: (id: string, cols: number, rows: number) => Promise<void>
+  ptyKill: (id: string) => Promise<void>
+  /** Everything printed so far, replayed when a collapsed terminal reopens. */
+  ptyBacklog: (id: string) => Promise<string>
+  onPtyData: (cb: (p: { id: string; data: string }) => void) => () => void
+  onPtyExit: (cb: (p: { id: string; exitCode: number }) => void) => () => void
 }
 
 /** Subscribe helper that hands back its own unsubscribe, so effects can clean up. */
@@ -232,7 +290,24 @@ const api: MochiApi = {
   onApproval: (cb) => on<ApprovalRequest | ApprovalSettled>(IPC.approval, cb),
   onFocusSession: (cb) => on<string>(IPC.focusSession, cb),
   onSendToSession: (cb) => on<{ sessionId: string; text: string }>(IPC.sendToSession, cb),
-  onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb)
+  onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb),
+  wsList: (folder, path) => ipcRenderer.invoke(IPC.wsList, folder, path),
+  wsRead: (folder, path) => ipcRenderer.invoke(IPC.wsRead, folder, path),
+  wsWrite: (folder, path, content, expectedMtime) =>
+    ipcRenderer.invoke(IPC.wsWrite, folder, path, content, expectedMtime),
+  wsStat: (folder, path) => ipcRenderer.invoke(IPC.wsStat, folder, path),
+  wsSearch: (folder, query) => ipcRenderer.invoke(IPC.wsSearch, folder, query),
+  wsDiagnose: (folder, path, content) =>
+    ipcRenderer.invoke(IPC.wsDiagnose, folder, path, content),
+  wsSkills: (folder) => ipcRenderer.invoke(IPC.wsSkills, folder),
+  ptyAvailable: () => ipcRenderer.invoke(IPC.ptyAvailable),
+  ptyStart: (cwd, cols, rows) => ipcRenderer.invoke(IPC.ptyStart, cwd, cols, rows),
+  ptyWrite: (id, data) => ipcRenderer.invoke(IPC.ptyWrite, id, data),
+  ptyResize: (id, cols, rows) => ipcRenderer.invoke(IPC.ptyResize, id, cols, rows),
+  ptyKill: (id) => ipcRenderer.invoke(IPC.ptyKill, id),
+  ptyBacklog: (id) => ipcRenderer.invoke(IPC.ptyBacklog, id),
+  onPtyData: (cb) => on<{ id: string; data: string }>(IPC.ptyData, cb),
+  onPtyExit: (cb) => on<{ id: string; exitCode: number }>(IPC.ptyExit, cb)
 }
 
 if (process.contextIsolated) {

@@ -1,5 +1,6 @@
 import { Mastra } from '@mastra/core'
 import { Agent } from '@mastra/core/agent'
+import type { AnyWorkspace } from '@mastra/core/workspace'
 import { ModelRouterEmbeddingModel } from '@mastra/core/llm'
 import { Memory } from '@mastra/memory'
 import { TaskSignalProvider } from '@mastra/core/signals'
@@ -42,6 +43,11 @@ export function canEmbed(embeddingModel: string): boolean {
 export interface BuildAgentOptions {
   databaseUrl: string
   embeddingModel: string
+  /** Injected by main — the folder-keyed Workspace cache in src/main/workspace.ts.
+   *  Passed in rather than imported so this module stays free of main-process
+   *  imports; both run in the same process, but the dependency only points one
+   *  way. */
+  workspaceFor?: (folder: string) => AnyWorkspace | null
 }
 
 /** Build a Mastra Agent from a Mochi loadout. Loadout *is* the agent. */
@@ -93,6 +99,26 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
     // worse than no plan. Requires a memory-backed thread, which the `memory`
     // below always provides (only *semantic recall* needs an embedding key).
     signals: [new TaskSignalProvider()],
+    /**
+     * The folder, resolved per request.
+     *
+     * The agent is built once at startup, long before any session picks a
+     * folder, so this cannot be a fixed workspace. Resolving it per request from
+     * `requestContext` also means one agent serves every session rather than
+     * needing a rebuild each time a folder changes.
+     *
+     * What comes back is the *same* Workspace object the file navigator, editor
+     * and search widgets use — one LocalFilesystem, one sandbox, one LSP per
+     * folder. That is what makes an agent edit and a widget save collide
+     * honestly through mtimes instead of silently overwriting each other.
+     */
+    workspace: opts.workspaceFor
+      ? ({ requestContext }): AnyWorkspace | undefined => {
+          const folder = requestContext?.get('workspacePath')
+          if (typeof folder !== 'string' || !folder) return undefined
+          return opts.workspaceFor?.(folder) ?? undefined
+        }
+      : undefined,
     memory: new Memory({
       storage: new LibSQLStore({ id: `mochi-store-${loadout.id}`, url: opts.databaseUrl }),
       ...recallParts,
@@ -111,15 +137,19 @@ export interface CreateMastraOptions {
   loadouts?: AgentLoadout[]
   /** Model-router string for embeddings, e.g. `openai/text-embedding-3-small`. */
   embeddingModel?: string
+  /** Injected by main so the agent and the widgets share one Workspace per
+   *  folder. Omit and the agent simply has no file tools. */
+  workspaceFor?: (folder: string) => AnyWorkspace | null
 }
 
 export function createMastra({
   databaseUrl,
   loadouts = DEFAULT_AGENTS,
-  embeddingModel = 'openai/text-embedding-3-small'
+  embeddingModel = 'openai/text-embedding-3-small',
+  workspaceFor
 }: CreateMastraOptions): Mastra {
   const agents = Object.fromEntries(
-    loadouts.map((l) => [l.id, agentFromLoadout(l, { databaseUrl, embeddingModel })])
+    loadouts.map((l) => [l.id, agentFromLoadout(l, { databaseUrl, embeddingModel, workspaceFor })])
   )
 
   return new Mastra({

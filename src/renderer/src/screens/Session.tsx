@@ -38,6 +38,11 @@ import './screens.css'
  *  persistence block below. */
 const STREAM_SAVE_MS = 700
 
+/** Who the memory belongs to. Mastra groups threads (and semantic recall) under
+ *  a resource id, which names the *user* rather than the agent — and Mochi has
+ *  exactly one of those. */
+const MEMORY_RESOURCE = 'mochi-user'
+
 interface AskInput {
   question?: string
   options?: string[]
@@ -129,11 +134,43 @@ export function Session(): React.JSX.Element {
   // only in what pays — /chat bills an API key, /agent-sdk/chat draws on the
   // Claude subscription via the Agent SDK.
   const onSubscription = settings.preferSubscription
+  const folder = activeSession?.workspacePath
+  const threadId = activeSession?.threadId
   const transport = useMemo(() => {
     if (!server || !agent) return undefined
     const route = onSubscription ? 'agent-sdk/chat' : 'chat'
-    return new DefaultChatTransport({ api: `${server.baseUrl}/${route}/${agent.id}` })
-  }, [server, agent, onSubscription])
+    return new DefaultChatTransport({
+      api: `${server.baseUrl}/${route}/${agent.id}`,
+      /**
+       * Three things ride along with every turn that the default body omits.
+       *
+       * `requestContext.workspacePath` is what lets the Mastra backend resolve a
+       * workspace at all — its agent is built once at startup and has no idea
+       * which folder this session picked, so without this it runs with no file
+       * tools. The Agent SDK backend ignores it and looks the folder up from the
+       * persisted session instead.
+       *
+       * `memory` carries the thread. `Session.threadId` has existed since
+       * sessions did and was never actually sent, which is why the Mastra
+       * backend started every reply from nothing.
+       */
+      prepareSendMessagesRequest: ({ api, body, headers, messages, id }) => ({
+        api,
+        headers,
+        body: {
+          ...body,
+          id,
+          messages,
+          ...(folder ? { requestContext: { workspacePath: folder } } : {}),
+          // `resourceId` is the *user*, not the agent — it is the key working
+          // memory and semantic recall group threads under. Mochi is a
+          // single-user desktop app, so it is one constant; the thread is what
+          // separates one session from another.
+          ...(threadId ? { memory: { threadId, resourceId: MEMORY_RESOURCE } } : {})
+        }
+      })
+    })
+  }, [server, agent, onSubscription, folder, threadId])
 
   // Seeded once per session id — useChat only reads `messages` when it builds a
   // new Chat, which is exactly when the id changes.
