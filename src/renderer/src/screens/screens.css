@@ -499,7 +499,19 @@
 .msg-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* 12px read as cramped once tool and permission cards started appearing
+     between replies: two bordered blocks 12px apart look like one control with a
+     seam, rather than two separate things that happened. */
+  gap: 16px;
+}
+
+/* A card carries its own border, so it needs more air than plain text does —
+   especially where an approval sits directly above the reply about it. */
+.msg-group > .tool-card + .msg-agent,
+.msg-group > .perm-card + .msg-agent,
+.msg-group > .task-card + .msg-agent,
+.msg-group > .sticker-card + .msg-agent {
+  margin-top: 6px;
 }
 
 .msg-user {
@@ -583,6 +595,108 @@
 .tool-dur {
   font-size: 11px;
   color: var(--tx3);
+}
+
+/* --- a tool call you can open -------------------------------------------- */
+
+/* The whole row is the hit target, so the marker goes and the chevron in the
+   row does the disclosing. */
+.tool-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.tool-summary::-webkit-details-marker {
+  display: none;
+}
+.tool-summary:hover {
+  background: var(--surf2);
+}
+.tool-summary .tool-row {
+  flex: 1;
+  min-width: 0;
+}
+.tool-chevron {
+  flex-shrink: 0;
+  margin-left: 12px;
+  color: var(--tx3);
+  transition: transform 140ms ease;
+}
+.tool-card-open[open] .tool-chevron {
+  transform: rotate(90deg);
+}
+
+/* Counts sit next to the path, so the size of a change reads without opening. */
+.tool-stat {
+  display: flex;
+  gap: 7px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.tool-plus {
+  color: var(--ac);
+}
+.tool-minus {
+  color: var(--rose);
+}
+
+.tool-diff {
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  line-height: 1.65;
+  padding: 8px 0;
+  /* A long line scrolls inside the card rather than stretching the transcript. */
+  overflow-x: auto;
+}
+.diff-line {
+  display: flex;
+  gap: 10px;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff-sign {
+  flex-shrink: 0;
+  width: 8px;
+  color: var(--tx3);
+}
+.diff-add {
+  background: color-mix(in srgb, var(--ac) 12%, transparent);
+}
+.diff-add .diff-sign {
+  color: var(--ac);
+}
+.diff-del {
+  background: color-mix(in srgb, var(--rose) 12%, transparent);
+}
+.diff-del .diff-sign {
+  color: var(--rose);
+}
+.diff-text {
+  flex: 1;
+}
+
+/* Nested cards lose their own frame — the group already provides one, and two
+   borders 8px apart read as a rendering mistake. */
+.tool-group-body {
+  border-top: 1px solid var(--line);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tool-group-body .tool-card {
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+}
+.tool-group-body .tool-card:hover,
+.tool-group-body .tool-summary:hover {
+  background: var(--surf2);
+}
+.tool-group-body .tool-diff {
+  border-radius: 8px;
+  margin: 2px 0 6px;
 }
 .tool-error {
   padding: 8px 12px;
@@ -684,6 +798,16 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--tx2);
+}
+/* Same footprint as the initial it replaces, so a roster of agents with and
+   without art still lines up. */
+.mention-avatar-img {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--surf2);
+  object-fit: cover;
 }
 .mention-text {
   flex: 1;

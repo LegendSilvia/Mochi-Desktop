@@ -1,7 +1,19 @@
+import { useState } from 'react'
 import type { ToolUIPart } from 'ai'
-import { Check, Play, AudioLines, HelpCircle, Network, Lock, Circle, Loader } from 'lucide-react'
+import {
+  Check,
+  Play,
+  AudioLines,
+  HelpCircle,
+  Network,
+  Lock,
+  Circle,
+  Loader,
+  ChevronRight
+} from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { playSound } from '@renderer/lib/audio'
+import { formatStat, hunkOf } from '@renderer/lib/diffStat'
 import './chat.css'
 
 /** AI SDK tool-part states, mapped to the words the design uses. */
@@ -46,6 +58,9 @@ export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | nu
   const { stickerSrc, soundSrc, rules, settings } = useStore()
   const name = part.type.split('-').slice(1).join('-')
   const failed = part.state === 'output-error'
+  const running = part.state !== 'output-available' && part.state !== 'output-error'
+  /** Null until the user opens or closes it themselves; their choice wins after. */
+  const [openedByHand, setOpenedByHand] = useState<boolean | null>(null)
 
   // setMascotState is ambient — the mascot itself is the feedback, so a card for
   // it would just be chatter in the transcript.
@@ -173,20 +188,133 @@ export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | nu
     )
   }
 
-  return (
-    <div className="tool-card">
-      <div className="tool-row">
-        {failed ? (
-          <span className="tool-x">!</span>
-        ) : (
-          <Check size={13} strokeWidth={2.2} className="tool-check" />
-        )}
-        <span className="mono tool-id">{name}</span>
-        <span className="mono tool-arg">{part.input ? summarise(part.input) : ''}</span>
-        <span className="mono tool-dur">{TOOL_STATE_LABEL[part.state ?? 'output-available']}</span>
-      </div>
-      {failed && part.errorText && <div className="tool-error mono">{part.errorText}</div>}
+  // A file-writing call carries enough to show what changed. Everything else is
+  // a one-line row with no body worth opening.
+  const hunk = hunkOf(name, part.input)
+  const stat = hunk ? formatStat(hunk) : null
+  const body = hunk ?? (failed && part.errorText ? 'error' : null)
+
+  const row = (
+    <div className="tool-row">
+      {failed ? (
+        <span className="tool-x">!</span>
+      ) : (
+        <Check size={13} strokeWidth={2.2} className="tool-check" />
+      )}
+      <span className="mono tool-id">{name}</span>
+      <span className="mono tool-arg">{part.input ? summarise(part.input) : ''}</span>
+      {stat && (
+        <span className="tool-stat mono">
+          {hunk && hunk.added > 0 && <span className="tool-plus">+{hunk.added}</span>}
+          {hunk && hunk.removed > 0 && <span className="tool-minus">−{hunk.removed}</span>}
+        </span>
+      )}
+      <span className="mono tool-dur">{TOOL_STATE_LABEL[part.state ?? 'output-available']}</span>
     </div>
+  )
+
+  if (!body) {
+    return <div className="tool-card">{row}</div>
+  }
+
+  /*
+   * Open while it runs, closed once it lands.
+   *
+   * A tool in flight is the most interesting thing on screen — you want to see
+   * what it is doing. A finished one is history, and a long run stacks enough of
+   * them to bury the conversation, so it folds back to its summary where the
+   * counts already say what happened.
+   *
+   * `open` is `null` until the user touches it, and only then does their choice
+   * stick. Tracking it as "untouched" rather than as a boolean is what lets the
+   * automatic behaviour apply without overriding a deliberate click.
+   */
+  return (
+    <details
+      className="tool-card tool-card-open"
+      open={openedByHand ?? running}
+      onToggle={(e) => setOpenedByHand(e.currentTarget.open)}
+    >
+      <summary className="tool-summary">
+        <ChevronRight size={12} strokeWidth={2.2} className="tool-chevron" />
+        {row}
+      </summary>
+      {hunk && (
+        <div className="tool-diff mono">
+          {hunk.removedLines.map((line, i) => (
+            <div className="diff-line diff-del" key={`d${i}`}>
+              <span className="diff-sign">−</span>
+              <span className="diff-text">{line || ' '}</span>
+            </div>
+          ))}
+          {hunk.addedLines.map((line, i) => (
+            <div className="diff-line diff-add" key={`a${i}`}>
+              <span className="diff-sign">+</span>
+              <span className="diff-text">{line || ' '}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {failed && part.errorText && <div className="tool-error mono">{part.errorText}</div>}
+    </details>
+  )
+}
+
+/**
+ * Everything the agent did between one reply and the next, as one card.
+ *
+ * A turn that reads four files, greps twice and edits one stacks seven cards
+ * and buries the reply underneath them. The work is one step in the
+ * conversation, so it gets one line — while it is happening the card is open so
+ * you can watch, and it folds itself away once the step is done.
+ *
+ * Nothing is lost by folding: each call is still rendered in full inside, so a
+ * diff opened from here is the same diff it would have shown on its own.
+ */
+export function ToolGroup({ parts }: { parts: ToolUIPart[] }): React.JSX.Element {
+  const done = parts.filter(
+    (p) => p.state === 'output-available' || p.state === 'output-error'
+  ).length
+  const running = done < parts.length
+  const failed = parts.some((p) => p.state === 'output-error')
+  const [openedByHand, setOpenedByHand] = useState<boolean | null>(null)
+
+  // Distinct names in the order they ran, so the summary says what happened
+  // rather than just how much of it there was.
+  const names = [...new Set(parts.map((p) => p.type.split('-').slice(1).join('-')))]
+  const label = names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '')
+
+  return (
+    <details
+      className="tool-card tool-card-open"
+      open={openedByHand ?? running}
+      onToggle={(e) => setOpenedByHand(e.currentTarget.open)}
+    >
+      <summary className="tool-summary">
+        <ChevronRight size={12} strokeWidth={2.2} className="tool-chevron" />
+        <div className="tool-row">
+          {failed ? (
+            <span className="tool-x">!</span>
+          ) : running ? (
+            <Loader size={13} strokeWidth={2} className="tool-check" />
+          ) : (
+            <Check size={13} strokeWidth={2.2} className="tool-check" />
+          )}
+          <span className="mono tool-id">{label}</span>
+          <span className="mono tool-arg">
+            {parts.length} {parts.length === 1 ? 'step' : 'steps'}
+          </span>
+          <span className="mono tool-dur">
+            {running ? `${done}/${parts.length}` : 'done'}
+          </span>
+        </div>
+      </summary>
+      <div className="tool-group-body">
+        {parts.map((p, i) => (
+          <ToolPart key={p.toolCallId ?? i} part={p} />
+        ))}
+      </div>
+    </details>
   )
 }
 

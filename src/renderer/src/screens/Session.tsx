@@ -22,9 +22,9 @@ import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
-import { ToolPart } from '@renderer/components/chat/ToolPart'
+import { ToolGroup, ToolPart } from '@renderer/components/chat/ToolPart'
 import { Thinking } from '@renderer/components/chat/Thinking'
-import { Markdown } from '@renderer/components/chat/Markdown'
+import { SmoothText } from '@renderer/components/chat/SmoothText'
 import { MessageActions } from '@renderer/components/chat/MessageActions'
 import { AskDock, type PendingAsk } from '@renderer/components/chat/AskDock'
 import { PermissionCard, type PermissionRequest } from '@renderer/components/chat/PermissionCard'
@@ -810,7 +810,15 @@ export function Session(): React.JSX.Element {
                           )}
                         </div>
                         <div className="msg-body">
-                          <Markdown text={part.text} />
+                          {/* Only the reply currently arriving animates. `mi`
+                              is the message index, so this is "the last message,
+                              while the run is live" — anything else, including
+                              every message in a restored transcript, renders
+                              whole. */}
+                          <SmoothText
+                            text={part.text}
+                            active={busy && mi === messages.length - 1}
+                          />
                         </div>
                       </div>
                     )
@@ -829,7 +837,23 @@ export function Session(): React.JSX.Element {
                   }
 
                   if (part.type.startsWith('tool-')) {
-                    return <ToolPart key={pi} part={part as unknown as ToolUIPart} />
+                    // Already folded into a run that began earlier.
+                    if (message.parts[pi - 1]?.type.startsWith('tool-')) return null
+
+                    // Every tool call up to the next thing that isn't one. The
+                    // whole stretch of work between two replies is one step in
+                    // the conversation, so it gets one card.
+                    const run: ToolUIPart[] = []
+                    for (let i = pi; i < message.parts.length; i++) {
+                      if (!message.parts[i].type.startsWith('tool-')) break
+                      run.push(message.parts[i] as unknown as ToolUIPart)
+                    }
+
+                    return run.length > 1 ? (
+                      <ToolGroup key={pi} parts={run} />
+                    ) : (
+                      <ToolPart key={pi} part={part as unknown as ToolUIPart} />
+                    )
                   }
                   return null
                 })}

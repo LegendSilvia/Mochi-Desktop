@@ -2,6 +2,8 @@ import type { UIMessage } from 'ai'
 import { Plus, Hand, Check, Loader2, FileText } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
+import { useAgentArt } from '@renderer/lib/useAgentArt'
+import { touchedFiles } from '@renderer/lib/diffStat'
 
 const POKE_LINES = [
   'hi hi!',
@@ -66,15 +68,25 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
     dispatch
   } = useStore()
 
+  // Every subagent's folder, so the roster shows faces rather than initials.
+  // Hooks cannot sit below the early return, so this reads the session directly
+  // rather than through `activeSession`.
+  const subArt = useAgentArt(
+    (activeSession?.subagentIds ?? [])
+      .map((id) => agentById(id)?.spritePreset)
+      .filter((p): p is string => Boolean(p))
+  )
+
   if (!activeSession) return <aside className="session-panel" />
   const agent = agentById(activeSession.agentId)
   const armed = rules.filter((r) => r.enabled)
   const sprite = spriteSrc(mascotState)
 
   const activity = readActivity(messages)
-  // Only file-shaped tools count as "touched" — a bash command that happens to
-  // mention a path is not the same as the agent editing it.
-  const touched = [...new Set(activity.filter((a) => a.detail.includes('/') || a.detail.includes('\\')).map((a) => a.detail))]
+  // Read off the edits themselves rather than string-matching paths out of tool
+  // arguments: a bash command that happens to mention a file is not the same as
+  // the agent editing it, and only the real thing carries line counts.
+  const touched = touchedFiles(messages)
 
   /** Poke sends a real sticker. It used to call fireSticker() with no argument,
    *  which meant a null sticker id and therefore a blank card. */
@@ -125,19 +137,26 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
             <Plus size={11} strokeWidth={2} /> @agent
           </button>
         </div>
-        <div className="panel-agent">
-          <span className="mention-avatar">{agent?.name[0]}</span>
-          <span className="panel-agent-text">
-            <span className="panel-agent-name">{agent?.name}</span>
-            <span className="meta">supervisor</span>
-          </span>
-        </div>
+        {/* The session's own agent is the card directly above this one, so
+            listing it again here said the same thing twice — and made a solo
+            session look like it had a roster. This section is about who *else*
+            is in the room. */}
+        {activeSession.subagentIds.length === 0 && (
+          <div className="panel-foot meta">
+            Just {agent?.name ?? 'this agent'}. Add another with @agent.
+          </div>
+        )}
         {activeSession.subagentIds.map((id) => {
           const sub = agentById(id)
           if (!sub) return null
+          const art = subArt[sub.spritePreset]
           return (
             <div className="panel-agent" key={id}>
-              <span className="mention-avatar">{sub.name[0]}</span>
+              {art ? (
+                <img className="mention-avatar-img" src={art} alt="" draggable={false} />
+              ) : (
+                <span className="mention-avatar">{sub.name[0]}</span>
+              )}
               <span className="panel-agent-text">
                 <span className="panel-agent-name">{sub.name}</span>
                 <span className="meta">subagent · memory isolated</span>
@@ -180,17 +199,23 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
             <span className="meta">{touched.length}</span>
           </div>
           {touched.slice(0, 8).map((f) => (
-            <div className="panel-file" key={f}>
+            <div className="panel-file" key={f.path}>
               <FileText size={12} strokeWidth={1.8} />
-              <span className="mono panel-file-path" title={f}>
-                {f}
+              <span className="mono panel-file-path" title={f.path}>
+                {f.path}
+              </span>
+              <span className="tool-stat mono">
+                {f.added > 0 && <span className="tool-plus">+{f.added}</span>}
+                {f.removed > 0 && <span className="tool-minus">−{f.removed}</span>}
               </span>
             </div>
           ))}
         </section>
       )}
 
-      {/* Rules armed */}
+      {/* Rules armed — hidden when there are none to arm. "0 of 0" is a section
+          that exists only to say it has nothing to say. */}
+      {rules.length > 0 && (
       <section className="panel-card">
         <div className="panel-head">
           <span className="section-label">Rules armed</span>
@@ -215,6 +240,7 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
           </div>
         ))}
       </section>
+      )}
 
       {/* Permissions */}
       <section className="panel-card">
