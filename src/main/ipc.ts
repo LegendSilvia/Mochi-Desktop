@@ -3,7 +3,7 @@ import type { FSWatcher } from 'chokidar'
 import { listSpritePresets, readLibrary, watchAssets } from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
 import { getServerInfo } from './mastra-server'
-import { getMascotWindow, setMascotInteractive } from './mascot-window'
+import { getMascotWindow, setMascotInteractive, setMascotVisible } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { getPaths } from './paths'
 import { bus } from '../mastra/events'
@@ -77,6 +77,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (win.webContents.id === e.sender.id) continue
       win.webContents.send(IPC.stateChanged, next)
     }
+    setMascotVisible(next.settings.mascot.visible)
     return next
   })
 

@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
+import { load } from './store'
 
 /**
  * The desktop overlay the mascot lives in.
@@ -57,7 +58,11 @@ export function createMascotWindow(): BrowserWindow {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   win.setIgnoreMouseEvents(true, { forward: true })
 
-  win.on('ready-to-show', () => win?.showInactive())
+  // Respect the persisted setting: a window that always shows itself on ready
+  // cannot be started hidden, which is the default on a fresh install.
+  win.on('ready-to-show', () => {
+    if (load().settings.mascot.visible) win?.showInactive()
+  })
   win.on('closed', () => {
     win = null
   })
@@ -91,4 +96,17 @@ export function destroyMascotWindow(): void {
 export function setMascotInteractive(interactive: boolean): void {
   if (!win || win.isDestroyed()) return
   win.setIgnoreMouseEvents(!interactive, { forward: true })
+}
+
+/**
+ * Show or hide the overlay.
+ *
+ * `MascotLayer` returning null is not enough on its own — the transparent,
+ * always-on-top window still covers the whole work area. Hiding the window is
+ * what makes "off" actually mean off.
+ */
+export function setMascotVisible(visible: boolean): void {
+  if (!win || win.isDestroyed()) return
+  if (visible) win.showInactive()
+  else win.hide()
 }
