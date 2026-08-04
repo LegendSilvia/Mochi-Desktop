@@ -23,7 +23,17 @@ const MAX_SESSIONS = 5
  * what an agent may touch, and it belongs somewhere you can see what you are
  * agreeing to rather than on a menu floating over your desktop.
  */
-export function MascotMenu({ onClose }: { onClose: () => void }): React.JSX.Element {
+export function MascotMenu({
+  onClose,
+  cardRef
+}: {
+  onClose: () => void
+  /** Handed up so the overlay's click-through hit test can measure this card.
+   *  It is positioned absolutely, so any wrapper around it has no height and a
+   *  ref on that wrapper measures an empty box — which is how the menu ended up
+   *  unclickable the first time. */
+  cardRef?: React.Ref<HTMLDivElement>
+}): React.JSX.Element {
   const { sessions, agents, settings, dispatch } = useStore()
   const [text, setText] = useState('')
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -107,7 +117,7 @@ export function MascotMenu({ onClose }: { onClose: () => void }): React.JSX.Elem
   }
 
   return (
-    <div className="mo-menu" role="dialog" aria-label="Talk to the mascot">
+    <div ref={cardRef} className="mo-menu" role="dialog" aria-label="Talk to the mascot">
       <div className="mo-menu-head">
         <span className="mo-menu-title">Send to</span>
         <button className="mo-menu-x" aria-label="Close" onClick={onClose}>

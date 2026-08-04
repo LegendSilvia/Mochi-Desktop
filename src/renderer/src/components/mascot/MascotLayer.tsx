@@ -569,11 +569,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           />
         )}
 
-        {menuOpen && (
-          <div ref={menuRef}>
-            <MascotMenu onClose={() => setMenuOpen(false)} />
-          </div>
-        )}
+        {menuOpen && <MascotMenu onClose={() => setMenuOpen(false)} cardRef={menuRef} />}
 
         {showBubble && burst && !approval && !menuOpen && cfg.bubbleStyle !== 'none' && (
           <div className="mo-bubble" data-style={cfg.bubbleStyle ?? 'soft'}>
