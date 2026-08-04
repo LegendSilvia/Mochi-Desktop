@@ -16,11 +16,11 @@ import { playSound } from '@renderer/lib/audio'
 import { formatStat, hunkOf, pathOf } from '@renderer/lib/diffStat'
 import { DiffBody } from './DiffBody'
 import { PermissionCard, type PermissionRequest } from './PermissionCard'
+import './chat.css'
 
 /** A tool call or the approval gating one — the two things a turn's work is
  *  made of, and which belong in the same card. */
 export type WorkPart = ToolUIPart | { type: 'data-permission'; data: PermissionRequest }
-import './chat.css'
 
 /** AI SDK tool-part states, mapped to the words the design uses. */
 const TOOL_STATE_LABEL: Record<string, string> = {
@@ -239,7 +239,14 @@ export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | nu
     <details
       className="tool-card tool-card-open"
       open={openedByHand ?? running}
-      onToggle={(e) => setOpenedByHand(e.currentTarget.open)}
+      // Only a *disagreement* counts as a choice. onToggle also fires when
+      // React opens or closes it, so recording the value blindly meant the
+      // automatic open-while-running instantly registered as a manual open and
+      // the card never folded itself away again.
+      onToggle={(e) => {
+        const isOpen = e.currentTarget.open
+        setOpenedByHand(isOpen === running ? null : isOpen)
+      }}
     >
       <summary className="tool-summary">
         <ChevronRight size={12} strokeWidth={2.2} className="tool-chevron" />
@@ -303,7 +310,14 @@ export function ToolGroup({
     <details
       className="tool-card tool-card-open"
       open={openedByHand ?? running}
-      onToggle={(e) => setOpenedByHand(e.currentTarget.open)}
+      // Only a *disagreement* counts as a choice. onToggle also fires when
+      // React opens or closes it, so recording the value blindly meant the
+      // automatic open-while-running instantly registered as a manual open and
+      // the card never folded itself away again.
+      onToggle={(e) => {
+        const isOpen = e.currentTarget.open
+        setOpenedByHand(isOpen === running ? null : isOpen)
+      }}
     >
       <summary className="tool-summary">
         <ChevronRight size={12} strokeWidth={2.2} className="tool-chevron" />

@@ -23,6 +23,7 @@ import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/histor
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
 import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
+import { isPresentational } from '@renderer/lib/toolKinds'
 import { Thinking } from '@renderer/components/chat/Thinking'
 import { SmoothText } from '@renderer/components/chat/SmoothText'
 import { MessageActions } from '@renderer/components/chat/MessageActions'
@@ -834,7 +835,17 @@ export function Session(): React.JSX.Element {
                    * card from the button approving it.
                    */
                   const isWork = (t?: string): boolean =>
-                    Boolean(t && (t.startsWith('tool-') || t === 'data-permission'))
+                    Boolean(
+                      t &&
+                        ((t.startsWith('tool-') && !isPresentational(t)) ||
+                          t === 'data-permission')
+                    )
+
+                  // Mochi's own tools stand alone at full size — a sticker is
+                  // the mascot speaking, not a step in a job.
+                  if (part.type.startsWith('tool-') && isPresentational(part.type)) {
+                    return <ToolPart key={pi} part={part as unknown as ToolUIPart} />
+                  }
 
                   if (isWork(part.type)) {
                     // Already folded into a run that began earlier.
