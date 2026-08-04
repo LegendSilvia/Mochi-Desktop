@@ -15,6 +15,20 @@ export function DefaultsPane(): React.JSX.Element {
       <div className="screen-body pane-cols">
         <div className="pane-col">
           <section className="config-card">
+            <span className="section-label">You</span>
+            <label className="field">
+              <span className="field-label">What agents call you</span>
+              <input
+                className="field-input"
+                value={settings.userName}
+                placeholder="your name"
+                onChange={(e) => dispatch({ type: 'settings', patch: { userName: e.target.value } })}
+              />
+            </label>
+            <span className="meta">Leave it empty and agents just won&apos;t use a name.</span>
+          </section>
+
+          <section className="config-card">
             <span className="section-label">Default agent</span>
             {agents.map((a) => (
               <label className="radio-row" key={a.id}>

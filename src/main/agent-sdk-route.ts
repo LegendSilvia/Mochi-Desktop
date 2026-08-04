@@ -121,7 +121,7 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
         for await (const raw of query({
           prompt,
           options: {
-            systemPrompt: buildSystemPrompt(target),
+            systemPrompt: buildSystemPrompt(target, settings.userName),
             model: rest.join('/') || undefined,
             allowedTools: [],
             env: subscriptionEnv(appVersion),
@@ -241,8 +241,12 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
  * empty list means "anything in the folder" rather than "nothing", so a fresh
  * loadout isn't mute until someone curates it.
  */
-function buildSystemPrompt(agent: AgentLoadout): string {
+function buildSystemPrompt(agent: AgentLoadout, userName: string): string {
   const parts = [agent.instructions, `Expected output: ${agent.expectedOutput}`]
+
+  // Only when set — a sentence about an absent name is worse than no sentence.
+  const name = userName.trim()
+  if (name) parts.push(`The user's name is ${name}. Address them as ${name}.`)
 
   const allowed = agent.allowedStickerIds ?? []
   const names = readLibrary(agent.spritePreset)
@@ -449,7 +453,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
             prompt,
             options: {
               systemPrompt: agent
-                ? [buildSystemPrompt(agent), describeSubagents(chatId)]
+                ? [buildSystemPrompt(agent, settings.userName), describeSubagents(chatId)]
                     .filter(Boolean)
                     .join('\n\n')
                 : undefined,
