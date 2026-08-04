@@ -650,13 +650,19 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 0;
-  height: 0;
+  /* Above the sprite. The ring is rendered before the shell in the DOM, so
+     without this it arced out behind her and only its outer edges showed. */
+  z-index: 60;
+  /* The box exists to be measured by the overlay's click-through test, not to
+     catch clicks — only the bubbles themselves take the pointer. Its size and
+     centring come from the component, where the radius is worked out. */
+  pointer-events: none;
 }
 .mo-bubble-item {
   position: absolute;
-  left: 0;
-  top: 0;
+  left: 50%;
+  top: 50%;
+  pointer-events: auto;
   display: grid;
   place-items: center;
   width: 38px;

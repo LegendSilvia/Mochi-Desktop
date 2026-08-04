@@ -66,8 +66,25 @@ export function BubbleMenu({
   const step = items.length > 1 ? spread / (items.length - 1) : 0
   const start = centre - spread / 2
 
+  /*
+   * The ring is given a real box.
+   *
+   * It used to be zero-sized, with each bubble translated out from that point —
+   * which drew correctly and was completely unclickable, because the overlay's
+   * click-through test measures this element's rect and a zero-sized element has
+   * none. Sizing it to the circle it actually occupies is what makes the pointer
+   * count as being over it.
+   */
+  const box = (radius + BUBBLE_PX / 2) * 2
+
   return (
-    <div ref={cardRef} className="mo-bubbles" role="menu" aria-label="Mascot menu">
+    <div
+      ref={cardRef}
+      className="mo-bubbles"
+      role="menu"
+      aria-label="Mascot menu"
+      style={{ width: box, height: box, marginLeft: -box / 2, marginTop: -box / 2 }}
+    >
       {items.map((item, i) => {
         const angle = ((start + step * i) * Math.PI) / 180
         return (
