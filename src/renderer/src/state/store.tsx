@@ -436,6 +436,37 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
   }, [state.mascotState, dispatch])
 
   /*
+   * Things the mascot asks this window to do.
+   *
+   * These listeners live here rather than in `Session`, which only mounts on the
+   * chat screen — so a message typed on the desktop while the app sat on
+   * Settings or Agents arrived to nobody, and the session appeared in the rail
+   * with the message silently dropped. The store is mounted for the window's
+   * whole life, so it cannot miss one.
+   *
+   * App window only. The overlay runs the same store and would otherwise act on
+   * its own instructions.
+   */
+  useEffect(() => {
+    if (isOverlayWindow()) return
+    const offSend = window.mochi?.onSendToSession(({ sessionId, text }) => {
+      dispatch({ type: 'active', id: sessionId })
+      // `Session` has to be on screen to own the send: the transport and the
+      // transcript are its state, not the store's.
+      dispatch({ type: 'screen', screen: 'chat' })
+      dispatch({ type: 'pending-send', text })
+    })
+    const offFocus = window.mochi?.onFocusSession((sessionId) => {
+      if (sessionId) dispatch({ type: 'active', id: sessionId })
+      dispatch({ type: 'screen', screen: 'chat' })
+    })
+    return () => {
+      offSend?.()
+      offFocus?.()
+    }
+  }, [dispatch])
+
+  /*
    * Dozing off.
    *
    * Its own timer, not the sticker rule's. Sleeping used to be gated on having
