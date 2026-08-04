@@ -121,13 +121,16 @@ export function Agents(): React.JSX.Element {
 
     // Hand-written lines are not overwritten by a persona edit — if you have
     // taken the trouble to word them yourself, a rename should not discard that.
-    const handWritten = (liveDraft.bubbleLines ?? []).some((l) => l.trim())
-    if (!personaChanged || handWritten) return
-    generateLines(liveDraft)
+    const handWritten = (rows?: string[]): boolean => (rows ?? []).some((l) => l.trim())
+    if (!personaChanged) return
+    // Each list is guarded on its own: wording the finish lines by hand should
+    // not also freeze the poke lines at whatever they happened to be.
+    if (!handWritten(liveDraft.bubbleLines)) generateLines(liveDraft, 'finish')
+    if (!handWritten(liveDraft.pokeLines)) generateLines(liveDraft, 'poke')
   }
 
   /** Ask the agent for lines in its own voice. Shared by save and Regenerate. */
-  const generateLines = (from: AgentLoadout): void => {
+  const generateLines = (from: AgentLoadout, kind: 'finish' | 'poke'): void => {
     if (!server) return
     setGenerating(true)
     void fetch(`${server.baseUrl}/agent-sdk/mascot-lines`, {
@@ -144,14 +147,17 @@ export function Agents(): React.JSX.Element {
         // Parked and applied in an effect: the user may have edited or switched
         // loadout while this was in flight, so it must land against the current
         // list rather than the one captured when the request went out.
-        setPendingLines({ id: from.id, lines })
+        setPendingLines({ id: from.id, kind, lines })
       })
       .catch(() => setGenerating(false))
   }
 
   /** Regenerate uses whatever is on screen, including unsaved persona edits. */
   const regenerate = (): void => {
-    if (edited) generateLines(edited)
+    if (edited) {
+      generateLines(edited, 'finish')
+      generateLines(edited, 'poke')
+    }
   }
 
   const [bundleNote, setBundleNote] = useState<string | null>(null)
@@ -198,14 +204,23 @@ export function Agents(): React.JSX.Element {
    * are parked here and applied in an effect so the write happens against the
    * current agent list rather than the one captured when the request went out. */
   const [generating, setGenerating] = useState(false)
-  const [pendingLines, setPendingLines] = useState<{ id: string; lines: string[] } | null>(null)
+  const [pendingLines, setPendingLines] = useState<{
+    id: string
+    kind: 'finish' | 'poke'
+    lines: string[]
+  } | null>(null)
   useEffect(() => {
     if (!pendingLines) return
     setPendingLines(null)
     dispatch({
       type: 'agents',
       agents: agents.map((a) =>
-        a.id === pendingLines.id ? { ...a, bubbleLines: pendingLines.lines } : a
+        a.id === pendingLines.id
+          ? {
+              ...a,
+              [pendingLines.kind === 'poke' ? 'pokeLines' : 'bubbleLines']: pendingLines.lines
+            }
+          : a
       )
     })
     // `agents` is deliberately out of the deps: this must run once per arrival,
@@ -530,7 +545,7 @@ export function Agents(): React.JSX.Element {
                   here — a generated line you cannot correct is worse than none. */}
               <label className="field">
                 <span className="field-label">
-                  Mascot lines
+                  When it finishes something
                   {edited.id !== settings.defaultAgentId && (
                     <span className="meta"> · only the default agent&apos;s are used</span>
                   )}
@@ -544,8 +559,8 @@ export function Agents(): React.JSX.Element {
                 />
                 <div className="field-row">
                   <span className="meta field-grow">
-                    What the mascot says when you click it, and when a turn finishes while you are
-                    looking elsewhere. Saving a changed persona rewrites these.
+                    Said when a turn lands while you are looking elsewhere. Saving a changed
+                    persona rewrites these.
                   </span>
                   <button
                     className="pill-ghost tiny"
@@ -556,6 +571,24 @@ export function Agents(): React.JSX.Element {
                     {generating ? 'Writing…' : 'Regenerate'}
                   </button>
                 </div>
+              </label>
+
+              {/* Kept apart from the lines above because the two moments are
+                  different: one reports on work, the other answers a poke that
+                  interrupted nothing. Sharing a list had it saying "that's done"
+                  when you had only prodded it. */}
+              <label className="field">
+                <span className="field-label">When you poke it</span>
+                <AutoTextarea
+                  value={(edited.pokeLines ?? []).join('\n')}
+                  minRows={3}
+                  maxRows={10}
+                  placeholder={'one line per row\nwritten for you when you save'}
+                  onChange={(v) => patch({ pokeLines: v.split('\n') })}
+                />
+                <span className="meta">
+                  Said when you click the mascot or press Poke, with nothing in progress.
+                </span>
               </label>
               <div className="field">
                 <span className="field-label">Model</span>

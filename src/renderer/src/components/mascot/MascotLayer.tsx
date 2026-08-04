@@ -66,8 +66,11 @@ function readStoredPos(): Pos | null {
  *     re-render, so the loop doesn't restart and visibly jump.
  */
 export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): React.JSX.Element | null {
-  const { settings, mascotState, mascotNote, burst, spriteSrc, soundSrc, fireSticker } = useStore()
+  const { settings, mascotState, mascotNote, burst, spriteSrc, soundSrc, fireSticker, agents } =
+    useStore()
   const cfg = settings.mascot
+  /** One mascot, one voice — the default agent's, same rule the lines follow. */
+  const speaker = agents.find((a) => a.id === settings.defaultAgentId)?.name ?? 'Mochi'
 
   const wrapRef = useRef<HTMLDivElement>(null)
   const spriteRef = useRef<HTMLDivElement>(null)
@@ -125,8 +128,14 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   const showLabel = burst && dismissed.label !== burst.id
   // Overlay only. In the app window the message is already in the thread, so a
   // toast on top of it would be the same news twice.
+  // The toast is for news you might have missed. A poke is not news — you are
+  // looking straight at the mascot — so those speak from the bubble only.
   const showToast =
-    overlay && burst && cfg.toastEnabled !== false && dismissed.toast !== burst.id
+    overlay &&
+    burst &&
+    burst.modes.includes('overlay') &&
+    cfg.toastEnabled !== false &&
+    dismissed.toast !== burst.id
 
   const write = useCallback(() => {
     frame.current = null
@@ -307,7 +316,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         // happens, and it is the only feedback left when the action is "none".
         if (!moved.current) {
           flashClick()
-          if ((cfg.clickAction ?? 'sticker') === 'sticker') fireSticker()
+          if ((cfg.clickAction ?? 'sticker') === 'sticker') fireSticker({ voice: 'poke' })
         }
       }
 
@@ -404,7 +413,10 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           )}
         </div>
         <div className="mo-toast-text">
-          <span className="mo-toast-title">Mochi</span>
+          {/* The agent's name, not the app's. There is one mascot and it wears
+              the default agent's face — signing its messages "Mochi" made them
+              read as coming from the software rather than from her. */}
+          <span className="mo-toast-title">{speaker}</span>
           <span className="mo-toast-body">{burst.caption}</span>
         </div>
       </div>
@@ -452,7 +464,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             flashClick()
-            fireSticker()
+            fireSticker({ voice: 'poke' })
           }
         }}
       >

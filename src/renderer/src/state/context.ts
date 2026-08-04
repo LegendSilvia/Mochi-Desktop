@@ -98,6 +98,9 @@ export interface FireStickerOptions {
   stickerId?: string | null
   caption?: string
   modes?: StickerMode[]
+  /** Which set of generated lines to speak from. `finish` reports on work,
+   *  `poke` reacts to being prodded. Defaults to `finish`. */
+  voice?: 'finish' | 'poke'
 }
 
 export interface Store extends State {

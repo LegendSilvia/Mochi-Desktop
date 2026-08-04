@@ -251,6 +251,15 @@ export interface AgentLoadout {
    * Absent until a save generates them, and the built-in list is the fallback.
    */
   bubbleLines?: string[]
+  /**
+   * What it says when you poke it, as opposed to when it finishes something.
+   *
+   * Separate from `bubbleLines` because the two moments are not the same: one
+   * is a report on work, the other is a reaction to being prodded, and a single
+   * list made the mascot answer "that's done" to a poke that had interrupted
+   * nothing. Same fallback rules — generated on save, editable by hand.
+   */
+  pokeLines?: string[]
 }
 
 export interface Session {

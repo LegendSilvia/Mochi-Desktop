@@ -1,11 +1,34 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
 import type { PersistedState, SpriteSlot } from '@shared/types'
 import { DEFAULT_AGENTS, DEFAULT_RULES, DEFAULT_SESSIONS, DEFAULT_SETTINGS } from '@shared/defaults'
-import { BUBBLE_LINES, SETTINGS_SCREENS } from './screens'
+import { BUBBLE_LINES, POKE_LINES, SETTINGS_SCREENS } from './screens'
 import { StoreCtx, type Action, type State, type Store } from './context'
 import { TOURS } from './tours'
 import * as devlog from '@renderer/lib/devlog'
 import { mayLeaveScreen } from '@renderer/lib/navGuard'
+
+/**
+ * Where each slot looks when it has no art of its own.
+ *
+ * Every chain ends at idle, but the steps matter: a mascot being dragged should
+ * fall back to being held before it falls back to standing still, and a mascot
+ * mid-tool should look like it is thinking rather than like it is doing nothing.
+ * Only `idle` is genuinely expected to be filled in every folder.
+ */
+const SLOT_FALLBACK: Partial<Record<SpriteSlot, SpriteSlot>> = {
+  'walk-left': 'picked',
+  'walk-right': 'picked',
+  'walk-up': 'picked',
+  'walk-down': 'picked',
+  picked: 'hover',
+  hover: 'idle',
+  click: 'done',
+  'tool-running': 'thinking',
+  thinking: 'idle',
+  done: 'idle',
+  error: 'idle',
+  sleeping: 'idle'
+}
 
 const initial: State = {
   ready: false,
@@ -301,11 +324,22 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
   const spriteSrc = useCallback(
     (s: SpriteSlot) => {
       const sprites = state.library?.sprites
-      return (
-        sprites?.find((sp) => sp.state === s)?.src ??
-        sprites?.find((sp) => sp.state === 'idle')?.src ??
-        null
-      )
+      const at = (slot: SpriteSlot): string | null =>
+        sprites?.find((sp) => sp.state === slot)?.src ?? null
+
+      // Walk the chain rather than dropping straight to idle. Dragging a mascot
+      // that has `held` art but no `walk-left` looked broken: it was being
+      // carried, and it flipped to standing still the moment it moved. The
+      // nearest *related* pose is a better answer than the neutral one.
+      let slot: SpriteSlot | undefined = s
+      const seen = new Set<SpriteSlot>()
+      while (slot && !seen.has(slot)) {
+        const hit = at(slot)
+        if (hit) return hit
+        seen.add(slot)
+        slot = SLOT_FALLBACK[slot]
+      }
+      return at('idle')
     },
     [state.library]
   )
@@ -322,13 +356,33 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     const main = state.agents.find((a) => a.id === state.settings.defaultAgentId)
     // Blank rows are an artefact of editing the field as free text; an empty
     // string would surface as an empty bubble.
-    const own = (main?.bubbleLines ?? []).map((l) => l.trim()).filter(Boolean)
-    return own.length ? own : BUBBLE_LINES
+    const clean = (rows?: string[]): string[] =>
+      (rows ?? []).map((l) => l.trim()).filter(Boolean)
+
+    const finish = clean(main?.bubbleLines)
+    // Poking has its own built-in fallback: borrowing the finish lines would
+    // have the mascot answer "that's done" to a poke that interrupted nothing.
+    const poke = clean(main?.pokeLines)
+    return {
+      finish: finish.length ? finish : BUBBLE_LINES,
+      poke: poke.length ? poke : POKE_LINES
+    }
   }, [state.agents, state.settings.defaultAgentId])
 
   const fireSticker = useCallback<Store['fireSticker']>(
     (opts = {}) => {
-      const modes = opts.modes ?? state.settings.mascot.stickerModes
+      /*
+       * Where it appears follows what it is.
+       *
+       * A poke is a reply to you touching the mascot, so it belongs in the
+       * bubble over its head — you are already looking right at it. A finished
+       * turn is news you may have missed, so it belongs in the corner toast.
+       * Sharing one surface put "that's handled" in a toast you had to look
+       * away to receive, and put work reports over the head of a mascot you had
+       * just prodded.
+       */
+      const modes =
+        opts.modes ?? (opts.voice === 'poke' ? ['bubble'] : state.settings.mascot.stickerModes)
       burstId.current += 1
       dispatch({
         type: 'burst',
@@ -337,7 +391,13 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
           stickerSrc: stickerSrc(opts.stickerId ?? null),
           soundSrc: soundSrc(null),
           modes,
-          caption: opts.caption ?? lines[burstId.current % lines.length]
+          // A poke and a finished task are different moments, so they draw on
+          // different lists. `voice` says which; an explicit caption still wins.
+          caption:
+            opts.caption ??
+            (opts.voice === 'poke'
+              ? lines.poke[burstId.current % lines.poke.length]
+              : lines.finish[burstId.current % lines.finish.length])
         }
       })
     },

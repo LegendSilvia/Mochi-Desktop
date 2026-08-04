@@ -811,7 +811,21 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
    * call each time would be both slow and expensive.
    */
   app.post('/agent-sdk/mascot-lines', async (c) => {
-    const { persona } = (await c.req.json().catch(() => ({}))) as { persona?: string }
+    const { persona, kind } = (await c.req.json().catch(() => ({}))) as {
+      persona?: string
+      /** `finish` reports on work just completed; `poke` reacts to being
+       *  prodded while idle. Two different moments, so two different briefs. */
+      kind?: 'finish' | 'poke'
+    }
+
+    const brief =
+      kind === 'poke'
+        ? 'Write 6 very short lines this agent might say when the user pokes or ' +
+          'clicks on it for no particular reason — it was not working on anything. ' +
+          'Reacting to the attention, not reporting on a task.'
+        : 'Write 6 very short lines this agent might say to its user in a ' +
+          'desktop mascot speech bubble — the kind of thing said just after ' +
+          'finishing a small task.'
 
     try {
       let out = ''
@@ -819,9 +833,9 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         prompt:
           'Here is an AI agent\'s persona:\n\n' +
           (persona?.trim() || 'A friendly, plain-spoken assistant.').slice(0, 2000) +
-          '\n\nWrite 6 very short lines this agent might say to its user in a ' +
-          'desktop mascot speech bubble — the kind of thing said just after ' +
-          'finishing a small task. Each under 40 characters, lowercase, no ' +
+          '\n\n' +
+          brief +
+          ' Each under 40 characters, lowercase, no ' +
           'emoji, no quotes. One per line, nothing else.',
         options: {
           systemPrompt:
@@ -1050,6 +1064,18 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
           liveRuns.set(chatId, run)
           liveInputs.set(chatId, input)
 
+          /*
+           * The mascot follows the run, not just the tool.
+           *
+           * `setMascotState` only fires when the agent chooses to call it, so a
+           * turn where it never bothered left the mascot sitting on idle while
+           * the chat clearly said "thinking" — the sprite states existed and
+           * nothing routine drove them. The lifecycle is known here for free, so
+           * it is emitted here, and an explicit `setMascotState` still overrides
+           * it whenever the agent wants something more specific.
+           */
+          bus.emitMascotState({ state: 'thinking', note: 'thinking' })
+
           try {
             for await (const raw of run) {
               const message = raw as SdkMessage
@@ -1068,6 +1094,10 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
              * and continues when they have.
              */
             if (message.type === 'result') {
+              // Back to resting. `done` rather than `idle` so a folder with a
+              // finished-work sprite gets to use it; the fallback chain lands on
+              // idle for one that has not.
+              bus.emitMascotState({ state: 'done', note: 'finished' })
               input.closeWhenDrained()
               continue
             }
@@ -1131,6 +1161,12 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 if (!rawName.startsWith(TOOL_PREFIX) && HIDDEN_BUILTINS.has(rawName)) {
                   suppressed.add(block.id)
                   continue
+                }
+                // Mochi's own tools set the mascot themselves where it matters;
+                // this covers the file and shell tools, which are most of the
+                // time a turn actually spends working.
+                if (!rawName.startsWith(TOOL_PREFIX)) {
+                  bus.emitMascotState({ state: 'tool-running', note: rawName })
                 }
                 writer.write({
                   type: 'tool-input-available',

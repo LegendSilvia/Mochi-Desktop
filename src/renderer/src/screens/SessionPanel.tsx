@@ -5,14 +5,6 @@ import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { useAgentArt } from '@renderer/lib/useAgentArt'
 import { touchedFiles } from '@renderer/lib/diffStat'
 
-const POKE_LINES = [
-  'hi hi!',
-  'still here!',
-  'poke received',
-  'yes? yes?',
-  'at your service'
-]
-
 /** Fields a tool uses to name the file it is working on. */
 const PATH_KEYS = ['path', 'file_path', 'filePath', 'notebook_path']
 
@@ -110,10 +102,10 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
   const poke = (): void => {
     const pool = library?.stickers ?? []
     const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null
-    fireSticker({
-      stickerId: pick?.id ?? null,
-      caption: POKE_LINES[Math.floor(Math.random() * POKE_LINES.length)]
-    })
+    // No caption: the agent's own generated poke lines say it better than the
+    // built-in list, and `fireSticker` falls back to those built-ins anyway when
+    // a loadout has none.
+    fireSticker({ stickerId: pick?.id ?? null, voice: 'poke' })
     dispatch({ type: 'mascot-state', state: 'done', note: 'poked!' })
   }
 
