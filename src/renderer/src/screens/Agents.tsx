@@ -137,7 +137,10 @@ export function Agents(): React.JSX.Element {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        persona: [from.name, from.description, from.instructions].filter(Boolean).join('\n')
+        persona: [from.name, from.description, from.instructions].filter(Boolean).join('\n'),
+        // Without this the route falls back to its default brief, and both
+        // lists come back as finish lines — a poke answered with "all done".
+        kind
       })
     })
       .then((r) => r.json() as Promise<{ lines: string[] | null }>)
@@ -147,7 +150,10 @@ export function Agents(): React.JSX.Element {
         // Parked and applied in an effect: the user may have edited or switched
         // loadout while this was in flight, so it must land against the current
         // list rather than the one captured when the request went out.
-        setPendingLines({ id: from.id, kind, lines })
+        //
+        // Appended rather than assigned: the two kinds are generated at once, so
+        // a single slot meant whichever answered second erased the first.
+        setPendingLines((prev) => [...prev, { id: from.id, kind, lines }])
       })
       .catch(() => setGenerating(false))
   }
@@ -204,24 +210,26 @@ export function Agents(): React.JSX.Element {
    * are parked here and applied in an effect so the write happens against the
    * current agent list rather than the one captured when the request went out. */
   const [generating, setGenerating] = useState(false)
-  const [pendingLines, setPendingLines] = useState<{
-    id: string
-    kind: 'finish' | 'poke'
-    lines: string[]
-  } | null>(null)
+  const [pendingLines, setPendingLines] = useState<
+    Array<{ id: string; kind: 'finish' | 'poke'; lines: string[] }>
+  >([])
   useEffect(() => {
-    if (!pendingLines) return
-    setPendingLines(null)
+    if (pendingLines.length === 0) return
+    setPendingLines([])
+    // Applied in one pass so two arrivals for the same agent both survive —
+    // mapping per arrival would rebuild from `agents` twice and lose the first.
     dispatch({
       type: 'agents',
-      agents: agents.map((a) =>
-        a.id === pendingLines.id
-          ? {
-              ...a,
-              [pendingLines.kind === 'poke' ? 'pokeLines' : 'bubbleLines']: pendingLines.lines
-            }
-          : a
-      )
+      agents: agents.map((a) => {
+        const mine = pendingLines.filter((p) => p.id === a.id)
+        if (mine.length === 0) return a
+        const next = { ...a }
+        for (const p of mine) {
+          if (p.kind === 'poke') next.pokeLines = p.lines
+          else next.bubbleLines = p.lines
+        }
+        return next
+      })
     })
     // `agents` is deliberately out of the deps: this must run once per arrival,
     // not again every time the list changes for an unrelated reason.

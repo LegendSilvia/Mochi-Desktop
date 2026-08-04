@@ -821,8 +821,10 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     const brief =
       kind === 'poke'
         ? 'Write 6 very short lines this agent might say when the user pokes or ' +
-          'clicks on it for no particular reason — it was not working on anything. ' +
-          'Reacting to the attention, not reporting on a task.'
+          'clicks on it while it is idle. It has NOT been working on anything and ' +
+          'has NOTHING to report. It is simply reacting to being touched — ' +
+          'greeting, teasing, being pleased at the attention, asking what you want. ' +
+          'Never mention finishing, tasks, work, or being done: nothing happened.'
         : 'Write 6 very short lines this agent might say to its user in a ' +
           'desktop mascot speech bubble — the kind of thing said just after ' +
           'finishing a small task.'
