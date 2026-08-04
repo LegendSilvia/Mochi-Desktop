@@ -644,7 +644,8 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           <BubbleMenu
             cardRef={bubblesRef}
             placement={placement}
-items={[
+            spriteSize={cfg.size}
+            items={[
               {
                 id: 'chat',
                 label: 'Pop-up chat',

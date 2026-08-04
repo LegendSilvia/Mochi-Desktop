@@ -1,5 +1,9 @@
 import type { MenuPlacement } from './MascotMenu'
 
+/** Matches .mo-bubble-item in mascot.css — the ring's geometry is computed
+ *  here, so the two have to agree on how big a bubble is. */
+const BUBBLE_PX = 38
+
 export interface BubbleItem {
   id: string
   label: string
@@ -22,10 +26,14 @@ export interface BubbleItem {
 export function BubbleMenu({
   items,
   placement,
+  spriteSize,
   cardRef
 }: {
   items: BubbleItem[]
   placement: MenuPlacement
+  /** The sprite's configured px size. The mascot ranges from 72 to 200, so the
+   *  ring has to be measured from her rather than fixed. */
+  spriteSize: number
   /** Measured by the overlay's click-through hit test — see MascotMenu. */
   cardRef?: React.Ref<HTMLDivElement>
 }): React.JSX.Element {
@@ -51,7 +59,10 @@ export function BubbleMenu({
           : 180
 
   const spread = 108
-  const radius = 66
+  // Half the sprite, plus half a bubble, plus a gap — so the ring sits just
+  // outside her whatever size she is set to. A fixed radius put the bubbles on
+  // top of her at anything above the default.
+  const radius = Math.round(spriteSize / 2 + BUBBLE_PX / 2 + 14)
   const step = items.length > 1 ? spread / (items.length - 1) : 0
   const start = centre - spread / 2
 
