@@ -41,9 +41,16 @@ const POPOVER_KEYS = ['menuOpen', 'mentionOpen', 'searchOpen', 'stickerPickerOpe
  * write by string-comparing `JSON.stringify` of the local slice against the same
  * of the last payload received over `sync`, and `JSON.stringify` is
  * order-sensitive — two objects with the same entries in a different insertion
- * order produce different strings. Building both sides here means the guard can
- * never be defeated by a key order that drifted somewhere along
- * renderer → main → renderer. See the note on `IPC.saveState` in src/main/ipc.ts.
+ * order produce different strings. Building both sides here pins the four
+ * top-level keys.
+ *
+ * Everything below them is pinned by reference instead: `sync` stores the
+ * payload's own sub-objects, so the two sides serialize the identical objects.
+ * That is load-bearing — deep-cloning, normalising or rebuilding
+ * `settings`/`agents`/`sessions`/`rules` on the `sync` path would break it and
+ * put key-order sensitivity back in play, and the failure mode is an unbounded
+ * write loop between the two windows rather than one redundant save. See the
+ * note on `IPC.saveState` in src/main/ipc.ts.
  */
 function toSlice(s: PersistedState): PersistedState {
   return { settings: s.settings, agents: s.agents, sessions: s.sessions, rules: s.rules }

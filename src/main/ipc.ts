@@ -68,17 +68,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    * without this broadcast every settings change (mascot visibility, shell, size,
    * theme, accent) sat unseen there until the app was restarted.
    *
-   * INVARIANT — the broadcast payload must round-trip to a byte-identical
-   * serialization of what the sender sent. A receiving renderer decides whether
-   * to write back by string-comparing `JSON.stringify` of its own slice against
-   * the same of this payload (see `toSlice` in src/renderer/src/state/store.tsx),
-   * and `JSON.stringify` is sensitive to key insertion order. The renderer pins
-   * the four top-level keys itself, so what must be preserved here is everything
-   * below them: `save()` may shallow-merge and replace whole sub-objects, but it
-   * must not rebuild `settings`/`agents`/`sessions`/`rules` entries key by key,
-   * reorder them, or drop and re-add fields.
+   * INVARIANT — a receiving renderer decides whether to write back by
+   * string-comparing `JSON.stringify` of its own slice against the same of this
+   * payload (see `toSlice` in src/renderer/src/state/store.tsx). That comparison
+   * holds because the receiver stores this payload's own sub-objects **by
+   * reference**: both sides of the compare end up serializing the identical
+   * objects, so key order — here or nested — cannot make them differ.
    *
-   * Getting this wrong is not one extra write. A payload that no longer compares
+   * So the constraint that matters is on the *renderer* side, not this one: the
+   * `sync` reducer must keep the payload's sub-objects as-is. Any deep clone,
+   * normalisation, or field-by-field rebuild on that path breaks reference
+   * sharing and puts key-order sensitivity back in play. Nothing is required of
+   * `save()` here beyond returning the state it just stored.
+   *
+   * Getting that wrong is not one extra write. A payload that no longer compares
    * equal makes the receiver save it straight back, which broadcasts to the
    * original sender, which does the same — an unbounded ping-pong, each hop a
    * synchronous writeFileSync of the entire state. Excluding the sender below
