@@ -235,20 +235,30 @@
 
 /* Warmer and more present than a tool row: the run is actually blocked on this,
    so it should not read as another log line scrolling past. */
+/*
+ * A pending approval, in the app's own voice.
+ *
+ * It used to shout: a tinted panel, a hard border and a filled green button,
+ * all of which read as a browser permission dialog dropped into the transcript.
+ * The rest of Mochi is soft, low-contrast and mostly borderless, so the card
+ * now sits on the same surface as everything else and marks itself with a warm
+ * rule down its left edge instead — present without being an alarm.
+ */
 .perm-card {
   align-self: flex-start;
   max-width: 520px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px 11px;
-  background: color-mix(in srgb, var(--warm) 9%, var(--surf));
-  border: 1px solid color-mix(in srgb, var(--warm) 32%, transparent);
-  border-radius: var(--r-card);
+  gap: 9px;
+  padding: 11px 14px 12px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid color-mix(in srgb, var(--warm) 55%, transparent);
+  border-radius: 0;
 }
 .perm-card[data-done='true'] {
-  background: var(--surf);
-  border-color: var(--line);
+  background: transparent;
+  border-left-color: var(--line);
 }
 .perm-head {
   display: flex;
@@ -268,10 +278,16 @@
   padding: 7px 10px;
   border-radius: var(--r-sm);
   background: var(--surf2);
-  border: 1px solid var(--line);
+  border: none;
   font-size: 11.5px;
   color: var(--tx2);
   overflow-wrap: anywhere;
+  /* A long command wraps rather than stretching the transcript, but keeps its
+     own line breaks — shell one-liners read by their punctuation. */
+  white-space: pre-wrap;
+}
+.perm-reason {
+  font-size: 11px;
 }
 .perm-actions {
   display: flex;

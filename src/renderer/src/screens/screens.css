@@ -736,13 +736,16 @@
    as a finished tool call so a turn's history is one consistent stack. */
 /* An answered approval is history like any finished call, so it wears the same
    borderless row rather than staying a boxed card. */
-.perm-card-settled {
+/* Two classes, because `.perm-card` in chat.css is bundled later and a single
+   class here loses the cascade to it — the settled card kept its panel. */
+.perm-card.perm-card-settled {
   padding: 0;
   overflow: hidden;
   background: transparent;
   border: none;
   border-top: 1px solid var(--line);
   border-radius: 0;
+  max-width: 660px;
 }
 .perm-card-settled .perm-icon {
   color: var(--tx3);

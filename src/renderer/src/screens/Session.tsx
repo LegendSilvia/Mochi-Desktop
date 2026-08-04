@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type ToolUIPart, type UIMessage } from 'ai'
 import {
@@ -849,7 +849,13 @@ export function Session(): React.JSX.Element {
                       run.push(message.parts[i] as unknown as WorkPart)
                     }
 
-                    if (run.length > 1 && server) {
+                    // Grouped only when there is genuinely more than one tool.
+                    // A single call plus its approval was still being wrapped,
+                    // so a lone PowerShell command rendered as a group heading
+                    // saying "PowerShell · 1 step" above a row saying
+                    // "PowerShell" — a summary of one thing, restating it.
+                    const toolCount = run.filter((p) => p.type.startsWith('tool-')).length
+                    if (toolCount > 1 && server) {
                       return (
                         <ToolGroup
                           key={pi}
@@ -860,18 +866,28 @@ export function Session(): React.JSX.Element {
                       )
                     }
 
-                    if (part.type === 'data-permission') {
-                      const req = (part as unknown as { data: PermissionRequest }).data
-                      return server ? (
-                        <PermissionCard
-                          key={pi}
-                          request={req}
-                          baseUrl={server.baseUrl}
-                          stale={staleApprovals.has(req.id)}
-                        />
-                      ) : null
-                    }
-                    return <ToolPart key={pi} part={part as unknown as ToolUIPart} />
+                    // Ungrouped, but still the whole run: the loop skipped every
+                    // part after the first, so rendering only `part` here would
+                    // drop the approval that came with it.
+                    return (
+                      <React.Fragment key={pi}>
+                        {run.map((p, ri) => {
+                          if (p.type === 'data-permission') {
+                            const req = (p as unknown as { data: PermissionRequest }).data
+                            return server ? (
+                              <PermissionCard
+                                key={req?.id ?? ri}
+                                request={req}
+                                baseUrl={server.baseUrl}
+                                stale={staleApprovals.has(req?.id)}
+                              />
+                            ) : null
+                          }
+                          const tp = p as ToolUIPart
+                          return <ToolPart key={tp.toolCallId ?? ri} part={tp} />
+                        })}
+                      </React.Fragment>
+                    )
                   }
                   return null
                 })}
