@@ -234,9 +234,10 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         setApproval((cur) => (cur && cur.id === next.id ? null : cur))
         return
       }
+      measure()
       setApproval(next)
     })
-  }, [overlay])
+  }, [overlay, measure])
 
   const showBubble = burst && burst.modes.includes('bubble') && dismissed.bubble !== burst.id
   const showOverlay = burst && burst.modes.includes('overlay') && dismissed.overlay !== burst.id
@@ -449,6 +450,9 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         pos.current = clamp(pos.current)
         write()
         if (cfg.rememberPosition) localStorage.setItem(POS_KEY, JSON.stringify(pos.current))
+        // Carried somewhere new, so anything open has to reconsider which way
+        // it should be opening.
+        measure()
         if (cfg.bounceOnDrop && moved.current) {
           // On the sprite, not the wrapper: the wrapper's transform is what
           // positions the mascot, and an animation there would override it for
@@ -483,6 +487,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
       cfg.clickAction,
       // Read inside the handler to decide whether a click should wake her.
       mascotState,
+      measure,
       clamp,
       schedule,
       write,
@@ -637,6 +642,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
             baseUrl={server.baseUrl}
             onAnswered={() => setApproval(null)}
             cardRef={approvalRef}
+            placement={placement}
           />
         )}
 

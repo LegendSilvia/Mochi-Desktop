@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ShieldQuestion, Check, X, ExternalLink } from 'lucide-react'
 import type { ApprovalRequest } from '@shared/types'
+import type { MenuPlacement } from './MascotMenu'
 
 /**
  * "May I?", asked from the desktop.
@@ -18,7 +19,8 @@ export function ApprovalBubble({
   request,
   baseUrl,
   onAnswered,
-  cardRef
+  cardRef,
+  placement
 }: {
   request: ApprovalRequest
   baseUrl: string
@@ -26,6 +28,10 @@ export function ApprovalBubble({
   /** Handed up so the overlay's click-through hit test can include this card —
    *  it sits out of flow, so the wrapper's own rect does not cover it. */
   cardRef?: React.Ref<HTMLDivElement>
+  /** Which way to open. A mascot parked near the top of the screen would
+   *  otherwise push this card off it — the overlay is exactly the work area, so
+   *  anything past its bounds is cut off rather than scrolled to. */
+  placement: MenuPlacement
 }): React.JSX.Element {
   const [sent, setSent] = useState(false)
 
@@ -48,7 +54,14 @@ export function ApprovalBubble({
   }
 
   return (
-    <div ref={cardRef} className="mo-approval" role="alertdialog" aria-label="Permission needed">
+    <div
+      ref={cardRef}
+      className="mo-approval"
+      data-v={placement.vertical}
+      data-h={placement.horizontal}
+      role="alertdialog"
+      aria-label="Permission needed"
+    >
       {/* Named rather than "Write wants to run": the tool is the mechanism, the
           agent is who is asking, and on a desktop card away from the transcript
           the agent is the part that makes the request make sense. */}
