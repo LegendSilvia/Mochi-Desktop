@@ -4,6 +4,7 @@ import { useStore } from '@renderer/state/context'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { useAgentArt } from '@renderer/lib/useAgentArt'
 import { touchedFiles } from '@renderer/lib/diffStat'
+import { isPresentational } from '@renderer/lib/toolKinds'
 
 /** Fields a tool uses to name the file it is working on. */
 const PATH_KEYS = ['path', 'file_path', 'filePath', 'notebook_path']
@@ -77,7 +78,12 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
   // Consecutive calls to the same tool become one row with a count. Four
   // WebSearch lines in a row say "it searched four times" no better than one
   // line that says so, and they push everything after them off the card.
-  const activity = readActivity(messages).reduce<
+  // `setMascotState` renders nothing anywhere and `sendSticker` is the mascot
+  // speaking — neither is a task, and listing them padded the panel with rows
+  // for things that never took any time. Same rule the transcript uses.
+  const activity = readActivity(messages)
+    .filter((a) => !isPresentational(a.name))
+    .reduce<
     Array<{ name: string; detail: string; done: boolean; count: number }>
   >((rows, a) => {
     const last = rows[rows.length - 1]

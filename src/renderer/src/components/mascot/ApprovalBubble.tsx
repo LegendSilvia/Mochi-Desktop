@@ -49,10 +49,14 @@ export function ApprovalBubble({
 
   return (
     <div ref={cardRef} className="mo-approval" role="alertdialog" aria-label="Permission needed">
+      {/* Named rather than "Write wants to run": the tool is the mechanism, the
+          agent is who is asking, and on a desktop card away from the transcript
+          the agent is the part that makes the request make sense. */}
       <div className="mo-approval-head">
         <ShieldQuestion size={13} strokeWidth={1.9} />
         <span>
-          <strong>{request.toolName}</strong> wants to run
+          <strong>{request.agentName}</strong> needs permission to run{' '}
+          <strong>{request.toolName}</strong>
         </span>
       </div>
       <div className="mo-approval-where meta">in {request.sessionTitle}</div>

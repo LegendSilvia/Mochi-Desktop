@@ -153,6 +153,9 @@ export interface ApprovalRequest {
   /** Which conversation is blocked. With several sessions open, "allow this?" is
    *  not answerable without knowing what asked. */
   sessionTitle: string
+  /** Who is asking. The mascot wears one agent's face but any session can
+   *  block, so the card has to say whose request this is. */
+  agentName: string
   toolName: string
   /** The command or path, already shortened for a small surface. */
   target: string

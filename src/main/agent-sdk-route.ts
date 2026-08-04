@@ -283,14 +283,33 @@ const APPROVAL_TARGET_MAX = 120
  * the user read a path and approved a command they never saw.
  */
 function describeApprovalTarget(input: unknown, blockedPath?: string | null): string {
-  if (typeof input === 'object' && input !== null) {
-    const record = input as Record<string, unknown>
-    for (const key of ['command', 'file_path', 'filePath', 'path', 'pattern', 'url', 'query']) {
-      const value = record[key]
-      if (typeof value === 'string' && value.trim()) return value.trim()
-    }
+  if (typeof input !== 'object' || input === null) return blockedPath ?? ''
+  const record = input as Record<string, unknown>
+
+  const str = (key: string): string =>
+    typeof record[key] === 'string' ? (record[key] as string).trim() : ''
+
+  // A command says what it does on its own line.
+  const command = str('command')
+  if (command) return command
+
+  /*
+   * A path does not. "Write wants to run — test.py" tells you a file is about to
+   * change and nothing whatever about how, which is not enough to answer with.
+   * So the file is named and then shown: the text being written for a Write, the
+   * replacement for an Edit. Trimmed hard here rather than in the card, because
+   * anything past the cap turns into "open Mochi" and the whole point is to
+   * decide without leaving the desktop where possible.
+   */
+  const path = str('file_path') || str('filePath') || str('path')
+  const body = str('content') || str('new_string')
+  if (path && body) {
+    const preview = body.split('\n').slice(0, 3).join('\n')
+    return `${path}\n\n${preview}${preview.length < body.length ? '\n…' : ''}`
   }
-  return blockedPath ?? ''
+  if (path) return path
+
+  return str('pattern') || str('url') || str('query') || blockedPath || ''
 }
 
 /**
@@ -1052,6 +1071,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                   id,
                   sessionId: chatId,
                   sessionTitle: load().sessions.find((s) => s.id === chatId)?.title ?? 'a session',
+                  agentName: agent?.name ?? 'The agent',
                   toolName: shortName,
                   target: full.slice(0, APPROVAL_TARGET_MAX),
                   truncated: full.length > APPROVAL_TARGET_MAX

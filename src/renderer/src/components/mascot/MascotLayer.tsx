@@ -310,6 +310,15 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      /*
+       * Never start a drag inside the approval card.
+       *
+       * The wrapper captures the pointer to drag the mascot, and a capture taken
+       * on pointerdown swallows the click that would have followed — so Allow
+       * and Deny simply did nothing. Guarded on containment rather than on
+       * `dragAnywhere`, because the buttons must work whichever way that is set.
+       */
+      if (approvalRef.current?.contains(e.target as Node)) return
       if (!cfg.dragAnywhere && e.target !== spriteRef.current) return
       dragging.current = true
       moved.current = false
