@@ -164,6 +164,19 @@ export interface ApprovalRequest {
   truncated: boolean
 }
 
+/**
+ * An approval that has been answered, wherever it was answered.
+ *
+ * Each card tracked its own decision locally, so answering on the desktop left
+ * the in-app card still offering Allow and Deny for a command that had already
+ * run. The id travels with the clear so every surface showing that request can
+ * settle, not just the one that was clicked.
+ */
+export interface ApprovalSettled {
+  id: string
+  settled: true
+}
+
 export interface MascotConfig {
   shell: MascotShell
   idleMotion: IdleMotion

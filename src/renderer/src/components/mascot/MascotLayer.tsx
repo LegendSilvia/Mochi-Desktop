@@ -151,7 +151,15 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   const approvalRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!overlay) return
-    return window.mochi?.onApproval((next) => setApproval(next))
+    return window.mochi?.onApproval((next) => {
+      // A settle names the request it answers, so a late clear for an older one
+      // cannot wipe a newer card that has just arrived.
+      if ('settled' in next) {
+        setApproval((cur) => (cur && cur.id === next.id ? null : cur))
+        return
+      }
+      setApproval(next)
+    })
   }, [overlay])
 
   const showBubble = burst && burst.modes.includes('bubble') && dismissed.bubble !== burst.id

@@ -274,11 +274,14 @@ export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | nu
 export function ToolGroup({
   parts,
   baseUrl,
-  staleApprovals
+  staleApprovals,
+  settledApprovals
 }: {
   parts: WorkPart[]
   baseUrl: string
   staleApprovals: Set<string>
+  /** Answered elsewhere — on the desktop card, or in another window. */
+  settledApprovals: string[]
 }): React.JSX.Element {
   const tools = parts.filter((p): p is ToolUIPart => p.type.startsWith('tool-'))
   const approvals = parts.filter((p) => p.type === 'data-permission')
@@ -295,7 +298,12 @@ export function ToolGroup({
   const [answered, setAnswered] = useState<string[]>([])
   const waiting = approvals.some((p) => {
     const req = (p as unknown as { data?: PermissionRequest }).data
-    return req && !staleApprovals.has(req.id) && !answered.includes(req.id)
+    return (
+      req &&
+      !staleApprovals.has(req.id) &&
+      !answered.includes(req.id) &&
+      !settledApprovals.includes(req.id)
+    )
   })
   const running = waiting || done < tools.length
   const failed = tools.some((p) => p.state === 'output-error')
@@ -347,7 +355,7 @@ export function ToolGroup({
                 key={req?.id ?? i}
                 request={req}
                 baseUrl={baseUrl}
-                stale={staleApprovals.has(req?.id)}
+                stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
                 onAnswered={(id) => setAnswered((prev) => [...prev, id])}
               />
             )

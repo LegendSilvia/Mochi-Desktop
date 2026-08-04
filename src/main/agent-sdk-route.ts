@@ -264,9 +264,10 @@ function settleApproval(id: string, decision: ApprovalDecision): boolean {
   if (!pending) return false
   clearTimeout(pending.timer)
   pendingApprovals.delete(id)
-  // Clear it wherever it is showing. Answering in the app must take the card off
-  // the mascot too, or the overlay keeps offering a decision already made.
-  bus.emitApproval(null)
+  // Clear it wherever it is showing. Carries the id because every surface that
+  // rendered this request has to settle — answering on the desktop used to leave
+  // the in-app card still offering a choice for a command that had already run.
+  bus.emitApproval({ id, settled: true })
   pending.resolve(decision)
   return true
 }
@@ -1080,7 +1081,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 return new Promise<PermissionResult>((resolve) => {
                   const timer = setTimeout(() => {
                     pendingApprovals.delete(id)
-                    bus.emitApproval(null)
+                    bus.emitApproval({ id, settled: true })
                     resolve({ behavior: 'deny', message: 'Timed out waiting for approval.' })
                   }, APPROVAL_TIMEOUT_MS)
 
@@ -1107,7 +1108,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     if (pendingApprovals.has(id)) {
                       clearTimeout(timer)
                       pendingApprovals.delete(id)
-                      bus.emitApproval(null)
+                      bus.emitApproval({ id, settled: true })
                       resolve({ behavior: 'deny', message: 'Run was stopped.' })
                     }
                   })

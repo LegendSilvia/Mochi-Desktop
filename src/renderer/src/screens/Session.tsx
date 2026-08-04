@@ -92,6 +92,23 @@ export function Session(): React.JSX.Element {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
   /*
+   * Approvals answered somewhere other than this card.
+   *
+   * Each card tracked its own decision in local state, so answering on the
+   * desktop left the in-app card still offering Allow and Deny for a command
+   * that had already run — the tool row above it said "done" while the card
+   * below still asked. Main names the id whenever one settles, wherever it was
+   * settled, and every surface showing it stands down.
+   */
+  const [settledApprovals, setSettledApprovals] = useState<string[]>([])
+  useEffect(() => {
+    return window.mochi?.onApproval((next) => {
+      if (!('settled' in next)) return
+      setSettledApprovals((prev) => (prev.includes(next.id) ? prev : [...prev, next.id]))
+    })
+  }, [])
+
+  /*
    * The mascot sent us here.
    *
    * "Open Mochi" on a desktop approval brings the window forward, but landing on
@@ -888,6 +905,7 @@ export function Session(): React.JSX.Element {
                           parts={run}
                           baseUrl={server.baseUrl}
                           staleApprovals={staleApprovals}
+                          settledApprovals={settledApprovals}
                         />
                       )
                     }
@@ -905,7 +923,7 @@ export function Session(): React.JSX.Element {
                                 key={req?.id ?? ri}
                                 request={req}
                                 baseUrl={server.baseUrl}
-                                stale={staleApprovals.has(req?.id)}
+                                stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
                               />
                             ) : null
                           }

@@ -4,6 +4,7 @@ import type {
   AgentLoadout,
   AppSettings,
   ApprovalRequest,
+  ApprovalSettled,
   AssetLibrary,
   MascotState,
   PersistedState,
@@ -162,8 +163,8 @@ export interface MochiApi {
   onLibraryChanged: (cb: () => void) => () => void
   onStickerFired: (cb: (p: StickerFiredPayload) => void) => () => void
   onMascotState: (cb: (p: MascotStatePayload) => void) => () => void
-  /** A tool parked waiting on the user, or null when it has been answered. */
-  onApproval: (cb: (p: ApprovalRequest | null) => void) => () => void
+  /** A tool parked waiting on the user, or the id of one just answered. */
+  onApproval: (cb: (p: ApprovalRequest | ApprovalSettled) => void) => () => void
   /** The app was asked to show a particular session. */
   onFocusSession: (cb: (sessionId: string) => void) => () => void
   /** Another window persisted state; merge it so the two never drift. */
@@ -218,7 +219,7 @@ const api: MochiApi = {
   onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
   onStickerFired: (cb) => on<StickerFiredPayload>(IPC.stickerFired, cb),
   onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb),
-  onApproval: (cb) => on<ApprovalRequest | null>(IPC.approval, cb),
+  onApproval: (cb) => on<ApprovalRequest | ApprovalSettled>(IPC.approval, cb),
   onFocusSession: (cb) => on<string>(IPC.focusSession, cb),
   onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb)
 }
