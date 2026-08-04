@@ -31,7 +31,8 @@ export const IPC = {
   // main → renderer
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
-  mascotState: 'mochi:mascot-state'
+  mascotState: 'mochi:mascot-state',
+  stateChanged: 'mochi:state-changed'
 } as const
 
 /** Providers Mastra's model router knows, with the env var each one reads. */
@@ -60,7 +61,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())
 
-  ipcMain.handle(IPC.saveState, (_e, patch) => save(patch))
+  /**
+   * Persist, then tell the *other* windows.
+   *
+   * The overlay is a second window with its own store, seeded once at mount —
+   * without this broadcast every settings change (mascot visibility, shell, size,
+   * theme, accent) sat unseen there until the app was restarted.
+   */
+  ipcMain.handle(IPC.saveState, (e, patch) => {
+    const next = save(patch)
+    for (const win of [getWindow(), getMascotWindow()]) {
+      if (!win || win.isDestroyed()) continue
+      // Skip the sender: it already has this state, and echoing it back is how
+      // a save loop starts.
+      if (win.webContents.id === e.sender.id) continue
+      win.webContents.send(IPC.stateChanged, next)
+    }
+    return next
+  })
 
   ipcMain.handle(IPC.setTitleBarTheme, (_e, theme: Theme, bg: string, symbol: string) => {
     const win = getWindow()

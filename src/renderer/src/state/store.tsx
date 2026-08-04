@@ -80,6 +80,14 @@ function reducer(state: State, action: Action): State {
       return { ...state, burst: action.burst }
     case 'pending-send':
       return { ...state, pendingSend: action.text }
+    case 'sync':
+      return {
+        ...state,
+        settings: action.payload.settings,
+        agents: action.payload.agents,
+        sessions: action.payload.sessions,
+        rules: action.payload.rules
+      }
     default:
       return state
   }
@@ -88,6 +96,10 @@ function reducer(state: State, action: Action): State {
 export function StoreProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const [state, dispatch] = useReducer(reducer, initial)
   const burstId = useRef(0)
+  // Snapshot of what was last written or received. The persist effect compares
+  // against it so state arriving over `sync` is not immediately written back —
+  // a boolean flag would stay stuck if the merge produced no change.
+  const lastPersisted = useRef('')
 
   const reloadLibrary = useCallback(() => {
     const preset =
@@ -106,6 +118,12 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
         boot.agents.find((a) => a.id === boot.settings.defaultAgentId)?.spritePreset ?? 'sprout'
       const library = await window.mochi.library(preset)
       if (cancelled) return
+      lastPersisted.current = JSON.stringify({
+        settings: boot.settings,
+        agents: boot.agents,
+        sessions: boot.sessions,
+        rules: boot.rules
+      })
       dispatch({
         type: 'ready',
         payload: {
@@ -126,16 +144,30 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     }
   }, [])
 
+  // Another window saved. Merge rather than reload, so in-flight UI state
+  // (open popovers, the active tour) survives.
+  useEffect(() => {
+    if (!window.mochi?.onStateChanged) return
+    return window.mochi.onStateChanged((next) => {
+      lastPersisted.current = JSON.stringify(next)
+      dispatch({ type: 'sync', payload: next })
+    })
+  }, [])
+
   // Persist on change, but not during boot — that would immediately rewrite the
   // file we just read with the pre-boot defaults.
   useEffect(() => {
     if (!state.ready) return
-    void window.mochi?.saveState({
+    const slice = {
       settings: state.settings,
       agents: state.agents,
       sessions: state.sessions,
       rules: state.rules
-    })
+    }
+    const json = JSON.stringify(slice)
+    if (json === lastPersisted.current) return
+    lastPersisted.current = json
+    void window.mochi?.saveState(slice)
   }, [state.ready, state.settings, state.agents, state.sessions, state.rules])
 
   // Theme + contrast + accent are applied to the root, and the Windows caption

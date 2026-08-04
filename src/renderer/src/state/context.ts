@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AssetLibrary,
   MascotState,
+  PersistedState,
   ServerInfo,
   Session,
   StickerMode,
@@ -85,6 +86,7 @@ export type Action =
   | { type: 'new-type'; value: Session['type'] }
   | { type: 'burst'; burst: StickerBurst | null }
   | { type: 'pending-send'; text: string | null }
+  | { type: 'sync'; payload: PersistedState }
 
 export interface FireStickerOptions {
   stickerId?: string | null
