@@ -201,6 +201,21 @@ export interface AppSettings {
    * a list restricts it to those names.
    */
   skills: { enabled: boolean; allow: string[] | 'all' }
+  /** What agents call the user. Empty means no name is set. */
+  userName: string
+  /** Ids of tours already completed or skipped. */
+  toursSeen: string[]
+}
+
+/**
+ * The slice of state written to settings.json — and the payload broadcast to
+ * every window when it changes, so the overlay never drifts from the app window.
+ */
+export interface PersistedState {
+  settings: AppSettings
+  agents: AgentLoadout[]
+  sessions: Session[]
+  rules: StickerRule[]
 }
 
 /**

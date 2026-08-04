@@ -8,29 +8,22 @@ import {
   DEFAULT_SESSIONS,
   DEFAULT_SETTINGS
 } from '../shared/defaults'
-import type { AgentLoadout, AppSettings, Session, StickerRule } from '../shared/types'
+import type { PersistedState } from '../shared/types'
 
-interface Persisted {
-  settings: AppSettings
-  agents: AgentLoadout[]
-  sessions: Session[]
-  rules: StickerRule[]
-}
-
-const seed = (): Persisted => ({
+const seed = (): PersistedState => ({
   settings: structuredClone(DEFAULT_SETTINGS),
   agents: structuredClone(DEFAULT_AGENTS),
   sessions: structuredClone(DEFAULT_SESSIONS),
   rules: structuredClone(DEFAULT_RULES)
 })
 
-let state: Persisted | null = null
+let state: PersistedState | null = null
 
-export function load(): Persisted {
+export function load(): PersistedState {
   if (state) return state
   try {
     const raw = readFileSync(getPaths().settings, 'utf-8')
-    const parsed = JSON.parse(raw) as Partial<Persisted>
+    const parsed = JSON.parse(raw) as Partial<PersistedState>
     const base = seed()
     // Shallow-merge so a settings file written by an older build keeps working
     // when new keys are added, instead of failing to load entirely.
@@ -46,7 +39,7 @@ export function load(): Persisted {
   return state
 }
 
-export function save(next: Partial<Persisted>): Persisted {
+export function save(next: Partial<PersistedState>): PersistedState {
   const current = load()
   state = { ...current, ...next }
   writeFileSync(getPaths().settings, JSON.stringify(state, null, 2), 'utf-8')
