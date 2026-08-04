@@ -197,12 +197,33 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     const el = wrapRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    setPlacement({
-      // 320 is roughly the chat card's height. Below the sprite only when there
-      // genuinely is not room above it.
-      vertical: r.top < 320 ? 'below' : 'above',
-      horizontal: r.left < 160 ? 'left' : window.innerWidth - r.right < 160 ? 'right' : 'center'
-    })
+
+    /*
+     * The wrapper's own size, published for the cards to position against.
+     *
+     * They live inside it and are placed entirely by `transform`, which is the
+     * only way the flip can animate — swapping `top` for `bottom` jumps, because
+     * there is nothing to interpolate between `auto` and a length. Expressing
+     * both edges as offsets from one anchor needs to know how big the wrapper
+     * is, and CSS cannot ask.
+     */
+    el.style.setProperty('--wrap-w', `${Math.round(r.width)}px`)
+    el.style.setProperty('--wrap-h', `${Math.round(r.height)}px`)
+
+    // 320 is roughly the chat card's height. Below the sprite only when there
+    // genuinely is not room above it.
+    const vertical = r.top < 320 ? 'below' : 'above'
+    const horizontal =
+      r.left < 160 ? 'left' : window.innerWidth - r.right < 160 ? 'right' : 'center'
+
+    // Only on an actual change. This runs on every drag frame, and setting
+    // state with an equal-but-new object would re-render the whole overlay per
+    // pointermove — the exact cost the drag goes out of its way to avoid.
+    setPlacement((cur) =>
+      cur.vertical === vertical && cur.horizontal === horizontal
+        ? cur
+        : { vertical, horizontal }
+    )
   }, [])
 
   /*
@@ -439,6 +460,10 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         }
 
         pos.current = { x: origin.x + dx, y: origin.y + dy }
+        // Live, so a card open while she is carried across the screen flips as
+        // she passes the edge rather than at the end. Guarded on an actual
+        // change of placement, so most frames cost nothing.
+        measure()
         schedule()
       }
 

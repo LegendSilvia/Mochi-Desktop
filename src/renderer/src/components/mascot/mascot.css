@@ -674,15 +674,22 @@
   color: var(--tx2);
   cursor: pointer;
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
-  /* Position is set outright and only scale/opacity animate, so nothing slides
-     under the cursor between seeing a bubble and clicking it. */
-  transform: translate(var(--x), var(--y)) scale(0.4);
+  /*
+   * Entry animates `scale` and `opacity` as their own properties, leaving
+   * `transform` free to carry the position — and therefore free to transition.
+   * Folding the scale into the transform would let the keyframe own it, and an
+   * animated property cannot also be transitioned, so the ring snapped to its
+   * new arc whenever a drag flipped which way it opened.
+   */
+  transform: translate(var(--x), var(--y));
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  scale: 0.4;
   opacity: 0;
   animation: mo-bubble-in 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) forwards;
 }
 @keyframes mo-bubble-in {
   to {
-    transform: translate(var(--x), var(--y)) scale(1);
+    scale: 1;
     opacity: 1;
   }
 }
@@ -723,19 +730,47 @@
  * rather than scrolled to. A mascot parked near an edge flips the card to the
  * side that has room instead.
  */
+/*
+ * Placed entirely by transform, from one fixed anchor at the wrapper's top-left.
+ *
+ * The obvious way — swapping `bottom` for `top`, `left` for `right` — cannot
+ * animate: there is nothing to interpolate between `auto` and a length, so the
+ * card teleported the instant a drag crossed an edge. Expressing every position
+ * as an offset from a single corner leaves one property changing, and one
+ * property can tween.
+ *
+ * `--wrap-w` and `--wrap-h` are published by `measure()`, because a card cannot
+ * ask CSS how big its own parent is.
+ */
+.mo-menu,
+.mo-approval {
+  left: 0;
+  top: 0;
+  bottom: auto;
+  right: auto;
+  --ty: calc(-100% - 10px);
+  --tx: calc(var(--wrap-w, 140px) / 2 - 50%);
+  transform: translate(var(--tx), var(--ty));
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
 .mo-menu[data-v='below'],
 .mo-approval[data-v='below'] {
-  bottom: auto;
-  top: calc(100% + 10px);
+  --ty: calc(var(--wrap-h, 180px) + 10px);
 }
 .mo-menu[data-h='left'],
 .mo-approval[data-h='left'] {
-  left: 0;
-  transform: none;
+  --tx: 0px;
 }
 .mo-menu[data-h='right'],
 .mo-approval[data-h='right'] {
-  left: auto;
-  right: 0;
-  transform: none;
+  --tx: calc(var(--wrap-w, 140px) - 100%);
+}
+
+/* Someone who has asked for less motion gets the flip without the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .mo-menu,
+  .mo-approval,
+  .mo-bubble-item {
+    transition-duration: 1ms;
+  }
 }
