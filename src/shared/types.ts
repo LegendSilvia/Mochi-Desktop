@@ -191,6 +191,21 @@ export interface MascotConfig {
   /** The soft ellipse under the sprite. Grounds it on a desktop, but reads as
    *  a smudge when the mascot sits over pale windows. */
   showShadow?: boolean
+  /**
+   * Minutes of no interaction before the mascot dozes off. 0 never sleeps.
+   *
+   * Independent of the idle sticker rule, which used to gate it — whether she
+   * rests is a mascot behaviour, and tying it to whether you happened to
+   * configure a sticker meant she never slept at all on a fresh install.
+   */
+  sleepAfterMin?: number
+  /**
+   * Whether the idle sticker rule wakes her when it fires.
+   *
+   * On by default: the sticker is the mascot speaking up, and speaking in your
+   * sleep is a strange look. Turn it off to let her talk without stirring.
+   */
+  idleRuleWakes?: boolean
 
   /** The dimmed, blurred backdrop behind the full-screen sticker card. It is
    *  the most intrusive thing the app does to your desktop. */

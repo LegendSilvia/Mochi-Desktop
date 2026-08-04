@@ -428,6 +428,57 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     return () => clearTimeout(timer)
   }, [state.mascotState, dispatch])
 
+  /*
+   * Dozing off.
+   *
+   * Its own timer, not the sticker rule's. Sleeping used to be gated on having
+   * an enabled `idle-20min` rule, so on a fresh install — no rules — the mascot
+   * never slept at all, and once she did there was nothing to wake her: moving
+   * the mouse re-armed the timer but left her asleep, in spite of the note
+   * saying "poke me".
+   *
+   * She only drops off from rest. A run in progress is not idleness, so
+   * `thinking` and `tool-running` hold her awake however long they take.
+   */
+  const mascotStateRef = useRef(state.mascotState)
+  useEffect(() => {
+    mascotStateRef.current = state.mascotState
+  }, [state.mascotState])
+
+  useEffect(() => {
+    if (!state.ready) return
+    const mins = state.settings.mascot.sleepAfterMin ?? 5
+    if (mins <= 0) return
+
+    let timer: ReturnType<typeof setTimeout>
+    const arm = (): void => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        // Read through the ref: capturing the state would re-arm the countdown
+        // on every render, so it would never actually elapse.
+        if (mascotStateRef.current !== 'idle') return
+        dispatch({ type: 'mascot-state', state: 'sleeping', note: 'resting — poke me' })
+      }, mins * 60 * 1000)
+    }
+
+    const onInteract = (): void => {
+      if (mascotStateRef.current === 'sleeping') {
+        dispatch({ type: 'mascot-state', state: 'idle', note: 'waiting on you' })
+      }
+      arm()
+    }
+
+    const events: Array<keyof WindowEventMap> = ['keydown', 'pointerdown', 'wheel', 'focus']
+    events.forEach((e) => window.addEventListener(e, onInteract))
+    // Armed, not woken: a re-run must not rouse her just because the effect
+    // re-mounted.
+    arm()
+    return () => {
+      clearTimeout(timer)
+      events.forEach((e) => window.removeEventListener(e, onInteract))
+    }
+  }, [state.ready, state.settings.mascot.sleepAfterMin, state.mascotState, dispatch])
+
   // The idle rule. It shipped in the seeded rules but nothing ever fired it, so
   // "no input for 20 minutes" never happened. Any real interaction re-arms the
   // timer; it fires once per quiet spell rather than repeating every 20 minutes,
@@ -451,7 +502,13 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
           caption: 'still here whenever you are',
           modes: [rule.showAs]
         })
-        dispatch({ type: 'mascot-state', state: 'sleeping', note: 'resting — poke me' })
+        // The sticker is the mascot speaking up, and speaking in your sleep is a
+        // strange look — so firing it wakes her, and the sleep countdown starts
+        // over. Optional, because someone may want her to murmur without
+        // stirring.
+        if (state.settings.mascot.idleRuleWakes !== false) {
+          dispatch({ type: 'mascot-state', state: 'idle', note: 'waiting on you' })
+        }
       }, wait)
     }
 

@@ -222,6 +222,43 @@ export function OverlayPane(): React.JSX.Element {
 
           <section className="config-card">
             <span className="section-label">Behaviour</span>
+
+            {/* Sleep is its own countdown, not the sticker rule's — it used to
+                be gated on having one, so a fresh install never slept. */}
+            <Row
+              label="Sleeps after"
+              hint={
+                (cfg.sleepAfterMin ?? 5) === 0
+                  ? 'never sleeps'
+                  : `${cfg.sleepAfterMin ?? 5} min of nothing happening`
+              }
+            >
+              {/* `Pills` carries string values, so the minutes round-trip
+                  through text rather than the control growing a numeric mode
+                  for one caller. */}
+              <Pills
+                options={[
+                  { value: '0', label: 'never' },
+                  { value: '2', label: '2 min' },
+                  { value: '5', label: '5 min' },
+                  { value: '15', label: '15 min' }
+                ]}
+                value={String(cfg.sleepAfterMin ?? 5)}
+                onChange={(v) => patch({ sleepAfterMin: Number(v) })}
+              />
+            </Row>
+            <Row
+              label="The idle sticker wakes it"
+              hint="off lets it talk in its sleep without stirring"
+            >
+              <Toggle
+                dense
+                on={cfg.idleRuleWakes !== false}
+                onChange={(v) => patch({ idleRuleWakes: v })}
+                label="The idle sticker wakes it"
+              />
+            </Row>
+
             <Row label="Clicking the mascot" hint="a drag never counts as a click">
               <Pills
                 options={[
