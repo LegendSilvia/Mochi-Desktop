@@ -91,6 +91,21 @@ export function Session(): React.JSX.Element {
    *  the toolbar button instead. Drives the filter and the token replacement. */
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
+  /*
+   * The mascot sent us here.
+   *
+   * "Open Mochi" on a desktop approval brings the window forward, but landing on
+   * whichever session happened to be open last is not much help when the point
+   * was to read a specific command. Main raises the window and then names the
+   * session; this switches to it.
+   */
+  useEffect(() => {
+    return window.mochi?.onFocusSession((sessionId) => {
+      dispatch({ type: 'active', id: sessionId })
+      dispatch({ type: 'screen', screen: 'chat' })
+    })
+  }, [dispatch])
+
   // Clicking anywhere else dismisses the header menu.
   useEffect(() => {
     if (!headMenu) return

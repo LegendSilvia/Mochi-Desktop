@@ -44,6 +44,7 @@ export const IPC = {
   ragEmbedder: 'mochi:rag-embedder',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
+  focusSession: 'mochi:focus-session',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -68,6 +69,7 @@ export const IPC = {
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
   mascotState: 'mochi:mascot-state',
+  approval: 'mochi:approval',
   stateChanged: 'mochi:state-changed'
 } as const
 
@@ -131,6 +133,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    */
   ipcMain.handle(IPC.setMascotState, (_e, state: MascotState, note?: string) => {
     bus.emitMascotState({ state, note })
+  })
+
+  /**
+   * Bring the app forward, on the session that asked.
+   *
+   * The escape hatch for a command too long to read on the overlay. Approving
+   * something you can only half see is worse than a click to go and read it,
+   * so the mascot offers this instead of a truncated Allow.
+   */
+  ipcMain.handle(IPC.focusSession, (_e, sessionId: string) => {
+    const win = getWindow()
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    // Told after the window is up: the renderer switches session on receipt, and
+    // doing it while hidden would leave the switch unseen if focus failed.
+    win.webContents.send(IPC.focusSession, sessionId)
   })
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())
@@ -373,6 +393,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (win && !win.isFocused()) win.flashFrame(true)
   })
   bus.on('mascot-state', (payload) => broadcast(IPC.mascotState, payload))
+  // Approvals reach the overlay this way rather than down the chat stream, which
+  // only the app window is reading. The mascot is often the only part of Mochi
+  // on screen when a run stops to ask.
+  bus.on('approval', (payload) => broadcast(IPC.approval, payload))
 
   app.on('before-quit', () => {
     void watcher?.close()

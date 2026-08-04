@@ -140,6 +140,27 @@ export type StickerEvent =
   | 'needs-approval'
   | 'manual'
 
+/**
+ * A tool parked waiting for the user, in a form the overlay can render.
+ *
+ * The chat stream carries approvals to the app window only, so the mascot never
+ * knew one was pending — the one surface most likely to be visible when the app
+ * is buried. This travels the mascot-state path instead: main to every window.
+ */
+export interface ApprovalRequest {
+  id: string
+  sessionId: string
+  /** Which conversation is blocked. With several sessions open, "allow this?" is
+   *  not answerable without knowing what asked. */
+  sessionTitle: string
+  toolName: string
+  /** The command or path, already shortened for a small surface. */
+  target: string
+  /** True when `target` had to be cut. Approving a command you can only half
+   *  read is worse than being sent to the window that shows all of it. */
+  truncated: boolean
+}
+
 export interface MascotConfig {
   shell: MascotShell
   idleMotion: IdleMotion

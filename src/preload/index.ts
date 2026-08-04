@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AgentLoadout,
   AppSettings,
+  ApprovalRequest,
   AssetLibrary,
   MascotState,
   PersistedState,
@@ -37,6 +38,7 @@ const IPC = {
   ragEmbedder: 'mochi:rag-embedder',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
+  focusSession: 'mochi:focus-session',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -60,6 +62,7 @@ const IPC = {
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
   mascotState: 'mochi:mascot-state',
+  approval: 'mochi:approval',
   stateChanged: 'mochi:state-changed'
 } as const
 
@@ -145,6 +148,9 @@ export interface MochiApi {
   /** Set the mascot state for every window at once. Sleep is decided in the
    *  renderer but must not differ between the app and the overlay. */
   setMascotState: (state: MascotState, note?: string) => Promise<void>
+  /** Bring the app forward on a given session. The overlay's escape hatch for a
+   *  command too long to read there. */
+  focusSession: (sessionId: string) => Promise<void>
   saveState: (patch: StatePatch) => Promise<PersistedState>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -156,6 +162,10 @@ export interface MochiApi {
   onLibraryChanged: (cb: () => void) => () => void
   onStickerFired: (cb: (p: StickerFiredPayload) => void) => () => void
   onMascotState: (cb: (p: MascotStatePayload) => void) => () => void
+  /** A tool parked waiting on the user, or null when it has been answered. */
+  onApproval: (cb: (p: ApprovalRequest | null) => void) => () => void
+  /** The app was asked to show a particular session. */
+  onFocusSession: (cb: (sessionId: string) => void) => () => void
   /** Another window persisted state; merge it so the two never drift. */
   onStateChanged: (cb: (s: PersistedState) => void) => () => void
 }
@@ -182,6 +192,7 @@ const api: MochiApi = {
   ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
   readText: (path) => ipcRenderer.invoke(IPC.readText, path),
   setMascotState: (state, note) => ipcRenderer.invoke(IPC.setMascotState, state, note),
+  focusSession: (sessionId) => ipcRenderer.invoke(IPC.focusSession, sessionId),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),
@@ -207,6 +218,8 @@ const api: MochiApi = {
   onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
   onStickerFired: (cb) => on<StickerFiredPayload>(IPC.stickerFired, cb),
   onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb),
+  onApproval: (cb) => on<ApprovalRequest | null>(IPC.approval, cb),
+  onFocusSession: (cb) => on<string>(IPC.focusSession, cb),
   onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb)
 }
 

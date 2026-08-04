@@ -264,8 +264,33 @@ function settleApproval(id: string, decision: ApprovalDecision): boolean {
   if (!pending) return false
   clearTimeout(pending.timer)
   pendingApprovals.delete(id)
+  // Clear it wherever it is showing. Answering in the app must take the card off
+  // the mascot too, or the overlay keeps offering a decision already made.
+  bus.emitApproval(null)
   pending.resolve(decision)
   return true
+}
+
+/** Roughly a line and a half on the overlay. Past this the command is offered as
+ *  "open Mochi" instead — a half-read command is not something to approve. */
+const APPROVAL_TARGET_MAX = 120
+
+/**
+ * What the tool is about to do, as one line.
+ *
+ * The command leads and the blocked path only fills in behind it: preferring
+ * `blockedPath` is what made a PowerShell delete show as a bare file name, so
+ * the user read a path and approved a command they never saw.
+ */
+function describeApprovalTarget(input: unknown, blockedPath?: string | null): string {
+  if (typeof input === 'object' && input !== null) {
+    const record = input as Record<string, unknown>
+    for (const key of ['command', 'file_path', 'filePath', 'path', 'pattern', 'url', 'query']) {
+      const value = record[key]
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+  }
+  return blockedPath ?? ''
 }
 
 /**
@@ -1009,25 +1034,33 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                   }
                 })
 
+                const shortName = toolName.replace(TOOL_PREFIX, '')
+
                 // The card is in the thread, but the thread may be behind three
                 // other windows — and this one *blocks*. A finished turn the user
                 // misses is a missed update; a missed approval is a run that
                 // never continues, so it deserves the mascot at least as much.
-                // Blocked on the user, so say so on the mascot as well as in
-                // the thread — the overlay may be the only part of Mochi they
-                // can see.
-                bus.emitMascotState({
-                  state: 'asking',
-                  note: `needs your OK: ${toolName.replace(TOOL_PREFIX, '')}`
+                bus.emitMascotState({ state: 'asking', note: `needs your OK: ${shortName}` })
+                notifyIfAway('needs-approval', `${shortName} is waiting on your go-ahead`)
+
+                // And on the mascot itself, which may be the only part of Mochi
+                // on screen. Sent with the session's name because with more than
+                // one conversation open, "allow this?" is not answerable without
+                // knowing which one asked.
+                const full = describeApprovalTarget(toolInput, blockedPath)
+                bus.emitApproval({
+                  id,
+                  sessionId: chatId,
+                  sessionTitle: load().sessions.find((s) => s.id === chatId)?.title ?? 'a session',
+                  toolName: shortName,
+                  target: full.slice(0, APPROVAL_TARGET_MAX),
+                  truncated: full.length > APPROVAL_TARGET_MAX
                 })
-                notifyIfAway(
-                  'needs-approval',
-                  `${toolName.replace(TOOL_PREFIX, '')} is waiting on your go-ahead`
-                )
 
                 return new Promise<PermissionResult>((resolve) => {
                   const timer = setTimeout(() => {
                     pendingApprovals.delete(id)
+                    bus.emitApproval(null)
                     resolve({ behavior: 'deny', message: 'Timed out waiting for approval.' })
                   }, APPROVAL_TIMEOUT_MS)
 
@@ -1054,6 +1087,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     if (pendingApprovals.has(id)) {
                       clearTimeout(timer)
                       pendingApprovals.delete(id)
+                      bus.emitApproval(null)
                       resolve({ behavior: 'deny', message: 'Run was stopped.' })
                     }
                   })

@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { playSound, isQuietNow } from '@renderer/lib/audio'
-import type { IdleMotion, MascotPose, MascotShell, MascotState } from '@shared/types'
+import type {
+  ApprovalRequest,
+  IdleMotion,
+  MascotPose,
+  MascotShell,
+  MascotState
+} from '@shared/types'
+import { ApprovalBubble } from './ApprovalBubble'
 import './mascot.css'
 
 const POS_KEY = 'mochi.mascot.pos'
@@ -66,8 +73,17 @@ function readStoredPos(): Pos | null {
  *     re-render, so the loop doesn't restart and visibly jump.
  */
 export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): React.JSX.Element | null {
-  const { settings, mascotState, mascotNote, burst, spriteSrc, soundSrc, fireSticker, agents } =
-    useStore()
+  const {
+    settings,
+    mascotState,
+    mascotNote,
+    burst,
+    spriteSrc,
+    soundSrc,
+    fireSticker,
+    agents,
+    server
+  } = useStore()
   const cfg = settings.mascot
   /** One mascot, one voice — the default agent's, same rule the lines follow. */
   const speaker = agents.find((a) => a.id === settings.defaultAgentId)?.name ?? 'Mochi'
@@ -122,6 +138,21 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     },
     []
   )
+
+  /*
+   * A run stopped and is waiting on the user.
+   *
+   * Overlay only. In the app window the approval is already in the thread, and a
+   * second copy floating over the mascot would ask the same question twice.
+   * Cleared by main whenever it is answered anywhere, so deciding in the app
+   * also takes it off the desktop.
+   */
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null)
+  const approvalRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!overlay) return
+    return window.mochi?.onApproval((next) => setApproval(next))
+  }, [overlay])
 
   const showBubble = burst && burst.modes.includes('bubble') && dismissed.bubble !== burst.id
   const showOverlay = burst && burst.modes.includes('overlay') && dismissed.overlay !== burst.id
@@ -202,19 +233,35 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     // a mousemove happened to heal it. Tearing the effect down here runs the
     // cleanup below, which releases the capture — no second copy of the logic.
     if (!overlay || !cfg.visible) return
-    const onMove = (e: MouseEvent): void => {
-      const el = wrapRef.current
-      if (!el) return
+    const over = (el: HTMLElement | null, e: MouseEvent): boolean => {
+      if (!el) return false
       const r = el.getBoundingClientRect()
-      const inside =
+      return (
         e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+      )
+    }
+
+    const onMove = (e: MouseEvent): void => {
+      if (!wrapRef.current) return
+      const onSprite = over(wrapRef.current, e)
+      /*
+       * The approval card counts as part of the mascot for click-through.
+       *
+       * It is positioned out of flow so it cannot shove the sprite around, which
+       * also means it does not grow the wrapper's rect — so a hit test on the
+       * wrapper alone left the Allow and Deny buttons unclickable. Testing it
+       * separately is the narrow fix; making the whole overlay interactive while
+       * an approval is pending would block every click to every other app on the
+       * desktop until the user answered.
+       */
+      const inside = onSprite || over(approvalRef.current, e)
       if (inside === interactive.current) return
       interactive.current = inside
       // The same hit-test already decides click-through, so hover comes free
       // here. `pointerenter` cannot do this job in the overlay: the window
       // ignores the mouse until this call turns it back on, so the pointer is
       // already over the sprite by the time DOM events start arriving.
-      setHovering(inside)
+      setHovering(onSprite)
       void window.mochi?.mascotInteractive(inside)
     }
     window.addEventListener('mousemove', onMove)
@@ -470,7 +517,18 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
       >
         {/* `bubbleStyle` has been in the config all along but nothing ever read
             it, so the bubble was always the soft one and "none" did nothing. */}
-        {showBubble && burst && cfg.bubbleStyle !== 'none' && (
+        {/* Above the sticker bubble in the stack, and it wins when both are
+            present: a sticker is decoration, this is a stalled run. */}
+        {approval && server && (
+          <ApprovalBubble
+            request={approval}
+            baseUrl={server.baseUrl}
+            onAnswered={() => setApproval(null)}
+            cardRef={approvalRef}
+          />
+        )}
+
+        {showBubble && burst && !approval && cfg.bubbleStyle !== 'none' && (
           <div className="mo-bubble" data-style={cfg.bubbleStyle ?? 'soft'}>
             {burst.caption}
           </div>

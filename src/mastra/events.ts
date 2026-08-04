@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { MascotState, StickerEvent } from '../shared/types'
+import type { ApprovalRequest, MascotState, StickerEvent } from '../shared/types'
 
 /**
  * In-process bus between Mastra tools and the Electron main process.
@@ -11,6 +11,8 @@ import type { MascotState, StickerEvent } from '../shared/types'
 export interface MochiEvents {
   sticker: { event: StickerEvent; stickerId?: string; caption?: string }
   'mascot-state': { state: MascotState; note?: string }
+  /** Null clears it — the decision came in, or the run ended. */
+  approval: ApprovalRequest | null
 }
 
 class MochiBus extends EventEmitter {
@@ -20,6 +22,10 @@ class MochiBus extends EventEmitter {
 
   emitMascotState(payload: MochiEvents['mascot-state']): void {
     this.emit('mascot-state', payload)
+  }
+
+  emitApproval(payload: MochiEvents['approval']): void {
+    this.emit('approval', payload)
   }
 }
 
