@@ -1013,6 +1013,13 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 // other windows — and this one *blocks*. A finished turn the user
                 // misses is a missed update; a missed approval is a run that
                 // never continues, so it deserves the mascot at least as much.
+                // Blocked on the user, so say so on the mascot as well as in
+                // the thread — the overlay may be the only part of Mochi they
+                // can see.
+                bus.emitMascotState({
+                  state: 'asking',
+                  note: `needs your OK: ${toolName.replace(TOOL_PREFIX, '')}`
+                })
                 notifyIfAway(
                   'needs-approval',
                   `${toolName.replace(TOOL_PREFIX, '')} is waiting on your go-ahead`

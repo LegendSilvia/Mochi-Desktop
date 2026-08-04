@@ -34,6 +34,7 @@ const SLOT_FALLBACK: Partial<Record<SpriteSlot, SpriteSlot>> = {
   picked: 'hover',
   hover: 'idle',
   click: 'done',
+  asking: 'thinking',
   'tool-running': 'thinking',
   thinking: 'idle',
   done: 'idle',

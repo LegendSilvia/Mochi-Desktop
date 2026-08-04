@@ -6,13 +6,23 @@
  */
 
 /** Mascot lifecycle states. Each maps to a sprite, a motion and a sound. */
-export type MascotState = 'idle' | 'thinking' | 'tool-running' | 'error' | 'done' | 'sleeping'
+export type MascotState =
+  | 'idle'
+  | 'thinking'
+  | 'tool-running'
+  /** Blocked on the user: a tool is parked waiting for approval, or a question
+   *  has been asked and nothing can continue until it is answered. */
+  | 'asking'
+  | 'error'
+  | 'done'
+  | 'sleeping'
 
 /** Sprite file names are derived from these — dropping `work.png` fills `tool-running`. */
 export const MASCOT_STATES: MascotState[] = [
   'idle',
   'thinking',
   'tool-running',
+  'asking',
   'error',
   'done',
   'sleeping'
@@ -61,6 +71,7 @@ export const MASCOT_STATE_LABELS: Record<SpriteSlot, string> = {
   idle: 'idle',
   thinking: 'think',
   'tool-running': 'work',
+  asking: 'ask',
   error: 'oops',
   done: 'done',
   sleeping: 'sleep',

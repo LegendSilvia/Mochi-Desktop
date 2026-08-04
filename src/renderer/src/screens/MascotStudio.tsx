@@ -35,6 +35,7 @@ const STATE_DOT: Record<MascotState, string> = {
   idle: 'var(--ac)',
   thinking: 'var(--blue)',
   'tool-running': 'var(--warm)',
+  asking: 'var(--warm)',
   error: 'var(--rose)',
   done: 'var(--ac)',
   sleeping: 'var(--tx3)'
