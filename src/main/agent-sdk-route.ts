@@ -2,7 +2,12 @@ import type { Hono } from 'hono'
 import type { HonoBindings, HonoVariables } from '@mastra/hono'
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai'
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
-import type { McpServerConfig, PermissionResult, Query } from '@anthropic-ai/claude-agent-sdk'
+import type {
+  McpServerConfig,
+  PermissionResult,
+  Query,
+  SDKUserMessage
+} from '@anthropic-ai/claude-agent-sdk'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -185,6 +190,74 @@ const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000
  * `interrupt()`, which is the only thing that actually halts the turn.
  */
 const liveRuns = new Map<string, Query>()
+
+/**
+ * A prompt you can keep talking into.
+ *
+ * Passing `prompt` as a string closes the conversation the moment the turn
+ * starts: the agent gets one instruction and nothing can reach it until the run
+ * ends. That is why redirecting mid-run was impossible and why a message typed
+ * while the agent worked had to sit in the renderer until `onFinish`.
+ *
+ * An async iterable prompt stays open instead, and the SDK's own `priority`
+ * decides what happens to each message: `now` interrupts and redirects the
+ * current turn, `next` waits and runs after it. So steer and the follow-up queue
+ * are the same mechanism with one field changed, and the queue moves off the
+ * renderer — where a reload silently dropped it — into the run itself.
+ */
+interface InputChannel {
+  stream: AsyncIterable<SDKUserMessage>
+  push: (text: string, priority: 'now' | 'next') => void
+  /** End the conversation, but only once nothing is still waiting to be said. */
+  closeWhenDrained: () => void
+}
+
+function inputChannel(first: string): InputChannel {
+  const say = (text: string, priority?: 'now' | 'next'): SDKUserMessage => ({
+    type: 'user',
+    message: { role: 'user', content: text },
+    parent_tool_use_id: null,
+    ...(priority ? { priority } : {})
+  })
+
+  const waiting: SDKUserMessage[] = [say(first)]
+  let wake: (() => void) | null = null
+  let closing = false
+
+  const nudge = (): void => {
+    wake?.()
+    wake = null
+  }
+
+  async function* pump(): AsyncGenerator<SDKUserMessage> {
+    for (;;) {
+      while (waiting.length > 0) yield waiting.shift() as SDKUserMessage
+      // Closing is checked *after* draining: a message pushed in the same tick
+      // as the close must still be delivered, or a follow-up queued just as the
+      // turn ended would vanish.
+      if (closing) return
+      await new Promise<void>((resolve) => {
+        wake = resolve
+      })
+    }
+  }
+
+  return {
+    stream: pump(),
+    push: (text, priority) => {
+      if (closing) return
+      waiting.push(say(text, priority))
+      nudge()
+    },
+    closeWhenDrained: () => {
+      closing = true
+      nudge()
+    }
+  }
+}
+
+/** Open input channels, so `/agent-sdk/steer` can talk into a running turn. */
+const liveInputs = new Map<string, InputChannel>()
 
 function settleApproval(id: string, decision: ApprovalDecision): boolean {
   const pending = pendingApprovals.get(id)
@@ -674,6 +747,34 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
   })
 
   /**
+   * Say something to a turn that is already running.
+   *
+   * `now` redirects it — the agent takes the new instruction into the work in
+   * progress instead of finishing what it was told first. `next` queues behind
+   * it and runs when the current turn lands.
+   *
+   * Both used to be impossible. A string prompt is sealed once the run starts,
+   * so the renderer held typed-ahead messages in memory until `onFinish` and
+   * lost them on reload, and redirecting meant stopping and starting over.
+   */
+  app.post('/agent-sdk/steer', async (c) => {
+    const { id, text, priority } = (await c.req.json().catch(() => ({}))) as {
+      id?: string
+      text?: string
+      priority?: 'now' | 'next'
+    }
+    if (!id || !text?.trim()) return c.json({ ok: false, reason: 'id and text are required' }, 400)
+
+    const input = liveInputs.get(id)
+    // Not an error: the turn may have finished between typing and sending, in
+    // which case the caller should send it as an ordinary message instead.
+    if (!input) return c.json({ ok: false, reason: 'no run in flight' })
+
+    input.push(text, priority === 'now' ? 'now' : 'next')
+    return c.json({ ok: true })
+  })
+
+  /**
    * Stop, and mean it.
    *
    * `useChat`'s own `stop()` aborts the fetch, which only detaches the reader —
@@ -839,8 +940,9 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         let streamed = false
 
         const runTurn = async (promptText: string, resumeId?: string): Promise<void> => {
+          const input = inputChannel(promptText)
           const run = query({
-            prompt: promptText,
+            prompt: input.stream,
             options: {
               systemPrompt: agent
                 ? [
@@ -943,9 +1045,10 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
             }
           })
 
-          // Registered before the first await so a stop arriving immediately
-          // still finds something to interrupt.
+          // Registered before the first await so a stop or a steer arriving
+          // immediately still finds something to act on.
           liveRuns.set(chatId, run)
+          liveInputs.set(chatId, input)
 
           try {
             for await (const raw of run) {
@@ -953,6 +1056,19 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
 
             if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
               rememberSessionId(chatId, message.session_id)
+              continue
+            }
+
+            /*
+             * The turn is done — but the conversation may not be. A streaming
+             * prompt keeps the run alive until the input ends, which is what
+             * lets a queued follow-up become the next turn on the same
+             * connection. `closeWhenDrained` ends it only once nothing is still
+             * waiting, so the run stops here when the user has said nothing more
+             * and continues when they have.
+             */
+            if (message.type === 'result') {
+              input.closeWhenDrained()
               continue
             }
 
@@ -1039,6 +1155,9 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
             // registers a second run under the same key, and the first one
             // unwinding must not delete the live one.
             if (liveRuns.get(chatId) === run) liveRuns.delete(chatId)
+            if (liveInputs.get(chatId) === input) liveInputs.delete(chatId)
+            // An error path can leave the generator parked on its wake promise.
+            input.closeWhenDrained()
           }
         }
 

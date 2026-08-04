@@ -40,7 +40,9 @@ export const KEYS = {
   // Shift, not `meta`: on Windows `meta` is the Windows key, which the OS
   // largely claims for itself — so the advertised newline chord did nothing.
   newline: () => chord('shift', 'enter'),
-  approve: () => chord('mod', 'enter')
+  approve: () => chord('mod', 'enter'),
+  /** Redirect a turn that is already running, rather than queueing behind it. */
+  steer: () => chord('alt', 'enter')
 }
 
 /** True when the platform's primary modifier is held. */

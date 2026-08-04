@@ -446,10 +446,47 @@ export function Session(): React.JSX.Element {
     [pendingAsks, skipped]
   )
 
-  const enqueue = useCallback((text: string) => {
-    queueRef.current = [...queueRef.current, text]
-    setQueue(queueRef.current)
-  }, [])
+  /**
+   * Say something to the turn that is already running.
+   *
+   * `next` waits for it to finish, `now` redirects it. Both go to the run
+   * itself rather than being held here until `onFinish`: the SDK understands
+   * `priority` on a queued message, so the follow-up becomes the next turn on
+   * the same connection instead of a second request the renderer has to
+   * remember to make — which is how a reload used to lose everything typed
+   * ahead.
+   *
+   * The chip is still local, because it is a receipt for something the user
+   * typed, and it clears when the turn it was waiting behind finishes.
+   */
+  const speakInto = useCallback(
+    (text: string, priority: 'now' | 'next'): void => {
+      queueRef.current = [...queueRef.current, text]
+      setQueue(queueRef.current)
+
+      const sessionId = activeSession?.id
+      if (!server || !sessionId) return
+      void fetch(`${server.baseUrl}/agent-sdk/steer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, text, priority })
+      })
+        .then((r) => r.json())
+        .then((r: { ok?: boolean }) => {
+          // The turn finished between typing and sending, so nothing was
+          // listening. Send it as an ordinary message rather than dropping it.
+          if (r.ok) return
+          queueRef.current = queueRef.current.filter((t) => t !== text)
+          setQueue(queueRef.current)
+          sendMessage({ text })
+        })
+        .catch(() => {
+          queueRef.current = queueRef.current.filter((t) => t !== text)
+          setQueue(queueRef.current)
+        })
+    },
+    [server, activeSession?.id, sendMessage]
+  )
 
   const dropQueued = useCallback((index: number) => {
     queueRef.current = queueRef.current.filter((_, i) => i !== index)
@@ -565,14 +602,20 @@ export function Session(): React.JSX.Element {
     })
   }
 
-  const send = (): void => {
+  /** `steer` sends into the running turn instead of queueing behind it — the
+   *  "no, do this instead" case, where waiting for the current answer is exactly
+   *  what you do not want. Ignored when nothing is running. */
+  const send = (steer = false): void => {
     const text = input.trim()
     if (!text) return
     if (!transport) return
     setInput('')
     if (busy) {
-      devlog.push('chat', 'queued while busy', { chars: text.length })
-      enqueue(text)
+      const priority = steer ? 'now' : 'next'
+      devlog.push('chat', `${priority === 'now' ? 'steered' : 'queued'} while busy`, {
+        chars: text.length
+      })
+      speakInto(text, priority)
       return
     }
     devlog.push('chat', 'send', { chars: text.length })
@@ -933,7 +976,10 @@ export function Session(): React.JSX.Element {
                 // eats, and Shift+Enter sent the message like a bare Enter.
                 if (e.shiftKey) return // default: newline
                 e.preventDefault()
-                if (e.ctrlKey) approveLatest()
+                // Alt+Enter redirects a turn that is already running. Not Shift
+                // (newline) and not Ctrl (approve), both of which are taken.
+                if (e.altKey) send(true)
+                else if (e.ctrlKey) approveLatest()
                 else send()
               }}
             />
@@ -993,7 +1039,8 @@ export function Session(): React.JSX.Element {
                   interleaving, so there is no reason to block typing ahead. */}
               <button
                 className="pill-primary"
-                onClick={send}
+                // Wrapped: the click event would otherwise arrive as `steer`.
+                onClick={() => send()}
                 disabled={!input.trim() || !transport || openAsks.length > 0}
               >
                 {busy ? 'Queue' : 'Send'}
@@ -1005,6 +1052,13 @@ export function Session(): React.JSX.Element {
             <span className="mono">{KEYS.send()}</span> send ·{' '}
             <span className="mono">{KEYS.newline()}</span> new line ·{' '}
             <span className="mono">{KEYS.approve()}</span> approve ·{' '}
+            {/* Only while a turn is running — steering an idle session is just
+                sending, and advertising it the rest of the time is noise. */}
+            {busy && (
+              <>
+                <span className="mono">{KEYS.steer()}</span> steer now ·{' '}
+              </>
+            )}
             <span className="mono">{KEYS.stickerPicker()}</span> sticker picker ·{' '}
             <span className="mono">{KEYS.hideMascot()}</span> hide mascot
           </div>
