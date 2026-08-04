@@ -15,6 +15,11 @@ import { mayLeaveScreen } from '@renderer/lib/navGuard'
  * mid-tool should look like it is thinking rather than like it is doing nothing.
  * Only `idle` is genuinely expected to be filled in every folder.
  */
+/** How long the mascot holds a finished or failed pose before settling back to
+ *  idle. Long enough to read as a reaction, short enough not to become her
+ *  resting face. */
+const MASCOT_SETTLE_MS = 2500
+
 const SLOT_FALLBACK: Partial<Record<SpriteSlot, SpriteSlot>> = {
   'walk-left': 'picked',
   'walk-right': 'picked',
@@ -403,6 +408,25 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     },
     [state.settings.mascot.stickerModes, stickerSrc, soundSrc, lines]
   )
+
+  /*
+   * `done` and `error` are moments, not places to stay.
+   *
+   * Nothing ever moved the mascot off them, so the first finished turn left her
+   * pleased with herself for the rest of the session — and every later `done`
+   * was a no-op, because she was already there. Only the terminal states decay;
+   * `thinking` and `tool-running` are ongoing and end when the run ends.
+   *
+   * Both windows run this independently. They each receive the same state event,
+   * so they each start the same timer and land on idle together.
+   */
+  useEffect(() => {
+    if (state.mascotState !== 'done' && state.mascotState !== 'error') return
+    const timer = setTimeout(() => {
+      dispatch({ type: 'mascot-state', state: 'idle', note: 'waiting on you' })
+    }, MASCOT_SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [state.mascotState, dispatch])
 
   // The idle rule. It shipped in the seeded rules but nothing ever fired it, so
   // "no input for 20 minutes" never happened. Any real interaction re-arms the
