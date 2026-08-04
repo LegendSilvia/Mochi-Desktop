@@ -26,6 +26,20 @@ export function DefaultsPane(): React.JSX.Element {
               />
             </label>
             <span className="meta">Leave it empty and agents just won&apos;t use a name.</span>
+            <Row label="Welcome tour" hint="run the first-run walkthrough again">
+              <button
+                className="pill-ghost"
+                onClick={() => {
+                  dispatch({
+                    type: 'settings',
+                    patch: { toursSeen: settings.toursSeen.filter((t) => t !== 'first-run') }
+                  })
+                  dispatch({ type: 'tour-start', id: 'first-run' })
+                }}
+              >
+                Replay
+              </button>
+            </Row>
           </section>
 
           <section className="config-card">
