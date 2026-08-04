@@ -686,6 +686,22 @@
 .diff-text {
   flex: 1;
 }
+.diff-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px 4px calc(3.2em + 22px);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--tx3);
+  cursor: pointer;
+}
+.diff-more:hover {
+  color: var(--tx2);
+  text-decoration: underline;
+}
 
 /* Nested cards lose their own frame — the group already provides one, and two
    borders 8px apart read as a rendering mistake. */

@@ -282,9 +282,13 @@ export function ToolGroup({
   // An approval nobody has answered holds the whole group open — it is the one
   // thing here that needs the user, and folding it away would hide the button
   // the run is blocked on.
+  // Answered here rather than in each card: the group has to know, and the card
+  // that knows is a child. Ids only, so it survives the parts array changing
+  // identity on every stream chunk.
+  const [answered, setAnswered] = useState<string[]>([])
   const waiting = approvals.some((p) => {
     const req = (p as unknown as { data?: PermissionRequest }).data
-    return req && !staleApprovals.has(req.id)
+    return req && !staleApprovals.has(req.id) && !answered.includes(req.id)
   })
   const running = waiting || done < tools.length
   const failed = tools.some((p) => p.state === 'output-error')
@@ -330,6 +334,7 @@ export function ToolGroup({
                 request={req}
                 baseUrl={baseUrl}
                 stale={staleApprovals.has(req?.id)}
+                onAnswered={(id) => setAnswered((prev) => [...prev, id])}
               />
             )
           }

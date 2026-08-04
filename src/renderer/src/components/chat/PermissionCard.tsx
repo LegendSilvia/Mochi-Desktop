@@ -22,10 +22,13 @@ export interface PermissionRequest {
 export function PermissionCard({
   request,
   baseUrl,
-  stale = false
+  stale = false,
+  onAnswered
 }: {
   request: PermissionRequest
   baseUrl: string
+  /** Told when the user decides, so the enclosing card can stop waiting. */
+  onAnswered?: (id: string) => void
   /**
    * Restored from a previous run of the app.
    *
@@ -42,6 +45,10 @@ export function PermissionCard({
 
   const answer = (behavior: 'allow' | 'deny', alwaysAllow = false): void => {
     setSent(behavior)
+    // The card that contains this needs to know too — it stays open while an
+    // approval is outstanding, and without being told it would sit there saying
+    // "waiting on you" long after you had answered.
+    onAnswered?.(request.id)
     void fetch(`${baseUrl}/agent-sdk/permission`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
