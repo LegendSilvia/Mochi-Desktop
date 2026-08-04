@@ -29,7 +29,7 @@ import { getPaths } from './paths'
 import { basename, join } from 'node:path'
 import { bus } from '../mastra/events'
 import { notifyIfAway, setAttentionWindow } from './attention'
-import type { ProviderAccount, SpriteSlot, Theme } from '../shared/types'
+import type { MascotState, ProviderAccount, SpriteSlot, Theme } from '../shared/types'
 
 export const IPC = {
   getBootstrap: 'mochi:bootstrap',
@@ -43,6 +43,7 @@ export const IPC = {
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
   readText: 'mochi:read-text',
+  setMascotState: 'mochi:set-mascot-state',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -113,6 +114,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     } catch {
       return null
     }
+  })
+
+  /**
+   * A mascot state the renderer decided, broadcast to every window.
+   *
+   * Sleep is worked out in the renderer — it depends on keyboard and pointer
+   * activity, which only a renderer sees. But each window has its own store, so
+   * each was reaching its own verdict off its own events: the overlay is
+   * `focusable: false` and receives almost no keydowns, so it dozed on its own
+   * schedule while the app window stayed awake, and the same mascot was asleep
+   * in one window and alert in the other.
+   *
+   * Routing it through main puts it on the same path the agent's own state
+   * changes take, so both windows hear one answer.
+   */
+  ipcMain.handle(IPC.setMascotState, (_e, state: MascotState, note?: string) => {
+    bus.emitMascotState({ state, note })
   })
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())

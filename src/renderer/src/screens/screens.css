@@ -556,10 +556,18 @@
   white-space: pre-wrap;
 }
 
+/*
+ * Borderless.
+ *
+ * A turn's work is a quiet aside next to what the agent actually says, and a
+ * boxed card per call gave each one the same visual weight as a reply. Only the
+ * hairline rule above it separates the two now — the content does the rest.
+ */
 .tool-card {
-  background: var(--surf);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
   overflow: hidden;
   max-width: 660px;
 }
@@ -703,18 +711,16 @@
   text-decoration: underline;
 }
 
-/* Nested cards lose their own frame — the group already provides one, and two
-   borders 8px apart read as a rendering mistake. */
+/* Indented rather than boxed: the nesting is shown by the offset, so the rows
+   inside stay as quiet as the group heading above them. */
 .tool-group-body {
   border-top: 1px solid var(--line);
-  padding: 4px;
+  padding: 2px 0 4px 14px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 .tool-group-body .tool-card {
   border: none;
-  border-radius: 10px;
   background: transparent;
 }
 .tool-group-body .tool-card:hover,
@@ -728,9 +734,15 @@
 
 /* A settled approval reads as a receipt, not as a question — same folded shape
    as a finished tool call so a turn's history is one consistent stack. */
+/* An answered approval is history like any finished call, so it wears the same
+   borderless row rather than staying a boxed card. */
 .perm-card-settled {
   padding: 0;
   overflow: hidden;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
 }
 .perm-card-settled .perm-icon {
   color: var(--tx3);

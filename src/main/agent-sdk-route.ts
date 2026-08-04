@@ -1179,6 +1179,11 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                   input: block.input ?? {}
                 })
               } else if (block.type === 'tool_result' && block.tool_use_id) {
+                // Back to thinking. `tool-running` was only ever entered, never
+                // left, so one file read early in a turn left the mascot looking
+                // busy for the rest of it — including long stretches of pure
+                // reasoning with no tool in flight. The next tool sets it again.
+                bus.emitMascotState({ state: 'thinking', note: 'thinking' })
                 if (suppressed.has(block.tool_use_id)) continue
                 writer.write({
                   type: 'tool-output-available',

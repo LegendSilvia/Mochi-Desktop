@@ -7,6 +7,17 @@ import { TOURS } from './tours'
 import * as devlog from '@renderer/lib/devlog'
 import { mayLeaveScreen } from '@renderer/lib/navGuard'
 
+/** How long the mascot holds a finished or failed pose before settling back to
+ *  idle. Long enough to read as a reaction, short enough not to become her
+ *  resting face. */
+const MASCOT_SETTLE_MS = 2500
+
+/** The transparent always-on-top window, which loads its own document. It runs
+ *  the same store, so anything that must happen once has to ask. */
+function isOverlayWindow(): boolean {
+  return window.location.pathname.includes('mascot')
+}
+
 /**
  * Where each slot looks when it has no art of its own.
  *
@@ -15,11 +26,6 @@ import { mayLeaveScreen } from '@renderer/lib/navGuard'
  * mid-tool should look like it is thinking rather than like it is doing nothing.
  * Only `idle` is genuinely expected to be filled in every folder.
  */
-/** How long the mascot holds a finished or failed pose before settling back to
- *  idle. Long enough to read as a reaction, short enough not to become her
- *  resting face. */
-const MASCOT_SETTLE_MS = 2500
-
 const SLOT_FALLBACK: Partial<Record<SpriteSlot, SpriteSlot>> = {
   'walk-left': 'picked',
   'walk-right': 'picked',
@@ -447,8 +453,17 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
 
   useEffect(() => {
     if (!state.ready) return
+    // The overlay watches too little to judge. It is `focusable: false` and sees
+    // almost no keydowns, so left to itself it dozed on its own schedule while
+    // the app window stayed wide awake — the same mascot asleep in one window
+    // and alert in the other. One window decides; main tells them both.
+    if (isOverlayWindow()) return
     const mins = state.settings.mascot.sleepAfterMin ?? 5
     if (mins <= 0) return
+
+    const say = (next: 'idle' | 'sleeping', note: string): void => {
+      void window.mochi?.setMascotState(next, note)
+    }
 
     let timer: ReturnType<typeof setTimeout>
     const arm = (): void => {
@@ -457,14 +472,12 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
         // Read through the ref: capturing the state would re-arm the countdown
         // on every render, so it would never actually elapse.
         if (mascotStateRef.current !== 'idle') return
-        dispatch({ type: 'mascot-state', state: 'sleeping', note: 'resting — poke me' })
+        say('sleeping', 'resting — poke me')
       }, mins * 60 * 1000)
     }
 
     const onInteract = (): void => {
-      if (mascotStateRef.current === 'sleeping') {
-        dispatch({ type: 'mascot-state', state: 'idle', note: 'waiting on you' })
-      }
+      if (mascotStateRef.current === 'sleeping') say('idle', 'waiting on you')
       arm()
     }
 

@@ -36,6 +36,7 @@ const IPC = {
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
   readText: 'mochi:read-text',
+  setMascotState: 'mochi:set-mascot-state',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -141,6 +142,9 @@ export interface MochiApi {
   ragEmbedder: () => Promise<EmbedderInfo>
   /** File contents, so a diff can number its lines. Null when unreadable. */
   readText: (path: string) => Promise<string | null>
+  /** Set the mascot state for every window at once. Sleep is decided in the
+   *  renderer but must not differ between the app and the overlay. */
+  setMascotState: (state: MascotState, note?: string) => Promise<void>
   saveState: (patch: StatePatch) => Promise<PersistedState>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -177,6 +181,7 @@ const api: MochiApi = {
   ragSearch: (q) => ipcRenderer.invoke(IPC.ragSearch, q),
   ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
   readText: (path) => ipcRenderer.invoke(IPC.readText, path),
+  setMascotState: (state, note) => ipcRenderer.invoke(IPC.setMascotState, state, note),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),
