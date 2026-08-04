@@ -21,7 +21,7 @@ import { useStore } from '@renderer/state/context'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
-import { SessionPanel } from './SessionPanel'
+import { WidgetHost } from '@renderer/components/widgets/WidgetHost'
 import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
 import { isPresentational } from '@renderer/lib/toolKinds'
 import { Thinking } from '@renderer/components/chat/Thinking'
@@ -32,6 +32,7 @@ import { PermissionCard, type PermissionRequest } from '@renderer/components/cha
 import * as devlog from '@renderer/lib/devlog'
 import { useAgentArt } from '@renderer/lib/useAgentArt'
 import './screens.css'
+import '@renderer/components/widgets/widgets.css'
 
 /** How often the transcript is written while a reply is still streaming. Bounds
  *  how much of a turn a session switch or a window close can cost — see the
@@ -86,7 +87,9 @@ export function Session(): React.JSX.Element {
     settings,
     library,
     pendingSend,
-    stickerPickerOpen
+    stickerPickerOpen,
+    rules,
+    stickerSrc
   } = useStore()
   const [input, setInput] = useState('')
   const [headMenu, setHeadMenu] = useState(false)
@@ -126,6 +129,13 @@ export function Session(): React.JSX.Element {
   // The agent's own mascot art. Shared with the loadout and start-a-session
   // screens — see `useAgentArt` for why the store's `spriteSrc` cannot serve it.
   const art = useAgentArt(agent ? [agent.spritePreset] : [])
+  // Every subagent's folder, so the Agents widget shows faces rather than
+  // initials. Above the early return because hooks cannot sit below one.
+  const subArt = useAgentArt(
+    (activeSession?.subagentIds ?? [])
+      .map((id) => agentById(id)?.spritePreset)
+      .filter((p): p is string => Boolean(p))
+  )
   const agentArt = agent ? art[agent.spritePreset] : null
 
   // The transport is rebuilt when the agent, the server port or the backend
@@ -720,6 +730,26 @@ export function Session(): React.JSX.Element {
             </div>
           )}
           <span className="session-spacer" />
+          {/* Only once a folder is actually set. An empty strip saying "no
+              folder" was permanent furniture in every chat that never needed
+              one — the composer's folder button is where you set it, and this
+              is only here to say where it points. */}
+          {activeSession.workspacePath && (
+            <button
+              className="chip chip-btn"
+              onClick={pickWorkspace}
+              title={`${activeSession.workspacePath} — click to change`}
+            >
+              <FolderTree size={11} strokeWidth={1.9} className="ic-code" />
+              <span className="mono repo-path">{activeSession.workspacePath}</span>
+            </button>
+          )}
+          {activeSession.branch && (
+            <span className="chip">
+              <GitBranch size={11} strokeWidth={1.9} className="ic-code" />
+              <span className="mono">{activeSession.branch}</span>
+            </span>
+          )}
           <span className="chip">{agent.model}</span>
           <span className="chip" title={onSubscription
             ? 'Running through the Claude Agent SDK on your Claude subscription — no API key involved.'
@@ -781,32 +811,6 @@ export function Session(): React.JSX.Element {
             )}
           </div>
         </header>
-
-        {/* Always shown. The agent runs with file tools in both backends, so
-            "which folder am I pointed at" is not an advanced detail — it is the
-            difference between a request working and hanging. Previously this
-            strip only appeared when a branch was set, which meant the path was
-            invisible in exactly the sessions where nothing had been configured. */}
-        <div className="repo-strip">
-          <FolderTree size={13} strokeWidth={1.8} className="ic-code" />
-          {activeSession.workspacePath ? (
-            <span className="mono repo-path" title={activeSession.workspacePath}>
-              {activeSession.workspacePath}
-            </span>
-          ) : (
-            <span className="meta">No folder set — the agent cannot reach your files</span>
-          )}
-          {activeSession.branch && (
-            <>
-              <GitBranch size={13} strokeWidth={1.8} className="ic-code" />
-              <span className="mono">{activeSession.branch}</span>
-            </>
-          )}
-          <span className="session-spacer" />
-          <button className="pill-ghost" onClick={pickWorkspace}>
-            {activeSession.workspacePath ? 'Change' : 'Set folder'}
-          </button>
-        </div>
 
         <div className="msg-list" ref={listRef}>
           {!server && (
@@ -1187,9 +1191,22 @@ export function Session(): React.JSX.Element {
             <span className="mono">{KEYS.hideMascot()}</span> hide mascot
           </div>
         </div>
-      </div>
 
-      <SessionPanel messages={messages} />
+        {/* Last in the column so it paints over the transcript and the composer,
+            but transparent to the pointer everywhere except its own panels —
+            see .wg-host. */}
+        <WidgetHost
+          session={activeSession}
+          patch={patchSession}
+          messages={messages}
+          agent={agent}
+          subagents={subagents.filter((s): s is NonNullable<typeof s> => Boolean(s))}
+          subArt={subArt}
+          rules={rules}
+          stickerSrc={stickerSrc}
+          onAddAgent={() => dispatch({ type: 'toggle', key: 'mentionOpen', value: true })}
+        />
+      </div>
     </div>
   )
 }

@@ -29,6 +29,7 @@ import { addDocuments, embedderInfo, listDocuments, removeDocument, search } fro
 import {
   destroyWorkspaces,
   diagnoseFile,
+  hoverAt,
   listWorkspaceDir,
   listWorkspaceSkills,
   readWorkspaceFile,
@@ -96,6 +97,7 @@ export const IPC = {
   wsSearch: 'mochi:ws-search',
   wsDiagnose: 'mochi:ws-diagnose',
   wsSkills: 'mochi:ws-skills',
+  wsHover: 'mochi:ws-hover',
   // Terminal
   ptyStart: 'mochi:pty-start',
   ptyWrite: 'mochi:pty-write',
@@ -449,6 +451,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     diagnoseFile(folder, path, content)
   )
   ipcMain.handle(IPC.wsSkills, (_e, folder: string) => listWorkspaceSkills(folder))
+  ipcMain.handle(
+    IPC.wsHover,
+    (_e, folder: string, path: string, line: number, character: number) =>
+      hoverAt(folder, path, line, character)
+  )
 
   /*
    * Terminals. A real PTY, not the workspace sandbox — see terminal.ts for why

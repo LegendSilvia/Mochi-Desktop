@@ -383,6 +383,49 @@ export async function diagnoseFile(
   }
 }
 
+/**
+ * Type information for the symbol under the caret.
+ *
+ * Goes through `prepareQuery` rather than `getDiagnostics` because hover needs
+ * the document open on the server at the content being asked about — the same
+ * open/change dance, but answering a position instead of waiting for a publish.
+ */
+export async function hoverAt(
+  folder: string,
+  path: string,
+  line: number,
+  character: number
+): Promise<string | null> {
+  const ws = workspaceFor(folder)
+  const root = rootOf(folder)
+  const p = safePath(path)
+  if (!ws?.lsp || !root || !p) return null
+  try {
+    const abs = `${root.replace(/\\/g, '/')}${p}`
+    const prepared = await ws.lsp.prepareQuery(abs)
+    if (!prepared) return null
+    const hover = (await prepared.client.queryHover(prepared.uri, { line, character })) as {
+      contents?: unknown
+    } | null
+    return flattenHover(hover?.contents) || null
+  } catch {
+    return null
+  }
+}
+
+/** LSP hover contents are a union of four shapes across protocol versions:
+ *  a string, a `{ value }`, a `{ language, value }`, or an array of any of
+ *  those. Every one of them shows up in practice depending on the server. */
+function flattenHover(contents: unknown): string {
+  if (!contents) return ''
+  if (typeof contents === 'string') return contents
+  if (Array.isArray(contents)) return contents.map(flattenHover).filter(Boolean).join('\n')
+  if (typeof contents === 'object' && 'value' in contents) {
+    return String((contents as { value: unknown }).value ?? '')
+  }
+  return ''
+}
+
 export interface SkillEntry {
   name: string
   description?: string

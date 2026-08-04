@@ -36,6 +36,8 @@
     "@mastra/hono": "^1.5.12",
     "@mastra/libsql": "^1.18.0",
     "@mastra/memory": "^1.24.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "ai": "^7.0.48",
     "chokidar": "^5.0.0",
     "hono": "^4.12.34",

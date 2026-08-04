@@ -313,16 +313,30 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The widget layer positions against this. */
+  position: relative;
 }
 
+/* The agent's identity, floating over the transcript rather than sitting in a
+   bar above it. The chat now runs the full height of the column and scrolls
+   underneath, which is what the fade at the top of `.msg-list` is for. */
 .session-head {
-  height: 58px;
-  flex-shrink: 0;
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  /* Stops short of the widget rail in the opposite corner. */
+  right: 62px;
+  z-index: 30;
+  height: 46px;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--line);
+  gap: 9px;
+  padding: 0 8px 0 12px;
+  background: color-mix(in srgb, var(--surf) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
 }
 .session-avatar {
   width: 30px;
@@ -373,16 +387,6 @@
   margin-left: 0;
 }
 
-.repo-strip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 18px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--line);
-  font-size: 11.5px;
-  color: var(--tx2);
-}
 /* A workspace path is long and its meaningful end is the right-hand side, so
    clip the front rather than the tail. `direction: rtl` moves the ellipsis to
    the start; the isolate keeps the path's own characters in logical order. */
@@ -479,7 +483,14 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 24px 22px 8px;
+  /* Clears the floating header. The transcript starts below it rather than
+     behind it, so nothing is permanently obscured — only what you scroll up
+     passes underneath. */
+  padding: 68px 22px 8px;
+  /* …and what passes underneath fades out rather than sliding behind an opaque
+     edge. Masked rather than covered by a gradient overlay because the chat
+     background is not a flat colour the overlay could match. */
+  mask-image: linear-gradient(to bottom, transparent 6px, #000 58px, #000 100%);
 }
 
 .thread-divider {
@@ -888,27 +899,10 @@
 
 /* ================= session panel ================= */
 
-.session-panel {
-  width: 330px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 18px 16px;
-  background: var(--bg2);
-  border-left: 1px solid var(--line);
-}
-
-.panel-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 13px;
-  background: var(--surf);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-}
+/* The right-hand panel is gone: its sections became widgets (see
+   components/widgets), so the chat runs to the far edge and the same sections
+   now float over it, collapse to bubbles and resize. The `.panel-*` rules below
+   survive because the widget panes reuse the row styling. */
 
 .panel-head {
   display: flex;
@@ -1959,4 +1953,23 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+/* A chip that is also a button — the folder path in the session header, which
+   opens the picker. */
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  max-width: 260px;
+  font-family: inherit;
+}
+.chip-btn:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.chip-btn .repo-path {
+  max-width: 200px;
 }

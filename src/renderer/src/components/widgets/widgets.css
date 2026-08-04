@@ -1,0 +1,625 @@
+/* ===================== widgets =====================
+   Floating panels over the chat, and the rail of bubbles they collapse to.
+
+   The layer covers the whole chat but is transparent to the pointer — only the
+   panels and the rail take clicks, so the chat underneath scrolls and selects
+   exactly as it would with nothing over it. */
+
+.wg-host {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5;
+}
+
+/* --- the bubble rail ------------------------------------------------------ */
+
+.wg-rail {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+  z-index: 40;
+}
+
+.wg-bubble {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surf) 88%, transparent);
+  border: 1px solid var(--line);
+  color: var(--tx2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+.wg-bubble:hover {
+  background: var(--surf2);
+  color: var(--tx);
+  transform: translateY(-1px);
+}
+.wg-bubble-add {
+  color: var(--tx3);
+}
+.wg-bubble-add[aria-expanded='true'] {
+  background: var(--acs);
+  color: var(--ac);
+}
+
+.wg-add-wrap {
+  position: relative;
+}
+.wg-add-menu {
+  position: absolute;
+  top: 0;
+  right: 44px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surf);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+.wg-add-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: var(--r-md);
+  background: none;
+  border: none;
+  color: var(--tx2);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.wg-add-item:hover:not(:disabled) {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-add-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.wg-add-item .meta {
+  margin-left: auto;
+  font-size: 10px;
+}
+
+/* --- the panel ------------------------------------------------------------ */
+
+.wg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--surf) 96%, transparent);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+}
+
+.wg-head {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 11px;
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+  user-select: none;
+}
+.wg-head:active {
+  cursor: grabbing;
+}
+.wg-head-icon {
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.wg-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tx2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* The path in an editor title. Its meaningful end is the right-hand side, so
+   clip the front — same treatment the old repo strip used. */
+.wg-sub {
+  font-size: 10.5px;
+  color: var(--tx3);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.wg-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+.wg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.wg-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: none;
+  border: none;
+  color: var(--tx3);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.wg-btn:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
+
+.wg-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.wg-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+}
+.wg-empty {
+  padding: 14px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* --- resize grips --------------------------------------------------------- */
+
+.wg-grip {
+  position: absolute;
+}
+.wg-grip-n,
+.wg-grip-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.wg-grip-e,
+.wg-grip-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.wg-grip-n {
+  top: -2px;
+}
+.wg-grip-s {
+  bottom: -2px;
+}
+.wg-grip-e {
+  right: -2px;
+}
+.wg-grip-w {
+  left: -2px;
+}
+.wg-grip-ne,
+.wg-grip-nw,
+.wg-grip-se,
+.wg-grip-sw {
+  width: 14px;
+  height: 14px;
+}
+.wg-grip-nw {
+  top: -2px;
+  left: -2px;
+  cursor: nwse-resize;
+}
+.wg-grip-se {
+  bottom: -2px;
+  right: -2px;
+  cursor: nwse-resize;
+}
+.wg-grip-ne {
+  top: -2px;
+  right: -2px;
+  cursor: nesw-resize;
+}
+.wg-grip-sw {
+  bottom: -2px;
+  left: -2px;
+  cursor: nesw-resize;
+}
+
+/* --- file tree ------------------------------------------------------------ */
+
+.wg-tree {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 4px 10px;
+  gap: 1px;
+}
+.wg-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  border: none;
+  background: none;
+  border-radius: var(--r-sm);
+  color: var(--tx2);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.wg-tree-row:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-tree-row[data-on='true'] {
+  background: var(--acs);
+  color: var(--tx);
+}
+.wg-tree-caret {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--tx3);
+}
+.wg-tree-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wg-tree-refresh {
+  margin: 8px 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--tx3);
+  font-size: 11px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.wg-tree-refresh:hover {
+  color: var(--tx);
+  background: var(--surf2);
+}
+
+/* --- editor --------------------------------------------------------------- */
+
+.wg-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wg-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.wg-editor-path {
+  font-size: 10.5px;
+  color: var(--tx3);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.wg-editor-count {
+  font-size: 10.5px;
+}
+/* Unsaved marker. A dot rather than an asterisk in the title: the title is
+   already a path, and a path with punctuation appended reads as part of it. */
+.wg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--warm);
+  flex-shrink: 0;
+}
+.wg-btn-text {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--tx2);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wg-btn-text:hover:not(:disabled) {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-btn-text:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.wg-btn-text.primary {
+  background: var(--acs);
+  border-color: transparent;
+  color: var(--ac);
+}
+.wg-editor-err {
+  padding: 9px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 10%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+
+.wg-editor-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.wg-gutter {
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 10px 0;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--tx3);
+  user-select: none;
+}
+.wg-gutter-line {
+  padding: 0 8px 0 12px;
+}
+/* A line the language server complained about. Severity 1 is an error, 2 a
+   warning; anything lower is not worth colouring a gutter for. */
+.wg-gutter-line[data-bad='1'] {
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 13%, transparent);
+}
+.wg-gutter-line[data-bad='2'] {
+  color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 11%, transparent);
+}
+.wg-code {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--tx);
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.wg-editor-foot {
+  flex-shrink: 0;
+  max-height: 116px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  background: var(--bg2);
+}
+.wg-diags {
+  display: flex;
+  flex-direction: column;
+}
+.wg-diag {
+  display: flex;
+  gap: 8px;
+  padding: 5px 12px;
+  border: none;
+  background: none;
+  color: var(--tx2);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.45;
+}
+.wg-diag:hover {
+  background: var(--surf2);
+}
+.wg-diag[data-sev='1'] .mono {
+  color: var(--rose);
+}
+.wg-diag[data-sev='2'] .mono {
+  color: var(--warm);
+}
+.wg-hover {
+  padding: 8px 12px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--tx2);
+  white-space: pre-wrap;
+}
+
+/* --- terminal ------------------------------------------------------------- */
+
+.wg-term {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 4px 4px 10px;
+}
+.wg-term-host {
+  flex: 1;
+  min-height: 0;
+}
+.wg-term-restart {
+  margin: 8px;
+  align-self: flex-start;
+}
+
+/* --- search --------------------------------------------------------------- */
+
+.wg-search {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wg-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.wg-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--tx);
+  font-size: 12px;
+  font-family: inherit;
+}
+.wg-hits {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.wg-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.wg-hit-path {
+  font-size: 10.5px;
+  color: var(--ac);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.wg-hit-text {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* --- tasks, skills, files ------------------------------------------------- */
+
+.wg-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--tx2);
+}
+.wg-task[data-status='completed'] .wg-task-text {
+  color: var(--tx3);
+  text-decoration: line-through;
+}
+.wg-task[data-status='in_progress'] .wg-task-text {
+  color: var(--tx);
+  font-weight: 600;
+}
+.wg-task-now {
+  color: var(--ac);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.wg-task-todo {
+  color: var(--tx3);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.wg-task-text {
+  min-width: 0;
+}
+
+.wg-skill {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.wg-skill-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wg-skill-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tx);
+}
+
+.wg-file-row {
+  border: none;
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.wg-file-row:hover {
+  background: var(--surf2);
+}
+.wg-add-agent {
+  align-self: flex-start;
+}
+.wg-perm-path {
+  font-size: 10.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}

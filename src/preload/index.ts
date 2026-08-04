@@ -74,6 +74,7 @@ const IPC = {
   wsSearch: 'mochi:ws-search',
   wsDiagnose: 'mochi:ws-diagnose',
   wsSkills: 'mochi:ws-skills',
+  wsHover: 'mochi:ws-hover',
   ptyStart: 'mochi:pty-start',
   ptyWrite: 'mochi:pty-write',
   ptyResize: 'mochi:pty-resize',
@@ -220,6 +221,14 @@ export interface MochiApi {
   /** Diagnostics for the editor's current buffer, not the file on disk. */
   wsDiagnose: (folder: string, path: string, content: string) => Promise<WsDiagnostic[]>
   wsSkills: (folder: string) => Promise<WsSkill[]>
+  /** Type information for the symbol under the caret, or null when no language
+   *  server handles this file. */
+  wsHover: (
+    folder: string,
+    path: string,
+    line: number,
+    character: number
+  ) => Promise<string | null>
 
   /* --------------------------------------------------------- terminal */
   ptyAvailable: () => Promise<{ ok: boolean; error?: string }>
@@ -300,6 +309,8 @@ const api: MochiApi = {
   wsDiagnose: (folder, path, content) =>
     ipcRenderer.invoke(IPC.wsDiagnose, folder, path, content),
   wsSkills: (folder) => ipcRenderer.invoke(IPC.wsSkills, folder),
+  wsHover: (folder, path, line, character) =>
+    ipcRenderer.invoke(IPC.wsHover, folder, path, line, character),
   ptyAvailable: () => ipcRenderer.invoke(IPC.ptyAvailable),
   ptyStart: (cwd, cols, rows) => ipcRenderer.invoke(IPC.ptyStart, cwd, cols, rows),
   ptyWrite: (id, data) => ipcRenderer.invoke(IPC.ptyWrite, id, data),
