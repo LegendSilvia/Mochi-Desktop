@@ -2,10 +2,12 @@ import type { Hono } from 'hono'
 import type { HonoBindings, HonoVariables } from '@mastra/hono'
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai'
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { bus } from '../mastra/events'
 import { load } from './store'
 import { readLibrary } from './assets'
+import { search } from './rag'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -51,7 +53,122 @@ function subscriptionEnv(appVersion: string): Record<string, string | undefined>
  *  reach the bus directly — same wiring as the Mastra tools, different transport. */
 const TOOL_PREFIX = 'mcp__mochi__'
 
-function buildMochiServer(): ReturnType<typeof createSdkMcpServer> {
+/**
+ * Subagents in flight, for the `capped` mode.
+ *
+ * Each delegation opens its own agent session against the same subscription
+ * window, so an unbounded fan-out can burn the whole five hours on one task.
+ * The cap is a semaphore rather than a queue: over the limit we decline and say
+ * so, because a subagent silently waiting looks identical to one that hung.
+ */
+let inFlight = 0
+
+function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpServer> {
+  /**
+   * Hand a subtask to another loadout.
+   *
+   * The mention popover only ever edited local state — nothing delegated. This
+   * runs the named agent as a genuinely separate session, so it sees the task
+   * and nothing else of your thread, which is the isolation the UI claims.
+   */
+  const delegate = tool(
+    'delegate',
+    'Hand a self-contained subtask to another agent in this session and get its ' +
+      'answer back. Use it when another loadout is better suited — a docs reader, ' +
+      'a reviewer — or when two independent things can be looked at at once. The ' +
+      'subagent sees only the prompt you write, not your conversation, so give it ' +
+      'every detail it needs.',
+    {
+      agentId: z.string().describe('Id of the agent to delegate to, e.g. "kettle"'),
+      prompt: z.string().describe('The complete, self-contained task for that agent')
+    },
+    async ({ agentId, prompt }) => {
+      const { agents, settings } = load()
+      const target = agents.find((a) => a.id === agentId)
+      const say = (text: string): { content: Array<{ type: 'text'; text: string }> } => ({
+        content: [{ type: 'text' as const, text }]
+      })
+
+      if (!target) return say(`No agent called "${agentId}" exists in this session.`)
+
+      if (settings.delegationMode === 'simulated') {
+        return say(
+          `Delegation is set to simulated, so ${target.name} was not actually run. ` +
+            `Answer as yourself, and say you handled it directly rather than implying ` +
+            `${target.name} did.`
+        )
+      }
+
+      if (settings.delegationMode === 'capped' && inFlight >= settings.delegationLimit) {
+        return say(
+          `At the delegation limit (${settings.delegationLimit} at once). Do this part ` +
+            `yourself, or wait for a running subagent to finish.`
+        )
+      }
+
+      const [provider, ...rest] = target.model.split('/')
+      if (provider !== 'anthropic') {
+        return say(
+          `${target.name} is set to ${target.model}, which the subscription backend ` +
+            `cannot run. Do this part yourself.`
+        )
+      }
+
+      inFlight++
+      try {
+        bus.emitMascotState({ state: 'tool-running', note: `asking ${target.name}` })
+        let answer = ''
+        for await (const raw of query({
+          prompt,
+          options: {
+            systemPrompt: buildSystemPrompt(target),
+            model: rest.join('/') || undefined,
+            allowedTools: [],
+            env: subscriptionEnv(appVersion),
+            maxTurns: 8
+          }
+        })) {
+          const message = raw as SdkMessage
+          if (message.type !== 'assistant') continue
+          for (const block of message.message?.content ?? []) {
+            if (block.type === 'text' && block.text) answer += block.text
+          }
+        }
+        return say(answer.trim() || `${target.name} came back with nothing.`)
+      } catch (err) {
+        return say(`${target.name} failed: ${err instanceof Error ? err.message : String(err)}`)
+      } finally {
+        inFlight--
+      }
+    }
+  )
+
+  const searchDocs = tool(
+    'searchDocs',
+    'Search the documents the user has added to Mochi. Use this before answering ' +
+      'anything that depends on their own notes, specs or code rather than general ' +
+      'knowledge. Returns the most relevant passages with the file they came from — ' +
+      'quote and cite them rather than paraphrasing from memory.',
+    {
+      query: z.string().describe('What to look for, in natural language'),
+      limit: z.number().optional().describe('How many passages to return. Defaults to 6.')
+    },
+    async ({ query: q, limit }) => {
+      const hits = await search(q, limit ?? 6)
+      if (hits.length === 0) {
+        return {
+          content: [
+            { type: 'text' as const, text: 'No matching passages. The library may be empty.' }
+          ]
+        }
+      }
+      const text = hits
+        .map((h, i) => `[${i + 1}] ${h.title} (${h.how})\n${h.text}`)
+        .join('\n\n---\n\n')
+      return { content: [{ type: 'text' as const, text }] }
+    }
+  )
+
   const sendSticker = tool(
     'sendSticker',
     'Send a sticker to the user. Use this to celebrate a finished task, acknowledge ' +
@@ -106,7 +223,7 @@ function buildMochiServer(): ReturnType<typeof createSdkMcpServer> {
   return createSdkMcpServer({
     name: 'mochi',
     version: '0.1.0',
-    tools: [sendSticker, setMascotState, askUser],
+    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs],
     // Load both tools into the turn-1 prompt instead of leaving them behind tool
     // search. Deferred loading made the harness spend a round trip on ToolSearch
     // and then emit a stray extra reply when the "new tools available" reminder
@@ -140,6 +257,48 @@ function buildSystemPrompt(agent: AgentLoadout): string {
     )
   }
   return parts.join('\n\n')
+}
+
+/**
+ * User-configured MCP servers, in the Agent SDK's own shape.
+ *
+ * Only enabled ones are passed, and a server missing the field its transport
+ * needs is skipped rather than handed over half-formed — the SDK's failure for
+ * that is a stalled startup, which is far harder to read than an absent tool.
+ */
+function userMcpServers(): Record<string, McpServerConfig> {
+  const { settings } = load()
+  const out: Record<string, McpServerConfig> = {}
+  for (const server of settings.mcpServers ?? []) {
+    if (!server.enabled) continue
+    if (server.type === 'http' && server.url) {
+      out[server.name] = { type: 'http', url: server.url }
+    } else if (server.type === 'stdio' && server.command) {
+      out[server.name] = { type: 'stdio', command: server.command, args: server.args ?? [] }
+    }
+  }
+  return out
+}
+
+/**
+ * Who this session may delegate to.
+ *
+ * `@agent` adds ids to the session; without telling the supervisor they exist,
+ * the delegate tool has no way to be used — which is why the mention popover
+ * looked decorative even after the tool landed.
+ */
+function describeSubagents(sessionId: string): string {
+  const { sessions, agents } = load()
+  const ids = sessions.find((s) => s.id === sessionId)?.subagentIds ?? []
+  const roster = ids
+    .map((id) => agents.find((a) => a.id === id))
+    .filter((a): a is AgentLoadout => Boolean(a))
+  if (roster.length === 0) return ''
+  const lines = roster.map((a) => `- ${a.id} (${a.name}): ${a.description}`).join('\n')
+  return (
+    `You may delegate to these agents with the delegate tool. You stay the supervisor — ` +
+    `decide when to hand off, and always report back in your own voice.\n${lines}`
+  )
 }
 
 /**
@@ -201,7 +360,48 @@ interface SdkMessage {
 type MochiHono = Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>
 
 export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void {
-  const mochiServer = buildMochiServer()
+  const mochiServer = buildMochiServer(appVersion)
+
+  /**
+   * Name a session from what it turned out to be about.
+   *
+   * Titles were the first 48 characters of whatever you typed, so a session
+   * opened with "hi" stayed called "hi" forever. This runs a single toolless
+   * turn on the opening exchange — cheap, and it draws on the same subscription
+   * as everything else rather than needing a key of its own.
+   */
+  app.post('/agent-sdk/title', async (c) => {
+    const { text } = (await c.req.json()) as { text?: string }
+    if (!text?.trim()) return c.json({ title: null })
+
+    try {
+      let title = ''
+      for await (const raw of query({
+        prompt:
+          'Give this conversation a title of at most six words. Reply with the title ' +
+          'alone — no quotes, no punctuation at the end, no preamble.\n\n' +
+          text.slice(0, 4000),
+        options: {
+          systemPrompt: 'You write short, concrete titles. You never explain yourself.',
+          allowedTools: [],
+          env: subscriptionEnv(appVersion),
+          maxTurns: 1
+        }
+      })) {
+        const message = raw as SdkMessage
+        if (message.type !== 'assistant') continue
+        for (const block of message.message?.content ?? []) {
+          if (block.type === 'text' && block.text) title += block.text
+        }
+      }
+
+      const cleaned = title.trim().replace(/^["'\s]+|["'.\s]+$/g, '').split('\n')[0]
+      return c.json({ title: cleaned.slice(0, 60) || null })
+    } catch {
+      // A failed rename should never surface as a broken session.
+      return c.json({ title: null })
+    }
+  })
 
   app.post('/agent-sdk/chat/:agentId', async (c) => {
     const agentId = c.req.param('agentId')
@@ -209,7 +409,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     const chatId = body.id ?? agentId
     const prompt = latestUserText(body.messages)
 
-    const { agents } = load()
+    const { agents, settings } = load()
     const agent = agents.find((a) => a.id === agentId)
 
     // The subscription only covers Anthropic models. An agent pinned to
@@ -248,13 +448,24 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
           for await (const raw of query({
             prompt,
             options: {
-              systemPrompt: agent ? buildSystemPrompt(agent) : undefined,
+              systemPrompt: agent
+                ? [buildSystemPrompt(agent), describeSubagents(chatId)]
+                    .filter(Boolean)
+                    .join('\n\n')
+                : undefined,
               model: modelName || undefined,
-              mcpServers: { mochi: mochiServer },
+              mcpServers: { mochi: mochiServer, ...userMcpServers() },
+              // Skills live on the filesystem, so they stay off until asked for —
+              // enabling them silently would widen what the agent can reach.
+              ...(settings.skills?.enabled
+                ? { skills: settings.skills.allow, settingSources: ['project' as const] }
+                : {}),
               allowedTools: [
                 `${TOOL_PREFIX}sendSticker`,
                 `${TOOL_PREFIX}setMascotState`,
-                `${TOOL_PREFIX}askUser`
+                `${TOOL_PREFIX}askUser`,
+                `${TOOL_PREFIX}delegate`,
+                `${TOOL_PREFIX}searchDocs`
               ],
               env: subscriptionEnv(appVersion),
               ...(resume ? { resume } : {}),

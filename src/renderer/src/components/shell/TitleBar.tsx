@@ -44,7 +44,11 @@ export function TitleBar(): React.JSX.Element {
       </div>
 
       <div className="tb-center">
-        <button className="tb-search" aria-label="Search agents, tools, stickers">
+        <button
+          className="tb-search"
+          aria-label="Search agents, tools, stickers"
+          onClick={() => dispatch({ type: 'toggle', key: 'searchOpen', value: true })}
+        >
           <Search size={13} strokeWidth={1.8} />
           <span>Search agents, tools, stickers…</span>
           <span className="chip">{KEYS.search()}</span>

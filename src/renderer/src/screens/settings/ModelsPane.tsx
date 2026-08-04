@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { Row, ScreenHeader, Toggle } from '@renderer/components/ui/Controls'
 import { ModelPicker } from '@renderer/components/ui/ModelPicker'
-import type { ProviderAccount } from '@shared/types'
+import type { AppSettings, ProviderAccount } from '@shared/types'
 
 export function ModelsPane(): React.JSX.Element {
   const { settings, dispatch } = useStore()
@@ -151,6 +151,37 @@ export function ModelsPane(): React.JSX.Element {
                 ? 'Sessions run through the Claude Agent SDK using your Claude Code login, so no API key is charged. Anthropic models only, and it stops when your plan limit is reached rather than spilling over to API billing.'
                 : 'Sessions run through Mastra against the provider APIs, billed per token to the keys above.'}
             </p>
+            <Row
+              label="When an agent delegates with @"
+              hint={
+                settings.delegationMode === 'simulated'
+                  ? 'answered in one session — free, but memory is not really isolated'
+                  : `each subagent is a separate session drawing on the same quota${
+                      settings.delegationMode === 'capped'
+                        ? `, max ${settings.delegationLimit} at once`
+                        : ' — uncapped'
+                    }`
+              }
+            >
+              <select
+                className="cell-select"
+                value={settings.delegationMode}
+                aria-label="Delegation mode"
+                onChange={(e) =>
+                  dispatch({
+                    type: 'settings',
+                    patch: {
+                      delegationMode: e.target.value as AppSettings['delegationMode']
+                    }
+                  })
+                }
+              >
+                <option value="capped">real, capped</option>
+                <option value="uncapped">real, uncapped</option>
+                <option value="simulated">simulated</option>
+              </select>
+            </Row>
+
             <Row label="Fall back to Ollama when offline">
               <Toggle
                 dense

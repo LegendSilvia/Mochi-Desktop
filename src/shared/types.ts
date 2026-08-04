@@ -140,6 +140,9 @@ export interface Session {
   pinned: boolean
   /** Archived sessions drop out of Recents into their own collapsed group. */
   archived?: boolean
+  /** Set once the agent has named this session, so it is only titled once and a
+   *  manual rename is never overwritten. */
+  autoTitled?: boolean
   busy: boolean
   /** Epoch ms. Drives the Today / Yesterday / Last week grouping. */
   updatedAt: number
@@ -176,10 +179,47 @@ export interface AppSettings {
     evalGrader: string
   }
   preferSubscription: boolean
+  /**
+   * How `@agent` delegation behaves.
+   *
+   * `capped`/`uncapped` open a genuinely separate agent session per subagent —
+   * real memory isolation, but each one draws on the same subscription window.
+   * `simulated` keeps everything in one session and is free, at the cost of the
+   * isolation being nominal; the UI says so rather than implying otherwise.
+   */
+  delegationMode: 'capped' | 'uncapped' | 'simulated'
+  /** Concurrent subagents allowed under `capped`. */
+  delegationLimit: number
   fallbackToOllamaOffline: boolean
   storageProvider: 'libsql' | 'postgres' | 'upstash'
   /** Agent may call sendSticker() on its own, beyond the armed rules. */
   agentMayPickStickers: boolean
+  /** MCP servers offered to agents on the subscription backend. */
+  mcpServers: McpServerSpec[]
+  /**
+   * Agent Skills. `all` hands over every skill the Claude Code install can see;
+   * a list restricts it to those names.
+   */
+  skills: { enabled: boolean; allow: string[] | 'all' }
+}
+
+/**
+ * One MCP server.
+ *
+ * `http` points at a URL; `stdio` launches a local command. Kept deliberately
+ * close to the Agent SDK's own shape so wiring it through is a rename, not a
+ * translation layer that can drift.
+ */
+export interface McpServerSpec {
+  id: string
+  name: string
+  type: 'http' | 'stdio'
+  /** http only. */
+  url?: string
+  /** stdio only. */
+  command?: string
+  args?: string[]
+  enabled: boolean
 }
 
 export interface AssetLibrary {
@@ -208,6 +248,34 @@ export interface ProviderAccount {
   connected: boolean
   /** Env var Mastra reads for this provider. */
   envVar?: string
+}
+
+/** A file in the document library that backs retrieval. */
+export interface RagDoc {
+  id: string
+  path: string
+  title: string
+  bytes: number
+  chunks: number
+  /** How many chunks have an embedding. Zero means keyword-only for this file. */
+  embedded: number
+}
+
+/** One retrieved passage. `how` records which half of the hybrid search found it. */
+export interface RagHit {
+  text: string
+  title: string
+  path: string
+  score: number
+  how: 'keyword' | 'vector' | 'both'
+}
+
+/** What can currently turn text into vectors, if anything. */
+export interface EmbedderInfo {
+  kind: 'ollama' | 'openai' | 'none'
+  model: string
+  ready: boolean
+  detail: string
 }
 
 /** Payload the main process pushes when an agent event should fire a sticker. */
