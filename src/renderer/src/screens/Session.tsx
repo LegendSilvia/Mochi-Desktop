@@ -22,7 +22,7 @@ import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { SessionPanel } from './SessionPanel'
-import { ToolGroup, ToolPart } from '@renderer/components/chat/ToolPart'
+import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
 import { Thinking } from '@renderer/components/chat/Thinking'
 import { SmoothText } from '@renderer/components/chat/SmoothText'
 import { MessageActions } from '@renderer/components/chat/MessageActions'
@@ -824,36 +824,54 @@ export function Session(): React.JSX.Element {
                     )
                   }
 
-                  if (part.type === 'data-permission' && server) {
-                    const req = (part as unknown as { data: PermissionRequest }).data
-                    return (
-                      <PermissionCard
-                        key={pi}
-                        request={req}
-                        baseUrl={server.baseUrl}
-                        stale={staleApprovals.has(req.id)}
-                      />
-                    )
-                  }
+                  /*
+                   * An approval and the call it gates are one thing.
+                   *
+                   * They arrive as separate parts, and rendering them as
+                   * separate cards meant the command sat in one box and the
+                   * Allow button in another — with only the blocked path
+                   * between them, so what you were approving was in a different
+                   * card from the button approving it.
+                   */
+                  const isWork = (t?: string): boolean =>
+                    Boolean(t && (t.startsWith('tool-') || t === 'data-permission'))
 
-                  if (part.type.startsWith('tool-')) {
+                  if (isWork(part.type)) {
                     // Already folded into a run that began earlier.
-                    if (message.parts[pi - 1]?.type.startsWith('tool-')) return null
+                    if (isWork(message.parts[pi - 1]?.type)) return null
 
-                    // Every tool call up to the next thing that isn't one. The
-                    // whole stretch of work between two replies is one step in
-                    // the conversation, so it gets one card.
-                    const run: ToolUIPart[] = []
+                    // Everything up to the next thing that isn't work. The whole
+                    // stretch between two replies is one step in the
+                    // conversation, so it gets one card.
+                    const run: WorkPart[] = []
                     for (let i = pi; i < message.parts.length; i++) {
-                      if (!message.parts[i].type.startsWith('tool-')) break
-                      run.push(message.parts[i] as unknown as ToolUIPart)
+                      if (!isWork(message.parts[i].type)) break
+                      run.push(message.parts[i] as unknown as WorkPart)
                     }
 
-                    return run.length > 1 ? (
-                      <ToolGroup key={pi} parts={run} />
-                    ) : (
-                      <ToolPart key={pi} part={part as unknown as ToolUIPart} />
-                    )
+                    if (run.length > 1 && server) {
+                      return (
+                        <ToolGroup
+                          key={pi}
+                          parts={run}
+                          baseUrl={server.baseUrl}
+                          staleApprovals={staleApprovals}
+                        />
+                      )
+                    }
+
+                    if (part.type === 'data-permission') {
+                      const req = (part as unknown as { data: PermissionRequest }).data
+                      return server ? (
+                        <PermissionCard
+                          key={pi}
+                          request={req}
+                          baseUrl={server.baseUrl}
+                          stale={staleApprovals.has(req.id)}
+                        />
+                      ) : null
+                    }
+                    return <ToolPart key={pi} part={part as unknown as ToolUIPart} />
                   }
                   return null
                 })}

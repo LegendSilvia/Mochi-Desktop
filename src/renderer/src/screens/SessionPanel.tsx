@@ -82,7 +82,24 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
   const armed = rules.filter((r) => r.enabled)
   const sprite = spriteSrc(mascotState)
 
-  const activity = readActivity(messages)
+  // Consecutive calls to the same tool become one row with a count. Four
+  // WebSearch lines in a row say "it searched four times" no better than one
+  // line that says so, and they push everything after them off the card.
+  const activity = readActivity(messages).reduce<
+    Array<{ name: string; detail: string; done: boolean; count: number }>
+  >((rows, a) => {
+    const last = rows[rows.length - 1]
+    if (last && last.name === a.name) {
+      last.count++
+      // The row is only finished when every call folded into it is, and the
+      // detail shows the most recent — which is the one still in flight.
+      last.done = last.done && a.done
+      last.detail = a.detail
+      return rows
+    }
+    rows.push({ ...a, count: 1 })
+    return rows
+  }, [])
   // Read off the edits themselves rather than string-matching paths out of tool
   // arguments: a bash command that happens to mention a file is not the same as
   // the agent editing it, and only the real thing carries line counts.
@@ -175,15 +192,20 @@ export function SessionPanel({ messages = [] }: { messages?: UIMessage[] }): Rea
             <span className="section-label">Background tasks</span>
             <span className="meta">{activity.filter((a) => !a.done).length} running</span>
           </div>
-          {activity.slice(0, 6).map((a) => (
-            <div className="panel-task" key={a.id}>
+          {/* Keyed by position, not by id: a folded row stands for several
+              calls and so has no single id of its own. */}
+          {activity.slice(0, 6).map((a, ai) => (
+            <div className="panel-task" key={`${a.name}-${ai}`}>
               {a.done ? (
                 <Check size={13} strokeWidth={2.2} className="tool-check" />
               ) : (
                 <Loader2 size={13} strokeWidth={2} className="panel-task-spin" />
               )}
               <span className="panel-task-text">
-                <span className="panel-task-name">{a.name}</span>
+                <span className="panel-task-name">
+                  {a.name}
+                  {a.count > 1 && <span className="meta panel-task-count"> ×{a.count}</span>}
+                </span>
                 {a.detail && <span className="meta mono">{a.detail}</span>}
               </span>
             </div>

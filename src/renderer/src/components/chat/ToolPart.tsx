@@ -15,6 +15,11 @@ import { useStore } from '@renderer/state/context'
 import { playSound } from '@renderer/lib/audio'
 import { formatStat, hunkOf, pathOf } from '@renderer/lib/diffStat'
 import { DiffBody } from './DiffBody'
+import { PermissionCard, type PermissionRequest } from './PermissionCard'
+
+/** A tool call or the approval gating one — the two things a turn's work is
+ *  made of, and which belong in the same card. */
+export type WorkPart = ToolUIPart | { type: 'data-permission'; data: PermissionRequest }
 import './chat.css'
 
 /** AI SDK tool-part states, mapped to the words the design uses. */
@@ -259,17 +264,35 @@ export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | nu
  * Nothing is lost by folding: each call is still rendered in full inside, so a
  * diff opened from here is the same diff it would have shown on its own.
  */
-export function ToolGroup({ parts }: { parts: ToolUIPart[] }): React.JSX.Element {
-  const done = parts.filter(
+export function ToolGroup({
+  parts,
+  baseUrl,
+  staleApprovals
+}: {
+  parts: WorkPart[]
+  baseUrl: string
+  staleApprovals: Set<string>
+}): React.JSX.Element {
+  const tools = parts.filter((p): p is ToolUIPart => p.type.startsWith('tool-'))
+  const approvals = parts.filter((p) => p.type === 'data-permission')
+  const done = tools.filter(
     (p) => p.state === 'output-available' || p.state === 'output-error'
   ).length
-  const running = done < parts.length
-  const failed = parts.some((p) => p.state === 'output-error')
+
+  // An approval nobody has answered holds the whole group open — it is the one
+  // thing here that needs the user, and folding it away would hide the button
+  // the run is blocked on.
+  const waiting = approvals.some((p) => {
+    const req = (p as unknown as { data?: PermissionRequest }).data
+    return req && !staleApprovals.has(req.id)
+  })
+  const running = waiting || done < tools.length
+  const failed = tools.some((p) => p.state === 'output-error')
   const [openedByHand, setOpenedByHand] = useState<boolean | null>(null)
 
   // Distinct names in the order they ran, so the summary says what happened
   // rather than just how much of it there was.
-  const names = [...new Set(parts.map((p) => p.type.split('-').slice(1).join('-')))]
+  const names = [...new Set(tools.map((p) => p.type.split('-').slice(1).join('-')))]
   const label = names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '')
 
   return (
@@ -290,17 +313,28 @@ export function ToolGroup({ parts }: { parts: ToolUIPart[] }): React.JSX.Element
           )}
           <span className="mono tool-id">{label}</span>
           <span className="mono tool-arg">
-            {parts.length} {parts.length === 1 ? 'step' : 'steps'}
+            {tools.length} {tools.length === 1 ? 'step' : 'steps'}
           </span>
           <span className="mono tool-dur">
-            {running ? `${done}/${parts.length}` : 'done'}
+            {waiting ? 'waiting on you' : running ? `${done}/${tools.length}` : 'done'}
           </span>
         </div>
       </summary>
       <div className="tool-group-body">
-        {parts.map((p, i) => (
-          <ToolPart key={p.toolCallId ?? i} part={p} />
-        ))}
+        {parts.map((p, i) => {
+          if (p.type === 'data-permission') {
+            const req = (p as unknown as { data: PermissionRequest }).data
+            return (
+              <PermissionCard
+                key={req?.id ?? i}
+                request={req}
+                baseUrl={baseUrl}
+                stale={staleApprovals.has(req?.id)}
+              />
+            )
+          }
+          return <ToolPart key={(p as ToolUIPart).toolCallId ?? i} part={p as ToolUIPart} />
+        })}
       </div>
     </details>
   )

@@ -52,7 +52,17 @@ export function PermissionCard({
     })
   }
 
-  const target = request.blockedPath || describeTarget(request.input)
+  /*
+   * What you are actually approving.
+   *
+   * This used to prefer `blockedPath`, which is the SDK saying *why* it stopped —
+   * so a PowerShell call to delete a file showed only the file. You would read a
+   * path, press Allow, and have approved a command you were never shown. The
+   * command leads; the blocked path follows as the reason.
+   */
+  const target = describeTarget(request.input) || request.blockedPath || ''
+  const reason =
+    request.blockedPath && request.blockedPath !== target ? request.blockedPath : null
 
   /*
    * A settled approval folds away.
@@ -102,6 +112,11 @@ export function PermissionCard({
         </span>
       </div>
       {target && <div className="perm-target mono">{target}</div>}
+      {reason && (
+        <div className="perm-reason meta">
+          Stopped because it touches <span className="mono">{reason}</span>
+        </div>
+      )}
 
       {
         <div className="perm-actions">
