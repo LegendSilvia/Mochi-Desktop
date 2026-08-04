@@ -67,6 +67,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    * The overlay is a second window with its own store, seeded once at mount —
    * without this broadcast every settings change (mascot visibility, shell, size,
    * theme, accent) sat unseen there until the app was restarted.
+   *
+   * INVARIANT — the broadcast payload must round-trip to a byte-identical
+   * serialization of what the sender sent. A receiving renderer decides whether
+   * to write back by string-comparing `JSON.stringify` of its own slice against
+   * the same of this payload (see `toSlice` in src/renderer/src/state/store.tsx),
+   * and `JSON.stringify` is sensitive to key insertion order. The renderer pins
+   * the four top-level keys itself, so what must be preserved here is everything
+   * below them: `save()` may shallow-merge and replace whole sub-objects, but it
+   * must not rebuild `settings`/`agents`/`sessions`/`rules` entries key by key,
+   * reorder them, or drop and re-add fields.
+   *
+   * Getting this wrong is not one extra write. A payload that no longer compares
+   * equal makes the receiver save it straight back, which broadcasts to the
+   * original sender, which does the same — an unbounded ping-pong, each hop a
+   * synchronous writeFileSync of the entire state. Excluding the sender below
+   * does not prevent it: the loop runs *between* the two windows, and each hop
+   * has a legitimately different sender.
    */
   ipcMain.handle(IPC.saveState, (e, patch) => {
     const next = save(patch)

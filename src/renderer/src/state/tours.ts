@@ -37,8 +37,15 @@ export interface Tour {
   steps: TourStep[]
 }
 
+/**
+ * Id of the first-run tour. Exported so the Replay control in Settings names the
+ * same tour this file defines — a rename here would otherwise leave Replay
+ * starting a tour nothing can render.
+ */
+export const FIRST_RUN_TOUR_ID = 'first-run'
+
 const FIRST_RUN: Tour = {
-  id: 'first-run',
+  id: FIRST_RUN_TOUR_ID,
   steps: [
     {
       title: 'What should I call you?',

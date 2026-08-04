@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
-import type { MascotState } from '@shared/types'
+import type { MascotState, PersistedState } from '@shared/types'
 import { DEFAULT_AGENTS, DEFAULT_RULES, DEFAULT_SESSIONS, DEFAULT_SETTINGS } from '@shared/defaults'
 import { BUBBLE_LINES, SETTINGS_SCREENS } from './screens'
 import { StoreCtx, type Action, type State, type Store } from './context'
@@ -34,10 +34,34 @@ const initial: State = {
 /** Overlays that float above the app — only one may be open at a time. */
 const POPOVER_KEYS = ['menuOpen', 'mentionOpen', 'searchOpen', 'stickerPickerOpen'] as const
 
+/**
+ * The persisted slice, built in one fixed key order.
+ *
+ * The single constructor is the point. The persist effect decides whether to
+ * write by string-comparing `JSON.stringify` of the local slice against the same
+ * of the last payload received over `sync`, and `JSON.stringify` is
+ * order-sensitive — two objects with the same entries in a different insertion
+ * order produce different strings. Building both sides here means the guard can
+ * never be defeated by a key order that drifted somewhere along
+ * renderer → main → renderer. See the note on `IPC.saveState` in src/main/ipc.ts.
+ */
+function toSlice(s: PersistedState): PersistedState {
+  return { settings: s.settings, agents: s.agents, sessions: s.sessions, rules: s.rules }
+}
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case 'ready':
-      return { ...state, ...action.payload, ready: true }
+    case 'ready': {
+      const next = { ...state, ...action.payload, ready: true }
+      // `activeSessionId` is picked from the bootstrap snapshot, but a `sync`
+      // from the other window may have replaced the session list while boot was
+      // still in flight — in which case that id points at nothing. Re-derive it
+      // from whatever the sessions actually are rather than leaving the chat
+      // looking at a session that isn't there. On an ordinary boot the id is
+      // already present and this changes nothing.
+      if (next.sessions.some((s) => s.id === next.activeSessionId)) return next
+      return { ...next, activeSessionId: next.sessions[0]?.id ?? '' }
+    }
     case 'screen':
       // Any navigation closes the account popover, per the interaction table.
       return { ...state, screen: action.screen, menuOpen: false }
@@ -83,19 +107,21 @@ function reducer(state: State, action: Action): State {
     case 'pending-send':
       return { ...state, pendingSend: action.text }
     case 'sync':
-      return {
-        ...state,
-        settings: action.payload.settings,
-        agents: action.payload.agents,
-        sessions: action.payload.sessions,
-        rules: action.payload.rules
-      }
+      return { ...state, ...toSlice(action.payload) }
     // Navigation lives in the reducer rather than an effect: advancing a step and
     // moving the user to the screen that step is about are one atomic change, and
     // doing it in an effect would mean a render where the two disagree.
     case 'tour-start': {
-      const goto = TOURS.find((t) => t.id === action.id)?.steps[0]?.goto
-      return { ...state, tour: { id: action.id, step: 0 }, screen: goto ?? state.screen }
+      // An id no tour defines would set `tour` to something TourLayer renders as
+      // null — no card, no Skip button, and so no way left to reach 'tour-end'.
+      // Refusing the action keeps an unknown id from wedging the window.
+      const def = TOURS.find((t) => t.id === action.id)
+      if (!def) return state
+      return {
+        ...state,
+        tour: { id: action.id, step: 0 },
+        screen: def.steps[0]?.goto ?? state.screen
+      }
     }
     case 'tour-step': {
       if (!state.tour) return state
@@ -120,6 +146,10 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
   // against it so state arriving over `sync` is not immediately written back —
   // a boolean flag would stay stuck if the merge produced no change.
   const lastPersisted = useRef('')
+  // Whether a `sync` has already landed. The listener below is live from mount,
+  // so a save in the other window can reach us *before* bootstrap resolves; that
+  // payload is newer than the one boot is holding, and `ready` must not undo it.
+  const synced = useRef(false)
 
   const reloadLibrary = useCallback(() => {
     const preset =
@@ -138,19 +168,25 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
         boot.agents.find((a) => a.id === boot.settings.defaultAgentId)?.spritePreset ?? 'sprout'
       const library = await window.mochi.library(preset)
       if (cancelled) return
-      lastPersisted.current = JSON.stringify({
-        settings: boot.settings,
-        agents: boot.agents,
-        sessions: boot.sessions,
-        rules: boot.rules
-      })
+      // A `sync` that landed while boot was in flight carries state newer than
+      // `boot`. Seeding `ready` with the persisted slice would overwrite it with
+      // the older read, and `lastPersisted` would then match that older slice —
+      // so the persist effect would decline to write and the window would sit
+      // stale with no way to correct itself. Hand `ready` only the fields boot
+      // is the sole source of, and leave the sync's snapshot in place.
+      const superseded = synced.current
+      if (!superseded) lastPersisted.current = JSON.stringify(toSlice(boot))
       dispatch({
         type: 'ready',
         payload: {
-          settings: boot.settings,
-          agents: boot.agents,
-          sessions: boot.sessions,
-          rules: boot.rules,
+          ...(superseded
+            ? {}
+            : {
+                settings: boot.settings,
+                agents: boot.agents,
+                sessions: boot.sessions,
+                rules: boot.rules
+              }),
           server: boot.server,
           library,
           activeSessionId: boot.sessions[0]?.id ?? '',
@@ -172,7 +208,8 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
   useEffect(() => {
     if (!window.mochi?.onStateChanged) return
     return window.mochi.onStateChanged((next) => {
-      lastPersisted.current = JSON.stringify(next)
+      synced.current = true
+      lastPersisted.current = JSON.stringify(toSlice(next))
       dispatch({ type: 'sync', payload: next })
     })
   }, [])
@@ -181,12 +218,7 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
   // file we just read with the pre-boot defaults.
   useEffect(() => {
     if (!state.ready) return
-    const slice = {
-      settings: state.settings,
-      agents: state.agents,
-      sessions: state.sessions,
-      rules: state.rules
-    }
+    const slice = toSlice(state)
     const json = JSON.stringify(slice)
     if (json === lastPersisted.current) return
     lastPersisted.current = json
