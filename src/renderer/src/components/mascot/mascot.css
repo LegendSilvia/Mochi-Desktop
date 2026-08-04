@@ -638,3 +638,98 @@
   opacity: 0.45;
   cursor: default;
 }
+
+/* --- the bubble menu ------------------------------------------------------ */
+
+/*
+ * A ring of icons arced out from the sprite. Zero-sized and centred on the
+ * mascot so each bubble can be placed by its own translate — the wrapper must
+ * not take up space, or it would shove the sprite the moment the menu opened.
+ */
+.mo-bubbles {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+.mo-bubble-item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: -19px 0 0 -19px;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: var(--surf);
+  color: var(--tx2);
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+  /* Position is set outright and only scale/opacity animate, so nothing slides
+     under the cursor between seeing a bubble and clicking it. */
+  transform: translate(var(--x), var(--y)) scale(0.4);
+  opacity: 0;
+  animation: mo-bubble-in 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) forwards;
+}
+@keyframes mo-bubble-in {
+  to {
+    transform: translate(var(--x), var(--y)) scale(1);
+    opacity: 1;
+  }
+}
+.mo-bubble-item:hover {
+  color: var(--tx);
+  border-color: color-mix(in srgb, var(--ac) 55%, var(--line2));
+}
+.mo-bubble-label {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--surf2);
+  border: 1px solid var(--line);
+  color: var(--tx2);
+  font-size: 10.5px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.mo-bubble-item:hover .mo-bubble-label,
+.mo-bubble-item:focus-visible .mo-bubble-label {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mo-bubble-item {
+    animation-duration: 1ms;
+  }
+}
+
+/* --- keeping the cards on screen ------------------------------------------ */
+
+/*
+ * The overlay is exactly the work area, so anything past its bounds is cut off
+ * rather than scrolled to. A mascot parked near an edge flips the card to the
+ * side that has room instead.
+ */
+.mo-menu[data-v='below'],
+.mo-approval[data-v='below'] {
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+.mo-menu[data-h='left'],
+.mo-approval[data-h='left'] {
+  left: 0;
+  transform: none;
+}
+.mo-menu[data-h='right'],
+.mo-approval[data-h='right'] {
+  left: auto;
+  right: 0;
+  transform: none;
+}

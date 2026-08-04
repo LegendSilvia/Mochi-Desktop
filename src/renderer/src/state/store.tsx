@@ -477,8 +477,20 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
       }, mins * 60 * 1000)
     }
 
+    /*
+     * Sleep outranks ordinary activity.
+     *
+     * Typing in another app used to wake her, which meant she woke constantly
+     * and slept only when the machine was genuinely idle — the opposite of a
+     * mascot resting quietly in the corner while you work. Sleeping is now left
+     * alone here; only a deliberate click on the sprite, or a session actually
+     * starting up, brings her round.
+     *
+     * The countdown still re-arms, so activity while she is awake keeps
+     * postponing it as before.
+     */
     const onInteract = (): void => {
-      if (mascotStateRef.current === 'sleeping') say('idle', 'waiting on you')
+      if (mascotStateRef.current === 'sleeping') return
       arm()
     }
 

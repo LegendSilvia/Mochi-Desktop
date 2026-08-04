@@ -9,33 +9,51 @@ const MENTION_AT_CARET = /@([\w-]*)$/
 
 /** Recent conversations worth offering on a small surface. Beyond this the list
  *  stops being a menu and becomes a screen, which is what the app is for. */
-const MAX_SESSIONS = 5
+const MAX_SESSIONS = 3
+
+export interface MenuPlacement {
+  vertical: 'above' | 'below'
+  horizontal: 'left' | 'center' | 'right'
+}
 
 /**
- * The mascot's right-click menu.
+ * Pop-up chat: the mascot's own composer.
  *
- * A conversation without the window: pick a session — or start one — and type,
+ * A conversation without the window — pick a session, or start one, and type
  * from wherever you happen to be. The message is handed to the app window to
  * send, because that is where the transcript, the transport and the streaming
  * reply live; a turn started from the overlay would stream to nobody.
  *
  * No workspace control here on purpose. Choosing a folder is a decision about
  * what an agent may touch, and it belongs somewhere you can see what you are
- * agreeing to rather than on a menu floating over your desktop.
+ * agreeing to rather than on a card floating over your desktop.
  */
 export function MascotMenu({
   onClose,
-  cardRef
+  cardRef,
+  placement,
+  text,
+  setText,
+  target,
+  setTarget
 }: {
   onClose: () => void
   /** Handed up so the overlay's click-through hit test can measure this card.
    *  It is positioned absolutely, so any wrapper around it has no height and a
-   *  ref on that wrapper measures an empty box — which is how the menu ended up
+   *  ref on that wrapper measures an empty box — which is how the card ended up
    *  unclickable the first time. */
   cardRef?: React.Ref<HTMLDivElement>
+  /** Which way to open, so a mascot parked in a corner does not push the card
+   *  off the screen. */
+  placement: MenuPlacement
+  /* Held by the overlay rather than here, so closing the card and opening it
+   * again does not lose a half-written message or the session it was for. */
+  text: string
+  setText: (next: string) => void
+  target: string | null
+  setTarget: (id: string) => void
 }): React.JSX.Element {
   const { sessions, agents, settings, dispatch } = useStore()
-  const [text, setText] = useState('')
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -48,10 +66,10 @@ export function MascotMenu({
     [sessions]
   )
 
-  const [target, setTarget] = useState<string | null>(recent[0]?.id ?? null)
+  const chosen = target ?? recent[0]?.id ?? null
 
   // The window only just became focusable, so the caret has to be asked for
-  // rather than assumed — without this the menu opens and swallows the first
+  // rather than assumed — without this the card opens and swallows the first
   // thing you type.
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus())
@@ -71,16 +89,19 @@ export function MascotMenu({
   )
 
   const addMention = (id: string): void => {
-    setText((prev) => prev.replace(MENTION_AT_CARET, `@${id} `))
+    setText(text.replace(MENTION_AT_CARET, `@${id} `))
     setMentionQuery(null)
+    inputRef.current?.focus()
+  }
+
+  const append = (extra: string): void => {
+    setText(`${text}${text && !text.endsWith(' ') ? ' ' : ''}${extra}`)
     inputRef.current?.focus()
   }
 
   const attach = (): void => {
     void window.mochi?.pickPaths('file').then((paths) => {
-      if (paths.length === 0) return
-      setText((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}${paths.join(' ')} `)
-      inputRef.current?.focus()
+      if (paths.length > 0) append(`${paths.join(' ')} `)
     })
   }
 
@@ -89,13 +110,12 @@ export function MascotMenu({
    *  the New session screen uses. */
   const startNew = (): string => {
     const id = `s-${Date.now().toString(36)}`
-    const agentId = settings.defaultAgentId
     const next: Session = {
       id,
       title: 'from the desktop',
       kind: 'chat',
       type: settings.defaultSessionType,
-      agentId,
+      agentId: settings.defaultAgentId,
       subagentIds: [],
       pinned: false,
       busy: false,
@@ -110,14 +130,21 @@ export function MascotMenu({
   const send = (): void => {
     const body = text.trim()
     if (!body) return
-    const sessionId = target ?? startNew()
+    const sessionId = chosen ?? startNew()
     void window.mochi?.sendToSession(sessionId, body)
     setText('')
     onClose()
   }
 
   return (
-    <div ref={cardRef} className="mo-menu" role="dialog" aria-label="Talk to the mascot">
+    <div
+      ref={cardRef}
+      className="mo-menu"
+      data-v={placement.vertical}
+      data-h={placement.horizontal}
+      role="dialog"
+      aria-label="Pop-up chat"
+    >
       <div className="mo-menu-head">
         <span className="mo-menu-title">Send to</span>
         <button className="mo-menu-x" aria-label="Close" onClick={onClose}>
@@ -130,7 +157,7 @@ export function MascotMenu({
           <button
             key={s.id}
             className="mo-menu-session"
-            data-on={s.id === target}
+            data-on={s.id === chosen}
             onClick={() => setTarget(s.id)}
           >
             <span className="mo-menu-session-name">{s.title}</span>
@@ -187,9 +214,8 @@ export function MascotMenu({
           className="mo-menu-icon"
           aria-label="Mention an agent"
           onClick={() => {
-            setText((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}@`)
+            append('@')
             setMentionQuery('')
-            inputRef.current?.focus()
           }}
         >
           <AtSign size={13} strokeWidth={1.8} />

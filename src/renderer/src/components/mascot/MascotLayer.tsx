@@ -8,8 +8,10 @@ import type {
   MascotShell,
   MascotState
 } from '@shared/types'
+import { MessageSquare, PanelsTopLeft, EyeOff, Hand } from 'lucide-react'
 import { ApprovalBubble } from './ApprovalBubble'
-import { MascotMenu } from './MascotMenu'
+import { MascotMenu, type MenuPlacement } from './MascotMenu'
+import { BubbleMenu } from './BubbleMenu'
 import './mascot.css'
 
 const POS_KEY = 'mochi.mascot.pos'
@@ -83,7 +85,8 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     soundSrc,
     fireSticker,
     agents,
-    server
+    server,
+    dispatch
   } = useStore()
   const cfg = settings.mascot
   /** One mascot, one voice — the default agent's, same rule the lines follow. */
@@ -152,15 +155,24 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   const approvalRef = useRef<HTMLDivElement>(null)
 
   /*
-   * Right-click opens the menu.
+   * Right-click opens the bubble menu; pop-up chat is one of its choices.
    *
    * The overlay is created `focusable: false` so clicking the mascot never
    * steals the caret from whatever you were typing in. That also means it cannot
-   * receive key events, so focus is granted for as long as the menu is open and
-   * given straight back when it closes.
+   * receive key events, so focus is granted while the chat card is open and
+   * given straight back when it closes. The bubble ring is click-only and needs
+   * none, so it does not take focus at all.
    */
+  const [bubblesOpen, setBubblesOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const bubblesRef = useRef<HTMLDivElement>(null)
+
+  /* Kept out here so closing the card and opening it again does not lose a
+   * half-written message or the session it was meant for. */
+  const [draft, setDraft] = useState('')
+  const [draftTarget, setDraftTarget] = useState<string | null>(null)
+
   useEffect(() => {
     if (!overlay) return
     void window.mochi?.mascotFocusable(menuOpen)
@@ -168,6 +180,51 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     // toggle, so a cleanup would take the keyboard back a frame after granting
     // it. Closing the menu sets menuOpen false, which does the job.
   }, [overlay, menuOpen])
+
+  /*
+   * Which way the cards open.
+   *
+   * The overlay is exactly the work area, so anything drawn past its bounds is
+   * cut off rather than scrolled to — which is how the chat card ended up half
+   * off the top of the screen. Measured when something opens rather than on
+   * every drag frame: the answer only matters at that moment.
+   */
+  const [placement, setPlacement] = useState<MenuPlacement>({
+    vertical: 'above',
+    horizontal: 'center'
+  })
+  const measure = useCallback((): void => {
+    const el = wrapRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPlacement({
+      // 320 is roughly the chat card's height. Below the sprite only when there
+      // genuinely is not room above it.
+      vertical: r.top < 320 ? 'below' : 'above',
+      horizontal: r.left < 160 ? 'left' : window.innerWidth - r.right < 160 ? 'right' : 'center'
+    })
+  }, [])
+
+  /*
+   * Clicking away closes, without discarding.
+   *
+   * `pointerdown` rather than `click`: a click that lands on the desktop is
+   * delivered to whatever is under the overlay, so waiting for it would mean
+   * waiting for one that never arrives.
+   */
+  useEffect(() => {
+    if (!overlay || (!menuOpen && !bubblesOpen)) return
+    const onDown = (e: PointerEvent): void => {
+      const t = e.target as Node
+      if (menuRef.current?.contains(t)) return
+      if (bubblesRef.current?.contains(t)) return
+      if (wrapRef.current?.contains(t)) return
+      setMenuOpen(false)
+      setBubblesOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [overlay, menuOpen, bubblesOpen])
   useEffect(() => {
     if (!overlay) return
     return window.mochi?.onApproval((next) => {
@@ -281,7 +338,11 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
        * an approval is pending would block every click to every other app on the
        * desktop until the user answered.
        */
-      const inside = onSprite || over(approvalRef.current, e) || over(menuRef.current, e)
+      const inside =
+        onSprite ||
+        over(approvalRef.current, e) ||
+        over(menuRef.current, e) ||
+        over(bubblesRef.current, e)
       if (inside === interactive.current) return
       interactive.current = inside
       // The same hit-test already decides click-through, so hover comes free
@@ -347,6 +408,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
        */
       if (approvalRef.current?.contains(e.target as Node)) return
       if (menuRef.current?.contains(e.target as Node)) return
+      if (bubblesRef.current?.contains(e.target as Node)) return
       if (!cfg.dragAnywhere && e.target !== spriteRef.current) return
       dragging.current = true
       moved.current = false
@@ -399,6 +461,11 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         // that: reacting to being poked is worth doing even when nothing else
         // happens, and it is the only feedback left when the action is "none".
         if (!moved.current) {
+          // A click is the one thing that outranks sleep — ordinary activity
+          // elsewhere leaves her resting, so this has to say so explicitly.
+          if (mascotState === 'sleeping') {
+            void window.mochi?.setMascotState('idle', 'waiting on you')
+          }
           flashClick()
           if ((cfg.clickAction ?? 'sticker') === 'sticker') fireSticker({ voice: 'poke' })
         }
@@ -414,6 +481,8 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
       // Without this the handler keeps whatever `clickAction` was bound at mount,
       // so switching to "do nothing" would not take effect until a remount.
       cfg.clickAction,
+      // Read inside the handler to decide whether a click should wake her.
+      mascotState,
       clamp,
       schedule,
       write,
@@ -541,7 +610,9 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         // is already setting the same value.
         onContextMenu={(e) => {
           e.preventDefault()
-          setMenuOpen((v) => !v)
+          measure()
+          setMenuOpen(false)
+          setBubblesOpen((v) => !v)
         }}
         onPointerEnter={() => setHovering(true)}
         onPointerLeave={() => setHovering(false)}
@@ -569,9 +640,65 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           />
         )}
 
-        {menuOpen && <MascotMenu onClose={() => setMenuOpen(false)} cardRef={menuRef} />}
+        {bubblesOpen && (
+          <BubbleMenu
+            cardRef={bubblesRef}
+            placement={placement}
+items={[
+              {
+                id: 'chat',
+                label: 'Pop-up chat',
+                icon: <MessageSquare size={15} strokeWidth={1.9} />,
+                onPick: () => {
+                  setBubblesOpen(false)
+                  setMenuOpen(true)
+                }
+              },
+              {
+                id: 'open',
+                label: 'Open Mochi',
+                icon: <PanelsTopLeft size={15} strokeWidth={1.9} />,
+                onPick: () => {
+                  setBubblesOpen(false)
+                  void window.mochi?.focusSession(draftTarget ?? '')
+                }
+              },
+              {
+                id: 'poke',
+                label: 'Poke',
+                icon: <Hand size={15} strokeWidth={1.9} />,
+                onPick: () => {
+                  setBubblesOpen(false)
+                  flashClick()
+                  fireSticker({ voice: 'poke' })
+                }
+              },
+              {
+                id: 'hide',
+                label: 'Hide mascot',
+                icon: <EyeOff size={15} strokeWidth={1.9} />,
+                onPick: () => {
+                  setBubblesOpen(false)
+                  dispatch({ type: 'mascot-config', patch: { visible: false } })
+                }
+              }
+            ]}
+          />
+        )}
 
-        {showBubble && burst && !approval && !menuOpen && cfg.bubbleStyle !== 'none' && (
+        {menuOpen && (
+          <MascotMenu
+            cardRef={menuRef}
+            placement={placement}
+            text={draft}
+            setText={setDraft}
+            target={draftTarget}
+            setTarget={setDraftTarget}
+            onClose={() => setMenuOpen(false)}
+          />
+        )}
+
+        {showBubble && burst && !approval && !menuOpen && !bubblesOpen && cfg.bubbleStyle !== 'none' && (
           <div className="mo-bubble" data-style={cfg.bubbleStyle ?? 'soft'}>
             {burst.caption}
           </div>
