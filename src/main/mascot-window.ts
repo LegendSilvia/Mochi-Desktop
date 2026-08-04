@@ -156,3 +156,22 @@ export function applyMascotWindowConfig(): void {
     win.setBounds(workArea)
   }
 }
+
+/**
+ * Let the overlay take the keyboard, or hand it back.
+ *
+ * The window is created `focusable: false` so clicking the mascot never steals
+ * focus from whatever you were typing in. That also means it cannot receive key
+ * events at all, which is fine for a sprite and useless for a menu you can type
+ * into — so focus is granted only while that menu is open, and revoked the
+ * moment it closes.
+ */
+export function setMascotFocusable(focusable: boolean): void {
+  if (!win || win.isDestroyed()) return
+  win.setFocusable(focusable)
+  if (focusable) win.focus()
+  // Giving focus back is not enough on Windows: the overlay stays the active
+  // window until something else is raised, so the app the user was in keeps its
+  // caret but not its title bar. Blurring hands it back properly.
+  else win.blur()
+}

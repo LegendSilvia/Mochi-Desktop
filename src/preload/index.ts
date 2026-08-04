@@ -40,6 +40,8 @@ const IPC = {
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
+  mascotFocusable: 'mochi:mascot-focusable',
+  sendToSession: 'mochi:send-to-session',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -152,6 +154,10 @@ export interface MochiApi {
   /** Bring the app forward on a given session. The overlay's escape hatch for a
    *  command too long to read there. */
   focusSession: (sessionId: string) => Promise<void>
+  /** Overlay only: take the keyboard while its menu is open, hand it back after. */
+  mascotFocusable: (focusable: boolean) => Promise<void>
+  /** Send a message typed on the desktop through the window that owns the chat. */
+  sendToSession: (sessionId: string, text: string) => Promise<void>
   saveState: (patch: StatePatch) => Promise<PersistedState>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
@@ -167,6 +173,8 @@ export interface MochiApi {
   onApproval: (cb: (p: ApprovalRequest | ApprovalSettled) => void) => () => void
   /** The app was asked to show a particular session. */
   onFocusSession: (cb: (sessionId: string) => void) => () => void
+  /** A message written on the desktop, for this window to actually send. */
+  onSendToSession: (cb: (p: { sessionId: string; text: string }) => void) => () => void
   /** Another window persisted state; merge it so the two never drift. */
   onStateChanged: (cb: (s: PersistedState) => void) => () => void
 }
@@ -194,6 +202,8 @@ const api: MochiApi = {
   readText: (path) => ipcRenderer.invoke(IPC.readText, path),
   setMascotState: (state, note) => ipcRenderer.invoke(IPC.setMascotState, state, note),
   focusSession: (sessionId) => ipcRenderer.invoke(IPC.focusSession, sessionId),
+  mascotFocusable: (focusable) => ipcRenderer.invoke(IPC.mascotFocusable, focusable),
+  sendToSession: (sessionId, text) => ipcRenderer.invoke(IPC.sendToSession, sessionId, text),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),
@@ -221,6 +231,7 @@ const api: MochiApi = {
   onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb),
   onApproval: (cb) => on<ApprovalRequest | ApprovalSettled>(IPC.approval, cb),
   onFocusSession: (cb) => on<string>(IPC.focusSession, cb),
+  onSendToSession: (cb) => on<{ sessionId: string; text: string }>(IPC.sendToSession, cb),
   onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb)
 }
 

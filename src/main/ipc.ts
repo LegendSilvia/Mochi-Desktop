@@ -21,6 +21,7 @@ import {
   applyMascotWindowConfig,
   getMascotWindow,
   listDisplays,
+  setMascotFocusable,
   setMascotInteractive,
   setMascotVisible
 } from './mascot-window'
@@ -45,6 +46,8 @@ export const IPC = {
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
+  mascotFocusable: 'mochi:mascot-focusable',
+  sendToSession: 'mochi:send-to-session',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -151,6 +154,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // Told after the window is up: the renderer switches session on receipt, and
     // doing it while hidden would leave the switch unseen if focus failed.
     win.webContents.send(IPC.focusSession, sessionId)
+  })
+
+  ipcMain.handle(IPC.mascotFocusable, (_e, focusable: boolean) => setMascotFocusable(focusable))
+
+  /**
+   * A message written on the desktop, handed to the window that owns the chat.
+   *
+   * The overlay cannot send it itself: the transcript, the transport and the
+   * streaming reply all live in the app window's chat, and a turn started from
+   * here would stream to nobody and save nothing. So the text is passed across
+   * and the app sends it — deliberately without raising the window, since the
+   * point of typing to the mascot is not having to go and find the app.
+   */
+  ipcMain.handle(IPC.sendToSession, (_e, sessionId: string, text: string) => {
+    const win = getWindow()
+    if (!win || win.isDestroyed()) return
+    win.webContents.send(IPC.sendToSession, { sessionId, text })
   })
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())

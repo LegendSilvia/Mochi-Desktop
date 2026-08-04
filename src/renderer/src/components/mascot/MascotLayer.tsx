@@ -9,6 +9,7 @@ import type {
   MascotState
 } from '@shared/types'
 import { ApprovalBubble } from './ApprovalBubble'
+import { MascotMenu } from './MascotMenu'
 import './mascot.css'
 
 const POS_KEY = 'mochi.mascot.pos'
@@ -149,6 +150,24 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
    */
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const approvalRef = useRef<HTMLDivElement>(null)
+
+  /*
+   * Right-click opens the menu.
+   *
+   * The overlay is created `focusable: false` so clicking the mascot never
+   * steals the caret from whatever you were typing in. That also means it cannot
+   * receive key events, so focus is granted for as long as the menu is open and
+   * given straight back when it closes.
+   */
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!overlay) return
+    void window.mochi?.mascotFocusable(menuOpen)
+    // Deliberately no cleanup that revokes focus: the effect re-runs on every
+    // toggle, so a cleanup would take the keyboard back a frame after granting
+    // it. Closing the menu sets menuOpen false, which does the job.
+  }, [overlay, menuOpen])
   useEffect(() => {
     if (!overlay) return
     return window.mochi?.onApproval((next) => {
@@ -262,7 +281,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
        * an approval is pending would block every click to every other app on the
        * desktop until the user answered.
        */
-      const inside = onSprite || over(approvalRef.current, e)
+      const inside = onSprite || over(approvalRef.current, e) || over(menuRef.current, e)
       if (inside === interactive.current) return
       interactive.current = inside
       // The same hit-test already decides click-through, so hover comes free
@@ -327,6 +346,7 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
        * `dragAnywhere`, because the buttons must work whichever way that is set.
        */
       if (approvalRef.current?.contains(e.target as Node)) return
+      if (menuRef.current?.contains(e.target as Node)) return
       if (!cfg.dragAnywhere && e.target !== spriteRef.current) return
       dragging.current = true
       moved.current = false
@@ -519,6 +539,10 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         // In the app window there is no click-through hit-test to piggyback on,
         // so hover comes from the DOM. Harmless in the overlay: the effect above
         // is already setting the same value.
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setMenuOpen((v) => !v)
+        }}
         onPointerEnter={() => setHovering(true)}
         onPointerLeave={() => setHovering(false)}
         role="button"
@@ -545,7 +569,13 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           />
         )}
 
-        {showBubble && burst && !approval && cfg.bubbleStyle !== 'none' && (
+        {menuOpen && (
+          <div ref={menuRef}>
+            <MascotMenu onClose={() => setMenuOpen(false)} />
+          </div>
+        )}
+
+        {showBubble && burst && !approval && !menuOpen && cfg.bubbleStyle !== 'none' && (
           <div className="mo-bubble" data-style={cfg.bubbleStyle ?? 'soft'}>
             {burst.caption}
           </div>

@@ -109,6 +109,22 @@ export function Session(): React.JSX.Element {
   }, [])
 
   /*
+   * A message typed on the desktop.
+   *
+   * The overlay cannot send it: the transcript, the transport and the streaming
+   * reply all live here. So it arrives as text, the session it belongs to is
+   * made active, and `pendingSend` hands it to the same path the New session
+   * screen already uses. The window is deliberately not raised — the point of
+   * typing to the mascot is not having to come back to the app.
+   */
+  useEffect(() => {
+    return window.mochi?.onSendToSession(({ sessionId, text }) => {
+      dispatch({ type: 'active', id: sessionId })
+      dispatch({ type: 'pending-send', text })
+    })
+  }, [dispatch])
+
+  /*
    * The mascot sent us here.
    *
    * "Open Mochi" on a desktop approval brings the window forward, but landing on
