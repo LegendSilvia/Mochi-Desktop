@@ -37,7 +37,9 @@ export const KEYS = {
   snapMascot: () => chord('mod', 'shift', 'M'),
   pushToTalk: () => chord('alt', 'space'),
   send: () => chord('enter'),
-  newline: () => chord('meta', 'enter'),
+  // Shift, not `meta`: on Windows `meta` is the Windows key, which the OS
+  // largely claims for itself — so the advertised newline chord did nothing.
+  newline: () => chord('shift', 'enter'),
   approve: () => chord('mod', 'enter')
 }
 

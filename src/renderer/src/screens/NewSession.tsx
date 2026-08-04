@@ -3,6 +3,7 @@ import { Paperclip, AtSign, ArrowRight, MessageSquare, Users, Clock, Eraser } fr
 import { useStore } from '@renderer/state/context'
 import { WIP_SESSION_TYPES } from '@renderer/state/screens'
 import { Section } from '@renderer/components/ui/Controls'
+import { useAgentArt } from '@renderer/lib/useAgentArt'
 import type { Session, SessionType } from '@shared/types'
 import './screens.css'
 
@@ -27,9 +28,11 @@ const isWip = (t: SessionType): boolean => (WIP_SESSION_TYPES as readonly string
  * pre-selected so Start is never dead on arrival.
  */
 export function NewSession(): React.JSX.Element {
-  const { agents, newAgentId, newSessionType, sessions, dispatch, spriteSrc } = useStore()
+  const { agents, newAgentId, newSessionType, sessions, dispatch } = useStore()
   const [draft, setDraft] = useState('')
   const selected = agents.find((a) => a.id === newAgentId) ?? agents[0]
+  // Before the early return below: hooks cannot live behind a condition.
+  const art = useAgentArt(agents.map((a) => a.spritePreset))
 
   // A fresh install has no agents at all. Everything below dereferences
   // `selected`, so bail to an empty state rather than rendering a broken form.
@@ -100,8 +103,8 @@ export function NewSession(): React.JSX.Element {
                 onClick={() => dispatch({ type: 'new-agent', id: a.id })}
               >
                 <div className="agent-avatar">
-                  {spriteSrc('idle') && a.id === 'sprout' ? (
-                    <img src={spriteSrc('idle') as string} alt="" />
+                  {art[a.spritePreset] ? (
+                    <img src={art[a.spritePreset] as string} alt="" draggable={false} />
                   ) : (
                     <span className="agent-initial">{a.name[0]}</span>
                   )}
@@ -152,8 +155,8 @@ export function NewSession(): React.JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 // Same contract as the session composer: Enter commits,
-                // Win/Cmd+Enter is the newline.
-                if (e.key !== 'Enter' || e.metaKey) return
+                // Shift+Enter is the newline.
+                if (e.key !== 'Enter' || e.shiftKey) return
                 e.preventDefault()
                 start()
               }}

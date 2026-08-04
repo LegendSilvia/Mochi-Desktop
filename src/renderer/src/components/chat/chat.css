@@ -132,18 +132,273 @@
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease,
     transform 140ms ease;
 }
-.ask-option:hover {
+.ask-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ask-option:hover:not(:disabled) {
   background: var(--ac);
   border-color: var(--ac);
   color: var(--on-ac);
   transform: translateY(-1px);
 }
-.ask-option:active {
+.ask-option:active:not(:disabled) {
   transform: translateY(0);
+}
+.ask-option[data-on='true'] {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--on-ac);
+}
+.ask-option:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .ask-foot {
   font-size: 11px;
   color: var(--tx3);
+}
+
+/* The docked question, sitting directly above the composer. Reads as part of
+   the input rather than as another message — same width, joined to it. */
+.ask-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 13px 14px 11px;
+  background: color-mix(in srgb, var(--ac) 7%, var(--surf));
+  border: 1px solid color-mix(in srgb, var(--ac) 26%, transparent);
+  border-radius: var(--r-card);
+  animation: sticker-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-dock {
+    animation: none;
+  }
+}
+.ask-dock-row {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.ask-dock-row + .ask-dock-row {
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ac) 16%, transparent);
+}
+.ask-dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ask-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--tx3);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.ask-skip:hover {
+  color: var(--tx2);
+  border-color: var(--line2);
+}
+
+/* What the transcript keeps once a question has been asked. Intentionally inert
+   — the only place to answer is the dock. */
+.ask-record {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 10px;
+  border: 1px dashed var(--line2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--tx3);
+  font-size: 11.5px;
+}
+.ask-record svg {
+  color: var(--ac);
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+/* --- permission prompt ----------------------------------------------------- */
+
+/* Warmer and more present than a tool row: the run is actually blocked on this,
+   so it should not read as another log line scrolling past. */
+.perm-card {
+  align-self: flex-start;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 11px;
+  background: color-mix(in srgb, var(--warm) 9%, var(--surf));
+  border: 1px solid color-mix(in srgb, var(--warm) 32%, transparent);
+  border-radius: var(--r-card);
+}
+.perm-card[data-done='true'] {
+  background: var(--surf);
+  border-color: var(--line);
+}
+.perm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--tx);
+}
+.perm-head svg {
+  color: var(--warm);
+  flex-shrink: 0;
+}
+.perm-card[data-done='true'] .perm-head svg {
+  color: var(--tx3);
+}
+.perm-target {
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surf2);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--tx2);
+  overflow-wrap: anywhere;
+}
+.perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.perm-settled {
+  font-size: 11.5px;
+}
+
+/* --- the agent's task list ------------------------------------------------- */
+
+.task-card {
+  align-self: flex-start;
+  min-width: 260px;
+  max-width: 520px;
+  padding: 11px 13px 10px;
+  background: var(--surf);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--tx2);
+}
+.task-head .meta {
+  margin-left: auto;
+  font-size: 11px;
+}
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--tx2);
+}
+.task-item svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--tx3);
+}
+.task-item[data-status='completed'] {
+  color: var(--tx3);
+}
+.task-item[data-status='completed'] svg {
+  color: var(--ac);
+}
+.task-item[data-status='completed'] span {
+  text-decoration: line-through;
+  text-decoration-color: var(--line2);
+}
+.task-item[data-status='in_progress'] {
+  color: var(--tx);
+}
+.task-item[data-status='in_progress'] svg {
+  color: var(--ac);
+  animation: task-spin 1.6s linear infinite;
+}
+@keyframes task-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-item[data-status='in_progress'] svg {
+    animation: none;
+  }
+}
+
+/* --- message actions ------------------------------------------------------ */
+
+/* Revealed on hover so a quiet thread stays quiet, but kept in the layout via
+   opacity rather than display so hovering never reflows the message. */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.msg-group[data-role='user'] .msg-actions {
+  justify-content: flex-end;
+}
+.msg-group:hover .msg-actions,
+.msg-actions:focus-within {
+  opacity: 1;
+}
+
+.msg-action {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.msg-action:hover {
+  background: var(--surf);
+  border-color: var(--line2);
+  color: var(--tx);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-actions,
+  .msg-action {
+    transition: none;
+  }
 }
 
 /* --- thinking ------------------------------------------------------------ */

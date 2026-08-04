@@ -2,6 +2,7 @@ import { Mastra } from '@mastra/core'
 import { Agent } from '@mastra/core/agent'
 import { ModelRouterEmbeddingModel } from '@mastra/core/llm'
 import { Memory } from '@mastra/memory'
+import { TaskSignalProvider } from '@mastra/core/signals'
 import { LibSQLStore, LibSQLVector } from '@mastra/libsql'
 import { chatRoute } from '@mastra/ai-sdk'
 import { mochiTools, type MochiToolId } from './tools/mochi-tools'
@@ -84,6 +85,14 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
     instructions: `${loadout.instructions}\n\n${behaviour}`,
     model: loadout.model,
     tools,
+    // Task tracking. Registered as a signal provider rather than by adding the
+    // four task tools by hand: the provider also installs `TaskStateProcessor`,
+    // and without that the tools work for a single turn and then silently lose
+    // the list. Not a loadout toggle — nothing happens unless the model chooses
+    // to call them, and a plan that vanishes when you switch loadout would be
+    // worse than no plan. Requires a memory-backed thread, which the `memory`
+    // below always provides (only *semantic recall* needs an embedding key).
+    signals: [new TaskSignalProvider()],
     memory: new Memory({
       storage: new LibSQLStore({ id: `mochi-store-${loadout.id}`, url: opts.databaseUrl }),
       ...recallParts,

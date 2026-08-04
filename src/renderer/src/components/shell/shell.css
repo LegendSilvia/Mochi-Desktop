@@ -325,6 +325,25 @@
 .rail-session {
   position: relative;
 }
+
+/* --- reordering ----------------------------------------------------------- */
+
+.rail-session[data-dragging='true'] {
+  opacity: 0.45;
+}
+/* The insertion point, drawn as a rule above the row being hovered rather than
+   by shifting anything — moving rows under the cursor mid-drag makes the target
+   slide away from you. */
+.rail-session[data-drop='true']::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: -2px;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: var(--ac);
+}
 .rail-rename {
   flex: 1;
   min-width: 0;

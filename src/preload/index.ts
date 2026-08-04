@@ -14,8 +14,15 @@ import type {
   Theme,
   RagDoc,
   RagHit,
-  EmbedderInfo
+  EmbedderInfo,
+  SpriteFile,
+  SpriteSlot,
+  DisplayInfo
 } from '../shared/types'
+
+/** Main answers with this instead of rejecting, so a bad folder name surfaces as
+ *  a message in the studio rather than an unhandled rejection. */
+export type MochiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const IPC = {
   getBootstrap: 'mochi:bootstrap',
@@ -36,6 +43,18 @@ const IPC = {
   providersList: 'mochi:providers',
   providerSetKey: 'mochi:provider-set-key',
   providerDeleteKey: 'mochi:provider-delete-key',
+  presetCreate: 'mochi:preset-create',
+  presetRename: 'mochi:preset-rename',
+  presetDelete: 'mochi:preset-delete',
+  presetImport: 'mochi:preset-import',
+  presetOpen: 'mochi:preset-open',
+  spriteImport: 'mochi:sprite-import',
+  spriteAssign: 'mochi:sprite-assign',
+  spriteRemove: 'mochi:sprite-remove',
+  listDisplays: 'mochi:list-displays',
+  agentFinished: 'mochi:agent-finished',
+  agentExport: 'mochi:agent-export',
+  agentImport: 'mochi:agent-import',
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
   mascotState: 'mochi:mascot-state',
@@ -75,6 +94,40 @@ export interface MochiApi {
   library: (spritePreset?: string) => Promise<AssetLibrary>
   /** Mascot folders available under `mascots/` — the sprite sets to swap between. */
   listPresets: () => Promise<string[]>
+  /** Create / rename / delete / import a mascot folder. Each answers with a
+   *  result rather than rejecting, so the studio can show why something failed. */
+  presetCreate: (name: string) => Promise<MochiResult<string>>
+  presetRename: (from: string, to: string) => Promise<MochiResult<string>>
+  presetDelete: (name: string) => Promise<MochiResult<void>>
+  /** Native folder dialog, then copy the art in as a new mascot folder. */
+  presetImport: () => Promise<MochiResult<string>>
+  presetOpen: (preset: string) => Promise<string>
+  /** Copy dropped images in. Bytes, not paths — the renderer reads the File
+   *  itself, so main never takes an arbitrary path from it. */
+  spriteImport: (
+    preset: string,
+    files: Array<{ name: string; bytes: Uint8Array }>
+  ) => Promise<MochiResult<SpriteFile[]>>
+  spriteAssign: (
+    preset: string,
+    state: SpriteSlot,
+    file: string | null
+  ) => Promise<MochiResult<void>>
+  spriteRemove: (preset: string, file: string) => Promise<MochiResult<void>>
+  /** Monitors the overlay can be pinned to. */
+  listDisplays: () => Promise<DisplayInfo[]>
+  /** A turn finished. Main decides whether the user is actually looking, and
+   *  answers `true` when it surfaced the notification. */
+  agentFinished: (caption?: string) => Promise<boolean>
+  /** Write a loadout plus its mascot art out as one shareable file. */
+  agentExport: (
+    agent: AgentLoadout,
+    preset: string,
+    suggestedName: string
+  ) => Promise<MochiResult<string>>
+  /** Read one back. The art is unpacked into a new mascot folder; the returned
+   *  loadout still needs a unique id, which the renderer assigns. */
+  agentImport: () => Promise<MochiResult<{ agent: AgentLoadout; preset: string }>>
   /** Overlay window only: let clicks through, or capture them over the sprite. */
   mascotInteractive: (interactive: boolean) => Promise<void>
   /** Native open dialog for the composer's attach and workspace buttons. */
@@ -129,6 +182,19 @@ const api: MochiApi = {
   providers: () => ipcRenderer.invoke(IPC.providersList),
   setProviderKey: (id, key) => ipcRenderer.invoke(IPC.providerSetKey, id, key),
   deleteProviderKey: (id) => ipcRenderer.invoke(IPC.providerDeleteKey, id),
+  presetCreate: (name) => ipcRenderer.invoke(IPC.presetCreate, name),
+  presetRename: (from, to) => ipcRenderer.invoke(IPC.presetRename, from, to),
+  presetDelete: (name) => ipcRenderer.invoke(IPC.presetDelete, name),
+  presetImport: () => ipcRenderer.invoke(IPC.presetImport),
+  presetOpen: (preset) => ipcRenderer.invoke(IPC.presetOpen, preset),
+  spriteImport: (preset, files) => ipcRenderer.invoke(IPC.spriteImport, preset, files),
+  spriteAssign: (preset, state, file) => ipcRenderer.invoke(IPC.spriteAssign, preset, state, file),
+  spriteRemove: (preset, file) => ipcRenderer.invoke(IPC.spriteRemove, preset, file),
+  listDisplays: () => ipcRenderer.invoke(IPC.listDisplays),
+  agentFinished: (caption) => ipcRenderer.invoke(IPC.agentFinished, caption),
+  agentExport: (agent, preset, suggestedName) =>
+    ipcRenderer.invoke(IPC.agentExport, agent, preset, suggestedName),
+  agentImport: () => ipcRenderer.invoke(IPC.agentImport),
   onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
   onStickerFired: (cb) => on<StickerFiredPayload>(IPC.stickerFired, cb),
   onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb),

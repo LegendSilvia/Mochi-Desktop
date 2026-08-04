@@ -60,6 +60,15 @@ export const setMascotStateTool = createTool({
  * sends the chosen text back as an ordinary user turn. That keeps the agent
  * loop free of a suspend/resume dance and behaves identically on both the
  * Mastra and Agent SDK backends, which have very different pause semantics.
+ *
+ * Mastra ships a first-class `askUserTool` that genuinely suspends the run
+ * (`@mastra/core/tools`, resumed with `agent.resumeStream`). It is not used here
+ * for exactly the reason above — it exists only on the Mastra route, and the
+ * default route is the Agent SDK. See `docs/mastra-docs-inventory.md` §4 for the
+ * decision that would let us adopt it.
+ *
+ * Calling this more than once in a turn is supported: the composer docks every
+ * unanswered question together and sends the answers as one reply.
  */
 export const askUserTool = createTool({
   id: 'askUser',
@@ -67,7 +76,8 @@ export const askUserTool = createTool({
     'Ask the user a question and offer specific answers they can click. Use this ' +
     'when you need a decision before continuing — which approach to take, whether ' +
     'to push, which file to touch. Prefer it over a plain question in your reply, ' +
-    'because the answers become one tap instead of typing. Keep options short.',
+    'because the answers become one tap instead of typing. Keep options short. ' +
+    'Call it once per question if you need to ask several things at once.',
   inputSchema: z.object({
     question: z.string().describe('The question, one short sentence'),
     options: z
@@ -75,6 +85,13 @@ export const askUserTool = createTool({
       .min(2)
       .max(5)
       .describe('Between 2 and 5 answers the user can pick from'),
+    multiple: z
+      .boolean()
+      .optional()
+      .describe(
+        'Let the user pick more than one option. Defaults to false — use it only ' +
+          'when the answers genuinely combine, not to hedge an either/or.'
+      ),
     allowOther: z
       .boolean()
       .optional()

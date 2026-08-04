@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
-import type { MascotState, PersistedState } from '@shared/types'
+import type { PersistedState, SpriteSlot } from '@shared/types'
 import { DEFAULT_AGENTS, DEFAULT_RULES, DEFAULT_SESSIONS, DEFAULT_SETTINGS } from '@shared/defaults'
 import { BUBBLE_LINES, SETTINGS_SCREENS } from './screens'
 import { StoreCtx, type Action, type State, type Store } from './context'
 import { TOURS } from './tours'
+import * as devlog from '@renderer/lib/devlog'
+import { mayLeaveScreen } from '@renderer/lib/navGuard'
 
 const initial: State = {
   ready: false,
@@ -147,7 +149,22 @@ function reducer(state: State, action: Action): State {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }): React.JSX.Element {
-  const [state, dispatch] = useReducer(reducer, initial)
+  const [state, rawDispatch] = useReducer(reducer, initial)
+
+  /*
+   * Screen changes go through a veto.
+   *
+   * A screen holding unsaved work — the agent editor is the first — registers a
+   * guard and gets the chance to stop the navigation. Doing it here rather than
+   * at the call sites means every route into a screen change is covered,
+   * including the ones added later; there are already nine components that
+   * dispatch one.
+   */
+  const dispatch = useCallback<React.Dispatch<Action>>((action) => {
+    if (action.type === 'screen' && !mayLeaveScreen()) return
+    rawDispatch(action)
+  }, [])
+
   const burstId = useRef(0)
   // Snapshot of what was last written or received. The persist effect compares
   // against it so state arriving over `sync` is not immediately written back —
@@ -217,9 +234,20 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     return window.mochi.onStateChanged((next) => {
       synced.current = true
       lastPersisted.current = JSON.stringify(toSlice(next))
+      devlog.push('ipc', 'stateChanged', {
+        sessions: next.sessions.length,
+        agents: next.agents.length
+      })
       dispatch({ type: 'sync', payload: next })
     })
   }, [])
+
+  // Arm the debug log from settings. Done here rather than in the log pane so
+  // capture starts at boot — a bug you have to reproduce with the pane already
+  // open is a bug you have mostly already lost.
+  useEffect(() => {
+    devlog.arm(state.settings.devMode === true)
+  }, [state.settings.devMode])
 
   // Persist on change, but not during boot — that would immediately rewrite the
   // file we just read with the pre-boot defaults.
@@ -229,6 +257,7 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     const json = JSON.stringify(slice)
     if (json === lastPersisted.current) return
     lastPersisted.current = json
+    devlog.push('state', 'saveState', { bytes: json.length })
     void window.mochi?.saveState(slice)
   }, [state.ready, state.settings, state.agents, state.sessions, state.rules])
 
@@ -261,10 +290,41 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
     [state.library]
   )
 
+  /**
+   * The art for a slot, falling back to idle.
+   *
+   * Without the fallback every unfilled slot rendered the `art?` placeholder, so
+   * a mascot folder with one good drawing in it looked broken the moment the
+   * agent started thinking. Idle is the one slot worth insisting on: a mascot
+   * that stands still is fine, a mascot that blinks out of existence is not.
+   */
   const spriteSrc = useCallback(
-    (s: MascotState) => state.library?.sprites.find((sp) => sp.state === s)?.src ?? null,
+    (s: SpriteSlot) => {
+      const sprites = state.library?.sprites
+      return (
+        sprites?.find((sp) => sp.state === s)?.src ??
+        sprites?.find((sp) => sp.state === 'idle')?.src ??
+        null
+      )
+    },
     [state.library]
   )
+
+  /*
+   * What the mascot says.
+   *
+   * There is one mascot, so it speaks with one voice: the default agent's. Its
+   * lines are generated from that agent's persona when the loadout is saved.
+   * `BUBBLE_LINES` remains the fallback for a fresh install, an agent saved
+   * before this existed, or a generation that failed.
+   */
+  const lines = useMemo(() => {
+    const main = state.agents.find((a) => a.id === state.settings.defaultAgentId)
+    // Blank rows are an artefact of editing the field as free text; an empty
+    // string would surface as an empty bubble.
+    const own = (main?.bubbleLines ?? []).map((l) => l.trim()).filter(Boolean)
+    return own.length ? own : BUBBLE_LINES
+  }, [state.agents, state.settings.defaultAgentId])
 
   const fireSticker = useCallback<Store['fireSticker']>(
     (opts = {}) => {
@@ -277,11 +337,11 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
           stickerSrc: stickerSrc(opts.stickerId ?? null),
           soundSrc: soundSrc(null),
           modes,
-          caption: opts.caption ?? BUBBLE_LINES[burstId.current % BUBBLE_LINES.length]
+          caption: opts.caption ?? lines[burstId.current % lines.length]
         }
       })
     },
-    [state.settings.mascot.stickerModes, stickerSrc, soundSrc]
+    [state.settings.mascot.stickerModes, stickerSrc, soundSrc, lines]
   )
 
   // The idle rule. It shipped in the seeded rules but nothing ever fired it, so

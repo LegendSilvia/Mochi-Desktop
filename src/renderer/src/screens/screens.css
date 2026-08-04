@@ -304,6 +304,13 @@
 .session-main {
   flex: 1;
   min-width: 0;
+  /* Load-bearing. Without it this column keeps `min-height: auto`, so it refuses
+     to shrink below its content and grows past the viewport instead of letting
+     `.msg-list` scroll — and since `.content` is `overflow: hidden`, what gets
+     clipped is the composer at the bottom. Invisible at the 888px design height,
+     fatal on any shorter screen: an 816px work area (a 1536×864 display with a
+     taskbar) loses the input entirely. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -376,6 +383,94 @@
   font-size: 11.5px;
   color: var(--tx2);
 }
+/* A workspace path is long and its meaningful end is the right-hand side, so
+   clip the front rather than the tail. `direction: rtl` moves the ellipsis to
+   the start; the isolate keeps the path's own characters in logical order. */
+.repo-path {
+  min-width: 0;
+  max-width: 46ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+
+/* --- a turn that failed --------------------------------------------------- */
+
+.msg-failure {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--rose) 28%, transparent);
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+  border-radius: var(--r-card);
+  font-size: 12.5px;
+}
+.msg-failure > svg {
+  color: var(--rose);
+  flex-shrink: 0;
+}
+.msg-failure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.msg-failure-body strong {
+  font-weight: 600;
+  color: var(--tx);
+}
+.msg-failure-body .meta {
+  overflow-wrap: anywhere;
+}
+
+/* --- queued messages ------------------------------------------------------ */
+
+.queue-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.queue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 4px 5px 4px 11px;
+  border: 1px dashed var(--line2);
+  border-radius: var(--r-pill);
+  color: var(--tx2);
+  font-size: 11.5px;
+}
+.queue-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.queue-drop {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.queue-drop:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
 
 .msg-list {
   flex: 1;
@@ -432,6 +527,16 @@
   display: grid;
   place-items: center;
 }
+/* Mascot art standing in for the initial. `contain`, not `cover`: a sprite is
+   drawn to its own silhouette and cropping one to a square would cut its head
+   off. */
+.avatar-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
 .msg-body {
   font-size: 13.5px;
   line-height: 1.65;
@@ -545,6 +650,13 @@
   padding: 8px 9px;
   font-size: 11.5px;
   color: var(--tx3);
+}
+.mention-head .mono {
+  color: var(--ac);
+}
+.mention-empty {
+  padding: 6px 9px 10px;
+  font-size: 11.5px;
 }
 .mention-row {
   display: flex;
@@ -1250,6 +1362,101 @@
 }
 .preset-select {
   min-width: 110px;
+  flex: 1;
+}
+/* `.rail-rename` is sized for the 248px rail, where it fills the row. Dropped
+   into this toolbar it collapsed to a sliver you could not read what you were
+   typing in, so it gets the same footprint as the select it replaces.
+   Two classes deep on purpose: shell.css is bundled *after* screens.css, so a
+   single-class rule here loses the tie to `.rail-rename { min-width: 0 }`. */
+.preset-row .preset-rename {
+  flex: 1 1 auto;
+  min-width: 140px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+/* The manage buttons are icon-only, so they need to be square rather than the
+   pill shape `.folder-chip` takes when it carries a label. */
+.preset-row .folder-chip {
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.preset-row .folder-chip:hover {
+  border-color: var(--line2);
+}
+
+/* The drop zone is a real target now, so it needs a hover-while-dragging state —
+   without one there is no way to tell it will accept the file. */
+.drop-target[data-hot='true'] {
+  border-color: var(--ac);
+  background: var(--acs);
+  color: var(--ac);
+}
+
+/* Everything sitting in the mascot folder, assigned or not. */
+.sprite-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sprite-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surf);
+}
+.sprite-file img {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  background: var(--surf2);
+}
+.sprite-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--tx2);
+}
+.sprite-file .cell-select {
+  flex-shrink: 0;
+  max-width: 96px;
+}
+.sprite-file-drop {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.sprite-file-drop:hover {
+  background: color-mix(in srgb, var(--rose) 16%, transparent);
+  color: var(--rose);
+}
+
+/* A field whose control sits beside a button rather than filling the row. */
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.field-grow {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Composer sticker picker. Sits above the composer so it reads as coming out of
@@ -1528,4 +1735,44 @@
   line-height: 1.6;
   color: var(--tx2);
   white-space: pre-wrap;
+}
+
+/* --- unsaved-changes bar (agent loadout) ---------------------------------- */
+
+/* Sticks to the bottom of the scrolling body. The editor grows with the
+   Instructions field, so a save control parked at the end of the card would be
+   furthest away precisely when the edit is largest. */
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
+  border-radius: var(--r-card);
+  background: color-mix(in srgb, var(--ac) 10%, var(--surf));
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow);
+}
+.save-bar-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--tx2);
+}
+.save-bar-text strong {
+  color: var(--tx);
+  font-weight: 600;
+}
+
+/* Import/export result line. Uses the warn banner's shape but is usually good
+   news, so it carries a dismiss rather than sitting there permanently. */
+.bundle-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
 }

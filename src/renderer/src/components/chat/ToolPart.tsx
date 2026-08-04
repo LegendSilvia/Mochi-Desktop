@@ -1,5 +1,5 @@
 import type { ToolUIPart } from 'ai'
-import { Check, Play, AudioLines, HelpCircle, Network, Lock } from 'lucide-react'
+import { Check, Play, AudioLines, HelpCircle, Network, Lock, Circle, Loader } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { playSound } from '@renderer/lib/audio'
 import './chat.css'
@@ -25,6 +25,15 @@ interface AskInput {
   allowOther?: boolean
 }
 
+/** Both backends describe a task list identically — the Agent SDK's `TodoWrite`
+ *  and Mastra's `task_write` share `{content, status, activeForm}` — so one card
+ *  renders either. */
+interface TaskItem {
+  content?: string
+  status?: 'pending' | 'in_progress' | 'completed'
+  activeForm?: string
+}
+
 /**
  * One tool call, rendered as the thing it actually is.
  *
@@ -33,13 +42,7 @@ interface AskInput {
  * with its sound, `askUser` becomes tappable answers. Everything else — the
  * file and shell tools — falls back to a compact row.
  */
-export function ToolPart({
-  part,
-  onChoose
-}: {
-  part: ToolUIPart
-  onChoose: (text: string) => void
-}): React.JSX.Element | null {
+export function ToolPart({ part }: { part: ToolUIPart }): React.JSX.Element | null {
   const { stickerSrc, soundSrc, rules, settings } = useStore()
   const name = part.type.split('-').slice(1).join('-')
   const failed = part.state === 'output-error'
@@ -116,25 +119,56 @@ export function ToolPart({
     )
   }
 
+  // The agent's own task list, from either backend. Shown as a checklist rather
+  // than a tool row because it is the one piece of tool output a user reads for
+  // its content — it is the plan, not a call.
+  if (name === 'TodoWrite' || name === 'task_write' || name === 'taskWrite') {
+    const tasks = ((part.input ?? {}) as { todos?: TaskItem[]; tasks?: TaskItem[] })
+    const items = tasks.todos ?? tasks.tasks ?? []
+    if (items.length === 0) return null
+    const done = items.filter((t) => t.status === 'completed').length
+    return (
+      <div className="task-card">
+        <div className="task-head">
+          <span>Plan</span>
+          <span className="meta">
+            {done}/{items.length} done
+          </span>
+        </div>
+        <ul className="task-list">
+          {items.map((task, i) => (
+            <li key={i} className="task-item" data-status={task.status ?? 'pending'}>
+              {task.status === 'completed' ? (
+                <Check size={12} strokeWidth={2.6} />
+              ) : task.status === 'in_progress' ? (
+                <Loader size={12} strokeWidth={2} />
+              ) : (
+                <Circle size={12} strokeWidth={2} />
+              )}
+              {/* `activeForm` is the present-continuous wording the tools carry
+                  for exactly this: the running task reads as an activity. */}
+              <span>
+                {task.status === 'in_progress' && task.activeForm
+                  ? task.activeForm
+                  : task.content}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  // The transcript keeps only a record that the question was asked. Answering it
+  // happens in the dock above the composer (`AskDock`), so that the live question
+  // cannot scroll away — and so there is exactly one place to click, which is
+  // what stops the same choice being submitted twice.
   if (name === 'askUser') {
     const input = (part.input ?? {}) as AskInput
-    const options = input.options ?? []
     return (
-      <div className="ask-card">
-        <div className="ask-head">
-          <HelpCircle size={13} strokeWidth={1.9} />
-          <span>{input.question ?? 'Which one?'}</span>
-        </div>
-        <div className="ask-options">
-          {options.map((opt) => (
-            <button key={opt} className="ask-option" onClick={() => onChoose(opt)}>
-              {opt}
-            </button>
-          ))}
-        </div>
-        {input.allowOther !== false && (
-          <div className="ask-foot meta">or just type your own answer below</div>
-        )}
+      <div className="ask-record">
+        <HelpCircle size={12} strokeWidth={1.9} />
+        <span>{input.question ?? 'Which one?'}</span>
       </div>
     )
   }

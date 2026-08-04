@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AssetLibrary,
   MascotState,
+  SpriteSlot,
   PersistedState,
   ServerInfo,
   Session,
@@ -106,7 +107,7 @@ export interface Store extends State {
   agentById: (id: string) => AgentLoadout | undefined
   stickerSrc: (id: string | null) => string | null
   soundSrc: (id: string | null) => string | null
-  spriteSrc: (state: MascotState) => string | null
+  spriteSrc: (state: SpriteSlot) => string | null
   /** Fire a sticker + sound as one event. The single entry point — M1-10. */
   fireSticker: (opts?: FireStickerOptions) => void
   reloadLibrary: () => void

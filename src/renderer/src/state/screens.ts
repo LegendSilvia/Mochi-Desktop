@@ -24,11 +24,13 @@ export type Screen =
   | 'browser'
   | 'ops'
   | 'notes'
+  | 'overlay'
 
 /** Screens that render inside the Settings modal rather than as destinations. */
 export const SETTINGS_SCREENS: Screen[] = [
   'models',
   'defaults',
+  'overlay',
   'memory',
   'rag',
   'tools',

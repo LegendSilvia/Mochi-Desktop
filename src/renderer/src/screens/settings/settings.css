@@ -244,3 +244,92 @@
   color: var(--tx3);
   text-decoration: line-through;
 }
+
+/* --- debug log (developer mode) ------------------------------------------- */
+
+.log-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.log-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* Filter chips read as pressed when their channel is showing. Off is dimmed
+   rather than hidden, so you can always see what you have filtered out. */
+.log-bar .chip {
+  cursor: pointer;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--tx3);
+  font: inherit;
+  font-size: 11px;
+}
+.log-bar .chip[data-on='true'] {
+  background: var(--acs);
+  border-color: color-mix(in srgb, var(--ac) 34%, transparent);
+  color: var(--ac);
+}
+
+.log-empty {
+  padding: 18px 2px;
+}
+
+.log-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg2);
+}
+
+.log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--tx2);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.log-row:last-child {
+  border-bottom: 0;
+}
+.log-time {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--tx3);
+}
+.log-channel {
+  flex-shrink: 0;
+  width: 44px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--tx3);
+}
+.log-row[data-channel='error'] .log-channel,
+.log-row[data-channel='error'] .log-event {
+  color: var(--rose);
+}
+.log-row[data-channel='tool'] .log-channel {
+  color: var(--ac);
+}
+.log-event {
+  flex-shrink: 0;
+  color: var(--tx);
+}
+.log-detail {
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--tx3);
+  overflow-wrap: anywhere;
+}

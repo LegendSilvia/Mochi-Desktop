@@ -1,13 +1,35 @@
 import { BrowserWindow, dialog, ipcMain, Notification, nativeTheme, shell, app } from 'electron'
 import type { FSWatcher } from 'chokidar'
-import { listSpritePresets, readLibrary, watchAssets } from './assets'
+import { readFileSync, writeFileSync } from 'node:fs'
+import {
+  assignSprite,
+  buildBundle,
+  openBundle,
+  createPreset,
+  deletePreset,
+  importPresetFolder,
+  importSprites,
+  listSpritePresets,
+  readLibrary,
+  removeSprite,
+  renamePreset,
+  watchAssets
+} from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
 import { getServerInfo } from './mastra-server'
-import { getMascotWindow, setMascotInteractive, setMascotVisible } from './mascot-window'
+import {
+  applyMascotWindowConfig,
+  getMascotWindow,
+  listDisplays,
+  setMascotInteractive,
+  setMascotVisible
+} from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { getPaths } from './paths'
+import { basename, join } from 'node:path'
 import { bus } from '../mastra/events'
-import type { ProviderAccount, Theme } from '../shared/types'
+import { notifyIfAway, setAttentionWindow } from './attention'
+import type { ProviderAccount, SpriteSlot, Theme } from '../shared/types'
 
 export const IPC = {
   getBootstrap: 'mochi:bootstrap',
@@ -28,6 +50,18 @@ export const IPC = {
   providersList: 'mochi:providers',
   providerSetKey: 'mochi:provider-set-key',
   providerDeleteKey: 'mochi:provider-delete-key',
+  presetCreate: 'mochi:preset-create',
+  presetRename: 'mochi:preset-rename',
+  presetDelete: 'mochi:preset-delete',
+  presetImport: 'mochi:preset-import',
+  presetOpen: 'mochi:preset-open',
+  spriteImport: 'mochi:sprite-import',
+  spriteAssign: 'mochi:sprite-assign',
+  spriteRemove: 'mochi:sprite-remove',
+  listDisplays: 'mochi:list-displays',
+  agentFinished: 'mochi:agent-finished',
+  agentExport: 'mochi:agent-export',
+  agentImport: 'mochi:agent-import',
   // main → renderer
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
@@ -50,6 +84,9 @@ const PROVIDERS: Array<Omit<ProviderAccount, 'account' | 'connected'>> = [
 let watcher: FSWatcher | null = null
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
+  // The agent route needs the same focus test, and it has no window of its own.
+  setAttentionWindow(getWindow)
+
   ipcMain.handle(IPC.getBootstrap, () => ({
     ...load(),
     server: getServerInfo(),
@@ -60,6 +97,55 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.getLibrary, (_e, spritePreset?: string) => readLibrary(spritePreset))
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())
+
+  /*
+   * Mascot folder management.
+   *
+   * Each of these can fail on a name the filesystem rejects or a folder that
+   * already exists, and a rejected promise in the renderer would surface as an
+   * unhandled error rather than something the user can read. So they answer with
+   * a result object and the studio shows `error` inline.
+   */
+  const attempt = <T>(fn: () => T): { ok: true; value: T } | { ok: false; error: string } => {
+    try {
+      return { ok: true, value: fn() }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  ipcMain.handle(IPC.presetCreate, (_e, name: string) => attempt(() => createPreset(name)))
+  ipcMain.handle(IPC.presetRename, (_e, from: string, to: string) =>
+    attempt(() => renamePreset(from, to))
+  )
+  ipcMain.handle(IPC.presetDelete, (_e, name: string) => attempt(() => deletePreset(name)))
+
+  ipcMain.handle(IPC.presetImport, async () => {
+    const win = getWindow()
+    if (!win) return { ok: false as const, error: 'No window' }
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: 'Pick a folder of mascot art'
+    })
+    if (canceled || !filePaths[0]) return { ok: false as const, error: 'cancelled' }
+    return attempt(() => importPresetFolder(filePaths[0]))
+  })
+
+  ipcMain.handle(IPC.presetOpen, (_e, preset: string) =>
+    shell.openPath(join(getPaths().sprites, basename(preset)))
+  )
+
+  ipcMain.handle(
+    IPC.spriteImport,
+    (_e, preset: string, files: Array<{ name: string; bytes: Uint8Array }>) =>
+      attempt(() => importSprites(preset, files))
+  )
+  ipcMain.handle(IPC.spriteAssign, (_e, preset: string, state: SpriteSlot, file: string | null) =>
+    attempt(() => assignSprite(preset, state, file))
+  )
+  ipcMain.handle(IPC.spriteRemove, (_e, preset: string, file: string) =>
+    attempt(() => removeSprite(preset, file))
+  )
 
   /**
    * Persist, then tell the *other* windows.
@@ -98,7 +184,60 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       win.webContents.send(IPC.stateChanged, next)
     }
     setMascotVisible(next.settings.mascot.visible)
+    // Monitor and always-on-top level are window properties the renderer cannot
+    // touch, so they are re-applied here from whatever was just persisted.
+    applyMascotWindowConfig()
     return next
+  })
+
+  ipcMain.handle(IPC.listDisplays, () => listDisplays())
+
+  /** Write a loadout and its mascot art out as one shareable file. */
+  ipcMain.handle(
+    IPC.agentExport,
+    async (_e, agent: Record<string, unknown>, preset: string, suggested: string) => {
+      const win = getWindow()
+      if (!win) return { ok: false as const, error: 'No window' }
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: 'Export agent',
+        defaultPath: `${suggested || 'agent'}.mochi-agent.json`,
+        filters: [{ name: 'Mochi agent', extensions: ['json'] }]
+      })
+      if (canceled || !filePath) return { ok: false as const, error: 'cancelled' }
+      return attempt(() => {
+        writeFileSync(filePath, JSON.stringify(buildBundle(agent, preset), null, 2), 'utf8')
+        return filePath
+      })
+    }
+  )
+
+  /** Read one back. The art lands in a new mascot folder; the loadout is handed
+   *  to the renderer, which owns id uniqueness. */
+  ipcMain.handle(IPC.agentImport, async () => {
+    const win = getWindow()
+    if (!win) return { ok: false as const, error: 'No window' }
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Import agent',
+      properties: ['openFile'],
+      filters: [{ name: 'Mochi agent', extensions: ['json'] }]
+    })
+    if (canceled || !filePaths[0]) return { ok: false as const, error: 'cancelled' }
+    return attempt(() => openBundle(readFileSync(filePaths[0], 'utf8')))
+  })
+
+  /**
+   * "The agent finished while you were elsewhere."
+   *
+   * The focus test lives here because only main can answer it: the overlay is a
+   * `focusable: false` window, so `document.hasFocus()` there is always false
+   * and the renderer cannot tell being-in-the-background from being-the-overlay.
+   *
+   * Emitting through the sticker bus rather than a bespoke channel means it
+   * reaches the overlay by the same path every other sticker takes, and obeys
+   * the same surface settings.
+   */
+  ipcMain.handle(IPC.agentFinished, (_e, caption?: string) => {
+    return notifyIfAway('task-finished', caption || 'done — that one is finished')
   })
 
   ipcMain.handle(IPC.setTitleBarTheme, (_e, theme: Theme, bg: string, symbol: string) => {

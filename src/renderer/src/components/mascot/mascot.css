@@ -127,7 +127,24 @@
 
 /* ---------- bubble choreography ---------- */
 
+/*
+ * Lifted out of the flex flow.
+ *
+ * As a flex child the bubble grew `.mo-wrap` upward when it appeared, and since
+ * the wrapper is positioned from its top-left by a transform, that pushed the
+ * sprite *down* by the bubble's height for as long as it was showing — the
+ * mascot visibly jumped on click and snapped back a couple of seconds later.
+ *
+ * Centred with auto margins rather than `translateX(-50%)`: the entrance
+ * keyframes animate `transform`, so anything put there is overwritten.
+ */
 .mo-bubble {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: max-content;
   max-width: 210px;
   padding: 8px 12px;
   border-radius: 16px 16px 16px 6px;
@@ -138,6 +155,13 @@
   line-height: 1.5;
   text-align: center;
   animation: mo-bubble 2600ms cubic-bezier(0.2, 1.2, 0.3, 1) forwards;
+}
+/* `bubbleStyle` finally does something. Still nothing square-cornered — the
+   "square" option is the crisper of two rounded shapes, per the design rule. */
+.mo-bubble[data-style='square'] {
+  border-radius: var(--r-sm);
+  box-shadow: none;
+  border-color: var(--line);
 }
 
 /* ---------- overlay choreography ---------- */
@@ -204,4 +228,151 @@
   100% {
     transform: scale(1, 1);
   }
+}
+
+/* ---------- desktop toast ---------- */
+
+/*
+ * Replaces the OS notification. Anchored to a corner of the overlay, which is
+ * the whole work area, so it lands where a system toast would but looks like
+ * Mochi and can carry the mascot.
+ *
+ * `pointer-events: none` matters: the overlay only enables mouse events while
+ * the pointer is over the sprite, and a toast that swallowed clicks would eat
+ * them from whatever is underneath.
+ */
+.mo-toast {
+  position: absolute;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 15px 11px 11px;
+  border-radius: var(--r-card);
+  background: var(--surf);
+  border: 1px solid var(--line2);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  animation: mo-toast-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes mo-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mo-toast {
+    animation: none;
+  }
+}
+
+.mo-toast[data-anchor='top-left'] {
+  top: 22px;
+  left: 22px;
+}
+.mo-toast[data-anchor='top-right'] {
+  top: 22px;
+  right: 22px;
+}
+.mo-toast[data-anchor='bottom-left'] {
+  bottom: 22px;
+  left: 22px;
+}
+.mo-toast[data-anchor='bottom-right'] {
+  bottom: 22px;
+  right: 22px;
+}
+
+.mo-toast-art {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--surf2);
+  overflow: hidden;
+}
+.mo-toast-art img {
+  width: 100%;
+  height: 100%;
+  /* `contain`: a sprite is drawn to its own silhouette, cropping it square
+     would take its head off. */
+  object-fit: contain;
+}
+
+.mo-toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mo-toast-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tx3);
+  letter-spacing: 0.02em;
+}
+.mo-toast-body {
+  color: var(--tx);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* Size presets. Only the art box and the text scale — the padding stays put so
+   a small toast doesn't look like a shrunken large one. */
+.mo-toast[data-size='small'] {
+  max-width: 260px;
+}
+.mo-toast[data-size='small'] .mo-toast-art {
+  width: 34px;
+  height: 34px;
+}
+.mo-toast[data-size='small'] .mo-toast-body {
+  font-size: 12px;
+}
+
+.mo-toast[data-size='medium'] {
+  max-width: 340px;
+}
+.mo-toast[data-size='medium'] .mo-toast-art {
+  width: 48px;
+  height: 48px;
+}
+.mo-toast[data-size='medium'] .mo-toast-body {
+  font-size: 13px;
+}
+
+.mo-toast[data-size='large'] {
+  max-width: 440px;
+}
+.mo-toast[data-size='large'] .mo-toast-art {
+  width: 68px;
+  height: 68px;
+}
+.mo-toast[data-size='large'] .mo-toast-body {
+  font-size: 14.5px;
+}
+
+/* Full-screen card sizes. The card was a fixed 280px with 176px of art, which is
+   a lot of desktop for one sticker. */
+.mo-overlay-card[data-size='small'] {
+  width: 200px;
+  padding: 18px;
+  border-radius: 32px;
+}
+.mo-overlay-card[data-size='small'] img,
+.mo-overlay-card[data-size='small'] .mo-placeholder {
+  width: 112px;
+  height: 112px;
+}
+
+.mo-overlay-card[data-size='large'] {
+  width: 380px;
+  padding: 34px;
+  border-radius: 56px;
+}
+.mo-overlay-card[data-size='large'] img,
+.mo-overlay-card[data-size='large'] .mo-placeholder {
+  width: 248px;
+  height: 248px;
 }

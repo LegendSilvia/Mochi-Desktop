@@ -18,14 +18,59 @@ export const MASCOT_STATES: MascotState[] = [
   'sleeping'
 ]
 
-/** Short label used on studio tiles, per the handoff (idle/think/work/oops/done/sleep). */
-export const MASCOT_STATE_LABELS: Record<MascotState, string> = {
+/**
+ * How the mascot is being handled right now.
+ *
+ * Deliberately *not* part of `MascotState`. Lifecycle states are set by the
+ * agent through `setMascotState`, and widening that enum would let it announce
+ * that it was hovering over itself. These come from the overlay's own pointer
+ * events instead, and only ever affect which sprite is drawn.
+ */
+export type MascotPose =
+  | 'hover'
+  | 'click'
+  /** Held down — lifted, but not being moved. */
+  | 'picked'
+  | 'walk-left'
+  | 'walk-right'
+  | 'walk-up'
+  | 'walk-down'
+
+export const MASCOT_POSES: MascotPose[] = [
+  'hover',
+  'click',
+  'picked',
+  'walk-left',
+  'walk-right',
+  'walk-up',
+  'walk-down'
+]
+
+/** Anything a sprite can be assigned to: a lifecycle state or a pose. */
+export type SpriteSlot = MascotState | MascotPose
+
+export const SPRITE_SLOTS: SpriteSlot[] = [...MASCOT_STATES, ...MASCOT_POSES]
+
+/**
+ * Short label used on studio tiles, per the handoff (idle/think/work/oops/done/sleep).
+ *
+ * These double as file names: dropping `work.png` into a mascot folder fills
+ * `tool-running`, so every label has to stay a legal, lowercase file stem.
+ */
+export const MASCOT_STATE_LABELS: Record<SpriteSlot, string> = {
   idle: 'idle',
   thinking: 'think',
   'tool-running': 'work',
   error: 'oops',
   done: 'done',
-  sleeping: 'sleep'
+  sleeping: 'sleep',
+  hover: 'hover',
+  click: 'click',
+  picked: 'held',
+  'walk-left': 'walk-left',
+  'walk-right': 'walk-right',
+  'walk-up': 'walk-up',
+  'walk-down': 'walk-down'
 }
 
 export type IdleMotion = 'breathe' | 'float' | 'sway' | 'still'
@@ -55,7 +100,7 @@ export interface SoundAsset {
 }
 
 export interface Sprite {
-  state: MascotState
+  state: SpriteSlot
   src: string | null
 }
 
@@ -74,7 +119,15 @@ export interface StickerRule {
 }
 
 export type StickerEvent =
-  'tests-green' | 'task-finished' | 'thanked' | 'tool-error' | 'idle-20min' | 'manual'
+  | 'tests-green'
+  | 'task-finished'
+  | 'thanked'
+  | 'tool-error'
+  | 'idle-20min'
+  /** A tool is parked waiting for the user to allow or deny it. Fires only when
+   *  the app is not focused — an approval card you cannot see is a stalled turn. */
+  | 'needs-approval'
+  | 'manual'
 
 export interface MascotConfig {
   shell: MascotShell
@@ -98,6 +151,67 @@ export interface MascotConfig {
    */
   stateSounds?: Partial<Record<MascotState, string | null>>
   bubbleStyle: 'soft' | 'square' | 'none'
+
+  /* --- desktop overlay ---------------------------------------------------
+   * Everything below was a constant in the code until the Overlay screen. All
+   * optional so an existing settings.json keeps working; the defaults below
+   * reproduce the old hard-coded behaviour exactly.
+   */
+
+  /** Corner the mascot starts in. Was always bottom-right. */
+  anchor?: MascotAnchor
+  /** Gap from that corner, px. Was 34 across and 30 down. */
+  offsetX?: number
+  offsetY?: number
+  /** Which monitor the overlay covers. Null follows the primary display. */
+  displayId?: number | null
+  /** How hard it fights to stay on top. Was always `screen-saver`. */
+  onTopLevel?: MascotOnTop
+  /** What a click on the sprite does. Was always to fire a sticker. */
+  clickAction?: 'sticker' | 'none'
+  /** How long a sticker burst stays on screen, ms. Was 2600 (1500 for the
+   *  full-screen card). */
+  burstMs?: number
+
+  /**
+   * The desktop toast that replaced the OS notification.
+   *
+   * A native `Notification` could not show the mascot, obeyed the system's
+   * notification settings rather than Mochi's, and on Windows landed in the
+   * Action Centre where nobody saw it. This is drawn in the overlay instead, so
+   * it looks like the mascot and is configurable here.
+   */
+  toastEnabled?: boolean
+  toastAnchor?: MascotAnchor
+  toastSize?: ToastSize
+
+  /** The `idle · waiting on you` line under the sprite. Only ever drawn by the
+   *  `card` and `terrarium` shells, and never optional until now. */
+  showStatus?: boolean
+  /** The soft ellipse under the sprite. Grounds it on a desktop, but reads as
+   *  a smudge when the mascot sits over pale windows. */
+  showShadow?: boolean
+
+  /** The dimmed, blurred backdrop behind the full-screen sticker card. It is
+   *  the most intrusive thing the app does to your desktop. */
+  overlayScrim?: boolean
+  /** How big that card is. Was a fixed 280px with 176px of art. */
+  overlayCardSize?: ToastSize
+}
+
+export type ToastSize = 'small' | 'medium' | 'large'
+
+export type MascotAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+/** Mirrors Electron's `setAlwaysOnTop` levels, narrowed to the useful three. */
+export type MascotOnTop = 'normal' | 'floating' | 'screen-saver'
+
+/** A monitor the overlay can be pinned to. */
+export interface DisplayInfo {
+  id: number
+  label: string
+  width: number
+  height: number
+  primary: boolean
 }
 
 export interface AgentLoadout {
@@ -127,6 +241,16 @@ export interface AgentLoadout {
    */
   allowedStickerIds?: string[]
   accent?: string
+  /**
+   * What the mascot says, in this agent's voice.
+   *
+   * Generated from the persona when the loadout is saved, rather than the fixed
+   * `BUBBLE_LINES` every install shared — those were written for one imagined
+   * assistant and sounded wrong coming from anyone else. Only the *default*
+   * agent's lines are ever used: there is one mascot, so it has one voice.
+   * Absent until a save generates them, and the built-in list is the fallback.
+   */
+  bubbleLines?: string[]
 }
 
 export interface Session {
@@ -138,6 +262,12 @@ export interface Session {
   /** Extra agents pulled in with `@name`. The original agent stays supervisor. */
   subagentIds: string[]
   pinned: boolean
+  /** Hand-chosen position within Pinned, ascending. Only meaningful there:
+   *  Recents is ordered by recency by definition, so a manual order would just
+   *  fight `updatedAt` every time the session was used. Absent until the user
+   *  actually drags something, and re-assigned across the whole pinned group on
+   *  each reorder so the numbers never drift apart. */
+  order?: number
   /** Archived sessions drop out of Recents into their own collapsed group. */
   archived?: boolean
   /** Set once the agent has named this session, so it is only titled once and a
@@ -205,6 +335,11 @@ export interface AppSettings {
   userName: string
   /** Ids of tours already completed or skipped. */
   toursSeen: string[]
+  /** Developer mode. Turns on the in-app debug log. Off by default and never
+   *  implied by anything else — capture costs a ring buffer of allocations per
+   *  turn, and the log carries prompts and tool arguments verbatim, so it stays
+   *  something the user opts into. */
+  devMode?: boolean
 }
 
 /**
@@ -237,8 +372,30 @@ export interface McpServerSpec {
   enabled: boolean
 }
 
+/**
+ * One image sitting in a mascot folder, assigned to a state or not.
+ *
+ * Assignment is recorded in the folder's `mascot.json` rather than by renaming
+ * the file, so importing art never destroys the names you gave it and a state
+ * can be re-pointed without touching the disk. Folders that predate the
+ * manifest still work: a file whose stem is a state name is matched by name.
+ */
+export interface SpriteFile {
+  /** File name inside the mascot folder — the manifest's key into the folder. */
+  file: string
+  src: string
+  /** Null when the image is in the folder but not yet mapped to anything. */
+  state: SpriteSlot | null
+  /** True when the mapping came from the file name rather than the manifest. */
+  byName?: boolean
+}
+
 export interface AssetLibrary {
   sprites: Sprite[]
+  /** Everything in the current mascot folder, so unassigned art is visible. */
+  spriteFiles: SpriteFile[]
+  /** Which mascot folder `sprites`/`spriteFiles` were read from. */
+  preset: string
   stickers: Sticker[]
   sounds: SoundAsset[]
   /** Native-form folder paths, shown to the user as-is. */

@@ -2,6 +2,25 @@ import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import { load } from './store'
+import type { DisplayInfo } from '../shared/types'
+
+/** Monitors the overlay can be pinned to, for the Overlay screen's picker. */
+export function listDisplays(): DisplayInfo[] {
+  const primaryId = screen.getPrimaryDisplay().id
+  return screen.getAllDisplays().map((d, i) => ({
+    id: d.id,
+    label: d.label || `Display ${i + 1}`,
+    width: d.workArea.width,
+    height: d.workArea.height,
+    primary: d.id === primaryId
+  }))
+}
+
+/** The chosen monitor, falling back to primary when it has been unplugged. */
+function targetDisplay(displayId: number | null | undefined): Electron.Display {
+  if (displayId == null) return screen.getPrimaryDisplay()
+  return screen.getAllDisplays().find((d) => d.id === displayId) ?? screen.getPrimaryDisplay()
+}
 
 /**
  * The desktop overlay the mascot lives in.
@@ -25,7 +44,7 @@ export function getMascotWindow(): BrowserWindow | null {
 export function createMascotWindow(): BrowserWindow {
   if (win && !win.isDestroyed()) return win
 
-  const { workArea } = screen.getPrimaryDisplay()
+  const { workArea } = targetDisplay(load().settings.mascot.displayId)
 
   win = new BrowserWindow({
     x: workArea.x,
@@ -53,8 +72,9 @@ export function createMascotWindow(): BrowserWindow {
   })
 
   // 'screen-saver' outranks ordinary always-on-top windows, which is what keeps
-  // the mascot visible over a maximised editor.
-  win.setAlwaysOnTop(true, 'screen-saver')
+  // the mascot visible over a maximised editor. Configurable now: that level
+  // also sits above some full-screen apps and games, which not everyone wants.
+  win.setAlwaysOnTop(true, load().settings.mascot.onTopLevel ?? 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   win.setIgnoreMouseEvents(true, { forward: true })
 
@@ -109,4 +129,30 @@ export function setMascotVisible(visible: boolean): void {
   if (!win || win.isDestroyed()) return
   if (visible) win.showInactive()
   else win.hide()
+}
+
+/**
+ * Re-apply the overlay settings that live on the window rather than in the DOM.
+ *
+ * Monitor and always-on-top level cannot be changed from the renderer — they are
+ * properties of the BrowserWindow — so the Overlay screen writes them to
+ * settings and this runs on the next save. Cheap and idempotent, which is what
+ * lets it hang off every `saveState` rather than needing change detection.
+ */
+export function applyMascotWindowConfig(): void {
+  if (!win || win.isDestroyed()) return
+  const { mascot } = load().settings
+
+  win.setAlwaysOnTop(true, mascot.onTopLevel ?? 'screen-saver')
+
+  const { workArea } = targetDisplay(mascot.displayId)
+  const b = win.getBounds()
+  if (
+    b.x !== workArea.x ||
+    b.y !== workArea.y ||
+    b.width !== workArea.width ||
+    b.height !== workArea.height
+  ) {
+    win.setBounds(workArea)
+  }
 }

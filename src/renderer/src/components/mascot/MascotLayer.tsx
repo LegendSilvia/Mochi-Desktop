@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { playSound, isQuietNow } from '@renderer/lib/audio'
-import type { IdleMotion, MascotShell, MascotState } from '@shared/types'
+import type { IdleMotion, MascotPose, MascotShell, MascotState } from '@shared/types'
 import './mascot.css'
 
 const POS_KEY = 'mochi.mascot.pos'
@@ -19,6 +19,27 @@ const MOTION_CLASS: Record<IdleMotion, string> = {
   float: 'mo-idle-float',
   sway: 'mo-idle-sway',
   still: ''
+}
+
+/** How long the click sprite is held before handing back to hover or lifecycle.
+ *  Long enough to register as a reaction, short enough not to feel stuck. */
+const CLICK_MS = 420
+
+/** Movement below this in a frame reads as holding still, not walking. Without
+ *  it the sprite flickers between two walk directions on the smallest jitter. */
+const WALK_EPSILON = 2
+
+/**
+ * Which way the mascot is being dragged.
+ *
+ * Dominant axis wins, so a diagonal drag picks one of the four rather than
+ * flickering between two. There is no autonomous walk yet, so the drag is the
+ * only motion these four slots can describe today.
+ */
+function walkPose(dx: number, dy: number): MascotPose | null {
+  if (Math.abs(dx) < WALK_EPSILON && Math.abs(dy) < WALK_EPSILON) return null
+  if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 'walk-left' : 'walk-right'
+  return dy < 0 ? 'walk-up' : 'walk-down'
 }
 
 function readStoredPos(): Pos | null {
@@ -59,11 +80,53 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   // record which burst has already been dismissed. Storing the *content* in
   // state instead would mean setting state synchronously inside the burst
   // effect, which cascades an extra render on every sticker.
-  const [dismissed, setDismissed] = useState({ bubble: -1, overlay: -1, label: -1 })
+  const [dismissed, setDismissed] = useState({ bubble: -1, overlay: -1, label: -1, toast: -1 })
+
+  /*
+   * Interaction poses.
+   *
+   * Kept as three small pieces rather than one pose value because they have
+   * genuinely different lifetimes — a drag ends on pointerup, a click decays on
+   * a timer, a hover ends when the pointer leaves — and folding them together
+   * meant whichever ended last clobbered the others.
+   *
+   * They are React state, unlike the drag position, because the sprite's `src`
+   * has to change and that is a render either way. Writes are guarded on an
+   * actual change of direction, so a drag costs a handful of renders rather than
+   * one per frame.
+   */
+  const [dragPose, setDragPose] = useState<MascotPose | null>(null)
+  const [clicking, setClicking] = useState(false)
+  const [hovering, setHovering] = useState(false)
+  const clickTimer = useRef<number | null>(null)
+
+  /** Being handled beats being busy: if the user has picked the mascot up, that
+   *  is what it should be doing, whatever the agent is up to underneath. */
+  const pose: MascotPose | null = dragPose ?? (clicking ? 'click' : hovering ? 'hover' : null)
+
+  const flashClick = useCallback(() => {
+    if (clickTimer.current !== null) window.clearTimeout(clickTimer.current)
+    setClicking(true)
+    clickTimer.current = window.setTimeout(() => {
+      setClicking(false)
+      clickTimer.current = null
+    }, CLICK_MS)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (clickTimer.current !== null) window.clearTimeout(clickTimer.current)
+    },
+    []
+  )
 
   const showBubble = burst && burst.modes.includes('bubble') && dismissed.bubble !== burst.id
   const showOverlay = burst && burst.modes.includes('overlay') && dismissed.overlay !== burst.id
   const showLabel = burst && dismissed.label !== burst.id
+  // Overlay only. In the app window the message is already in the thread, so a
+  // toast on top of it would be the same news twice.
+  const showToast =
+    overlay && burst && cfg.toastEnabled !== false && dismissed.toast !== burst.id
 
   const write = useCallback(() => {
     frame.current = null
@@ -74,6 +137,32 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   const schedule = useCallback(() => {
     if (frame.current === null) frame.current = requestAnimationFrame(write)
   }, [write])
+
+  /**
+   * Play a one-shot animation on the sprite, then hand it back to its idle loop.
+   *
+   * The idle motion lives in a class (`mo-idle-breathe` and friends); these
+   * one-shots are written to `style.animation`, which outranks a class. Nothing
+   * ever cleared that inline value, so the *first* sticker or drag left it set
+   * forever and the mascot stopped breathing for the rest of the session — it
+   * still carried the right class, but the spent inline animation kept winning.
+   *
+   * Clearing on `animationend` is safe against the idle loop: those are
+   * `infinite`, and an infinite animation never fires `animationend`.
+   */
+  const playOnce = useCallback((spec: string) => {
+    const el = spriteRef.current
+    if (!el) return
+    el.style.animation = 'none'
+    // Force a reflow so the same animation can be restarted back-to-back.
+    void el.offsetWidth
+    el.style.animation = spec
+    const done = (): void => {
+      el.style.animation = ''
+      el.removeEventListener('animationend', done)
+    }
+    el.addEventListener('animationend', done)
+  }, [])
 
   const clamp = useCallback(
     (p: Pos): Pos => {
@@ -112,12 +201,18 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
       if (inside === interactive.current) return
       interactive.current = inside
+      // The same hit-test already decides click-through, so hover comes free
+      // here. `pointerenter` cannot do this job in the overlay: the window
+      // ignores the mouse until this call turns it back on, so the pointer is
+      // already over the sprite by the time DOM events start arriving.
+      setHovering(inside)
       void window.mochi?.mascotInteractive(inside)
     }
     window.addEventListener('mousemove', onMove)
     return () => {
       window.removeEventListener('mousemove', onMove)
       interactive.current = false
+      setHovering(false)
       void window.mochi?.mascotInteractive(false)
     }
   }, [overlay, cfg.visible])
@@ -134,9 +229,15 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     const el = wrapRef.current
     const w = el?.offsetWidth ?? 140
     const h = el?.offsetHeight ?? 180
+    // Corner and gap were fixed at bottom-right, 34 across and 30 down. Those
+    // are still the defaults, so nothing moves for anyone who never opens the
+    // Overlay screen.
+    const anchor = cfg.anchor ?? 'bottom-right'
+    const gapX = cfg.offsetX ?? 34
+    const gapY = cfg.offsetY ?? 30
     pos.current = usable ?? {
-      x: window.innerWidth - w - 34,
-      y: window.innerHeight - h - 30
+      x: anchor.endsWith('right') ? window.innerWidth - w - gapX : gapX,
+      y: anchor.startsWith('bottom') ? window.innerHeight - h - gapY : gapY
     }
     pos.current = clamp(pos.current)
     write()
@@ -159,18 +260,35 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
       const start = { x: e.clientX, y: e.clientY }
       const origin = { ...pos.current }
+      // Direction is measured against the *previous* event, not the grab point:
+      // from the origin it would keep reporting the way the drag began long
+      // after the user had doubled back.
+      let last = { x: e.clientX, y: e.clientY }
+      let shown: MascotPose = 'picked'
+      setDragPose('picked')
 
       const move = (ev: PointerEvent): void => {
         if (!dragging.current) return
         const dx = ev.clientX - start.x
         const dy = ev.clientY - start.y
         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved.current = true
+
+        // Held still mid-drag falls back to `picked` rather than freezing on the
+        // last direction — the mascot is being held, not walking.
+        const next = walkPose(ev.clientX - last.x, ev.clientY - last.y) ?? 'picked'
+        last = { x: ev.clientX, y: ev.clientY }
+        if (next !== shown) {
+          shown = next
+          setDragPose(next)
+        }
+
         pos.current = { x: origin.x + dx, y: origin.y + dy }
         schedule()
       }
 
       const up = (): void => {
         dragging.current = false
+        setDragPose(null)
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
         pos.current = clamp(pos.current)
@@ -180,21 +298,36 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
           // On the sprite, not the wrapper: the wrapper's transform is what
           // positions the mascot, and an animation there would override it for
           // the duration and snap the mascot to the corner mid-bounce.
-          const el = spriteRef.current
-          if (el) {
-            el.style.animation = 'none'
-            void el.offsetWidth
-            el.style.animation = 'mo-settle 420ms cubic-bezier(.2,1.4,.4,1)'
-          }
+          playOnce('mo-settle 420ms cubic-bezier(.2,1.4,.4,1)')
         }
-        // A click without movement fires a sticker.
-        if (!moved.current) fireSticker()
+        // A click without movement fires a sticker — unless the overlay has been
+        // set to leave clicks alone, which is what you want when the mascot sits
+        // over something you click a lot. The click *pose* is not conditional on
+        // that: reacting to being poked is worth doing even when nothing else
+        // happens, and it is the only feedback left when the action is "none".
+        if (!moved.current) {
+          flashClick()
+          if ((cfg.clickAction ?? 'sticker') === 'sticker') fireSticker()
+        }
       }
 
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
     },
-    [cfg.dragAnywhere, cfg.bounceOnDrop, cfg.rememberPosition, clamp, schedule, write, fireSticker]
+    [
+      cfg.dragAnywhere,
+      cfg.bounceOnDrop,
+      cfg.rememberPosition,
+      // Without this the handler keeps whatever `clickAction` was bound at mount,
+      // so switching to "do nothing" would not take effect until a remount.
+      cfg.clickAction,
+      clamp,
+      schedule,
+      write,
+      fireSticker,
+      flashClick,
+      playOnce
+    ]
   )
 
   // Play the sound mapped to a state when the mascot enters it. Skips the first
@@ -222,44 +355,75 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
 
     void playSound(burst.soundSrc, { enabled: settings.sound, quiet })
 
-    const el = spriteRef.current
-    if (el) {
-      el.style.animation = 'none'
-      // Force a reflow so the same animation can be restarted back-to-back.
-      void el.offsetWidth
-      el.style.animation = 'mo-squash 720ms cubic-bezier(.3,1.3,.4,1)'
-    }
+    playOnce('mo-squash 720ms cubic-bezier(.3,1.3,.4,1)')
 
     // Each target clears on its own clock. Nothing is set synchronously here —
     // the burst is already visible by virtue of existing.
     const id = burst.id
+    // The full-screen card is the loudest of the three, so it clears sooner than
+    // the bubble and label — kept proportional to the configured duration rather
+    // than pinned to the old 1500ms.
+    const hold = cfg.burstMs ?? 2600
     const timers = [
-      setTimeout(() => setDismissed((d) => ({ ...d, label: id })), 2600),
-      setTimeout(() => setDismissed((d) => ({ ...d, bubble: id })), 2600),
-      setTimeout(() => setDismissed((d) => ({ ...d, overlay: id })), 1500)
+      setTimeout(() => setDismissed((d) => ({ ...d, label: id })), hold),
+      setTimeout(() => setDismissed((d) => ({ ...d, bubble: id })), hold),
+      setTimeout(() => setDismissed((d) => ({ ...d, overlay: id })), Math.round(hold * 0.58)),
+      // The toast lingers a little past the rest — it exists for the moment you
+      // are looking at something else, so it has to survive being glanced at
+      // late. Replaces the OS notification that used to fire here: that could
+      // not show the mascot and, on Windows, mostly ended up unread in the
+      // Action Centre.
+      setTimeout(() => setDismissed((d) => ({ ...d, toast: id })), Math.round(hold * 1.6))
     ]
 
-    if (document.hidden || !document.hasFocus()) {
-      void window.mochi?.notify('Mochi', burst.caption)
-    }
-
     return () => timers.forEach(clearTimeout)
-  }, [burst, settings.sound, settings.quietHours])
+  }, [burst, settings.sound, settings.quietHours, cfg.burstMs, playOnce])
 
-  if (!cfg.visible) return null
+  // The pose wins when there is one — how the mascot is being handled is more
+  // immediate than what the agent is doing. `spriteSrc` falls back to idle, so
+  // an unfilled slot never blanks the sprite.
+  const src = spriteSrc(pose ?? mascotState)
 
-  const src = spriteSrc(mascotState)
+  // Deliberately before the visibility gate: hiding the mascot should silence
+  // the sprite, not the notifications that replaced the OS ones. Returning null
+  // here would mean turning the mascot off also turned off being told anything.
+  const toast =
+    showToast && burst ? (
+      <div
+        className="mo-toast"
+        key="mo-toast"
+        data-anchor={cfg.toastAnchor ?? 'bottom-right'}
+        data-size={cfg.toastSize ?? 'medium'}
+        role="status"
+      >
+        <div className="mo-toast-art">
+          {burst.stickerSrc || src ? (
+            <img src={burst.stickerSrc ?? (src as string)} alt="" draggable={false} />
+          ) : (
+            <span className="mo-placeholder">art?</span>
+          )}
+        </div>
+        <div className="mo-toast-text">
+          <span className="mo-toast-title">Mochi</span>
+          <span className="mo-toast-body">{burst.caption}</span>
+        </div>
+      </div>
+    ) : null
+
+  if (!cfg.visible) return toast
   const stateLine = showLabel ? 'sent a sticker' : `${mascotState} · ${mascotNote}`
 
   return (
     <>
+      {toast}
+
       {/* Keyed: without it React reuses the mascot's own node for this overlay
           when it appears, rebuilding the wrapper and dropping the transform that
           positions it — which read as the mascot teleporting to the corner. */}
       {showOverlay && burst && (
         <div className="mo-overlay" key="mo-overlay" aria-hidden>
-          <div className="mo-overlay-scrim" />
-          <div className="mo-overlay-card">
+          {cfg.overlayScrim !== false && <div className="mo-overlay-scrim" />}
+          <div className="mo-overlay-card" data-size={cfg.overlayCardSize ?? 'medium'}>
             {burst.stickerSrc ? (
               <img src={burst.stickerSrc} alt="" draggable={false} />
             ) : (
@@ -276,17 +440,29 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         key="mo-wrap"
         style={{ opacity: cfg.opacity }}
         onPointerDown={onPointerDown}
+        // In the app window there is no click-through hit-test to piggyback on,
+        // so hover comes from the DOM. Harmless in the overlay: the effect above
+        // is already setting the same value.
+        onPointerEnter={() => setHovering(true)}
+        onPointerLeave={() => setHovering(false)}
         role="button"
         tabIndex={0}
         aria-label={`Mascot — ${stateLine}. Click to send a sticker.`}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
+            flashClick()
             fireSticker()
           }
         }}
       >
-        {showBubble && burst && <div className="mo-bubble">{burst.caption}</div>}
+        {/* `bubbleStyle` has been in the config all along but nothing ever read
+            it, so the bubble was always the soft one and "none" did nothing. */}
+        {showBubble && burst && cfg.bubbleStyle !== 'none' && (
+          <div className="mo-bubble" data-style={cfg.bubbleStyle ?? 'soft'}>
+            {burst.caption}
+          </div>
+        )}
 
         <div className="mo-shell" data-shell={cfg.shell satisfies MascotShell}>
           <div
@@ -300,12 +476,14 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
               <span className="mo-placeholder">art?</span>
             )}
           </div>
-          {cfg.shell === 'card' || cfg.shell === 'terrarium' ? (
+          {(cfg.shell === 'card' || cfg.shell === 'terrarium') && cfg.showStatus !== false ? (
             <div className="mo-name mono">{stateLine}</div>
           ) : null}
         </div>
 
-        <div className={`mo-ground ${cfg.idleMotion === 'still' ? '' : 'mo-ground-anim'}`} />
+        {cfg.showShadow !== false && (
+          <div className={`mo-ground ${cfg.idleMotion === 'still' ? '' : 'mo-ground-anim'}`} />
+        )}
       </div>
     </>
   )

@@ -177,6 +177,24 @@ export function DefaultsPane(): React.JSX.Element {
               Quiet hours mute the sound. The sticker still shows — you just don&apos;t hear it.
             </span>
           </section>
+
+          <section className="config-card">
+            <span className="section-label">Developer</span>
+            <Row label="Developer mode" hint="Adds the debug log under Traces &amp; evals">
+              <Toggle
+                dense
+                on={settings.devMode === true}
+                onChange={(v) => dispatch({ type: 'settings', patch: { devMode: v } })}
+                label="Developer mode"
+              />
+            </Row>
+            <span className="meta">
+              Records what each turn actually did — stream lifecycle, tool calls, IPC and errors.
+              Off by default: the log holds prompts and tool arguments verbatim, so it is
+              something to turn on while chasing a bug, not to leave running. Turning it off
+              clears whatever was captured.
+            </span>
+          </section>
         </div>
       </div>
     </>
