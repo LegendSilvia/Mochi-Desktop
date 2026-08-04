@@ -96,7 +96,14 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   // every click meant for the windows underneath.
   const interactive = useRef(false)
   useEffect(() => {
-    if (!overlay) return
+    // Bound to visibility as well as to `overlay`: when the mascot is hidden the
+    // component renders null, `wrapRef` goes empty and `onMove` can no longer
+    // tell that the pointer has left the sprite. Hiding while the pointer is
+    // over it would strand the window with mouse events still enabled, and the
+    // next time it was shown it would swallow clicks meant for the desktop until
+    // a mousemove happened to heal it. Tearing the effect down here runs the
+    // cleanup below, which releases the capture — no second copy of the logic.
+    if (!overlay || !cfg.visible) return
     const onMove = (e: MouseEvent): void => {
       const el = wrapRef.current
       if (!el) return
@@ -110,9 +117,10 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
     window.addEventListener('mousemove', onMove)
     return () => {
       window.removeEventListener('mousemove', onMove)
+      interactive.current = false
       void window.mochi?.mascotInteractive(false)
     }
-  }, [overlay])
+  }, [overlay, cfg.visible])
 
   // Initial placement. A stored position that would cover the rail or the title
   // bar is rejected outright rather than clamped — clamping it would park the

@@ -41,7 +41,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     idleMotion: 'breathe',
     size: 112,
     opacity: 1,
-    visible: true,
+    // Off on a fresh install: with no artwork yet the mascot renders an `art?`
+    // placeholder, and a placeholder floating over the desktop is not a welcome.
+    visible: false,
     stickerModes: ['chat', 'bubble', 'overlay'],
     stickerRate: 'often',
     bounceOnDrop: true,
@@ -74,7 +76,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpServers: [],
   // Off by default: skills are read off the filesystem, and turning that on
   // without asking would quietly widen what the agent can reach.
-  skills: { enabled: false, allow: 'all' }
+  skills: { enabled: false, allow: 'all' },
+  userName: '',
+  toursSeen: []
 }
 
 /**

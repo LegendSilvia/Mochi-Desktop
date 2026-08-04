@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
-import type { MascotState } from '@shared/types'
+import type { MascotState, PersistedState } from '@shared/types'
 import { DEFAULT_AGENTS, DEFAULT_RULES, DEFAULT_SESSIONS, DEFAULT_SETTINGS } from '@shared/defaults'
 import { BUBBLE_LINES, SETTINGS_SCREENS } from './screens'
 import { StoreCtx, type Action, type State, type Store } from './context'
+import { TOURS } from './tours'
 
 const initial: State = {
   ready: false,
@@ -26,16 +27,48 @@ const initial: State = {
   newAgentId: DEFAULT_SETTINGS.defaultAgentId,
   newSessionType: DEFAULT_SETTINGS.defaultSessionType,
   burst: null,
-  pendingSend: null
+  pendingSend: null,
+  tour: null
 }
 
 /** Overlays that float above the app — only one may be open at a time. */
 const POPOVER_KEYS = ['menuOpen', 'mentionOpen', 'searchOpen', 'stickerPickerOpen'] as const
 
+/**
+ * The persisted slice, built in one fixed key order.
+ *
+ * The single constructor is the point. The persist effect decides whether to
+ * write by string-comparing `JSON.stringify` of the local slice against the same
+ * of the last payload received over `sync`, and `JSON.stringify` is
+ * order-sensitive — two objects with the same entries in a different insertion
+ * order produce different strings. Building both sides here pins the four
+ * top-level keys.
+ *
+ * Everything below them is pinned by reference instead: `sync` stores the
+ * payload's own sub-objects, so the two sides serialize the identical objects.
+ * That is load-bearing — deep-cloning, normalising or rebuilding
+ * `settings`/`agents`/`sessions`/`rules` on the `sync` path would break it and
+ * put key-order sensitivity back in play, and the failure mode is an unbounded
+ * write loop between the two windows rather than one redundant save. See the
+ * note on `IPC.saveState` in src/main/ipc.ts.
+ */
+function toSlice(s: PersistedState): PersistedState {
+  return { settings: s.settings, agents: s.agents, sessions: s.sessions, rules: s.rules }
+}
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case 'ready':
-      return { ...state, ...action.payload, ready: true }
+    case 'ready': {
+      const next = { ...state, ...action.payload, ready: true }
+      // `activeSessionId` is picked from the bootstrap snapshot, but a `sync`
+      // from the other window may have replaced the session list while boot was
+      // still in flight — in which case that id points at nothing. Re-derive it
+      // from whatever the sessions actually are rather than leaving the chat
+      // looking at a session that isn't there. On an ordinary boot the id is
+      // already present and this changes nothing.
+      if (next.sessions.some((s) => s.id === next.activeSessionId)) return next
+      return { ...next, activeSessionId: next.sessions[0]?.id ?? '' }
+    }
     case 'screen':
       // Any navigation closes the account popover, per the interaction table.
       return { ...state, screen: action.screen, menuOpen: false }
@@ -80,6 +113,34 @@ function reducer(state: State, action: Action): State {
       return { ...state, burst: action.burst }
     case 'pending-send':
       return { ...state, pendingSend: action.text }
+    case 'sync':
+      return { ...state, ...toSlice(action.payload) }
+    // Navigation lives in the reducer rather than an effect: advancing a step and
+    // moving the user to the screen that step is about are one atomic change, and
+    // doing it in an effect would mean a render where the two disagree.
+    case 'tour-start': {
+      // An id no tour defines would set `tour` to something TourLayer renders as
+      // null — no card, no Skip button, and so no way left to reach 'tour-end'.
+      // Refusing the action keeps an unknown id from wedging the window.
+      const def = TOURS.find((t) => t.id === action.id)
+      if (!def) return state
+      return {
+        ...state,
+        tour: { id: action.id, step: 0 },
+        screen: def.steps[0]?.goto ?? state.screen
+      }
+    }
+    case 'tour-step': {
+      if (!state.tour) return state
+      const goto = TOURS.find((t) => t.id === state.tour?.id)?.steps[action.step]?.goto
+      return {
+        ...state,
+        tour: { ...state.tour, step: action.step },
+        screen: goto ?? state.screen
+      }
+    }
+    case 'tour-end':
+      return { ...state, tour: null }
     default:
       return state
   }
@@ -88,6 +149,14 @@ function reducer(state: State, action: Action): State {
 export function StoreProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const [state, dispatch] = useReducer(reducer, initial)
   const burstId = useRef(0)
+  // Snapshot of what was last written or received. The persist effect compares
+  // against it so state arriving over `sync` is not immediately written back —
+  // a boolean flag would stay stuck if the merge produced no change.
+  const lastPersisted = useRef('')
+  // Whether a `sync` has already landed. The listener below is live from mount,
+  // so a save in the other window can reach us *before* bootstrap resolves; that
+  // payload is newer than the one boot is holding, and `ready` must not undo it.
+  const synced = useRef(false)
 
   const reloadLibrary = useCallback(() => {
     const preset =
@@ -106,13 +175,25 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
         boot.agents.find((a) => a.id === boot.settings.defaultAgentId)?.spritePreset ?? 'sprout'
       const library = await window.mochi.library(preset)
       if (cancelled) return
+      // A `sync` that landed while boot was in flight carries state newer than
+      // `boot`. Seeding `ready` with the persisted slice would overwrite it with
+      // the older read, and `lastPersisted` would then match that older slice —
+      // so the persist effect would decline to write and the window would sit
+      // stale with no way to correct itself. Hand `ready` only the fields boot
+      // is the sole source of, and leave the sync's snapshot in place.
+      const superseded = synced.current
+      if (!superseded) lastPersisted.current = JSON.stringify(toSlice(boot))
       dispatch({
         type: 'ready',
         payload: {
-          settings: boot.settings,
-          agents: boot.agents,
-          sessions: boot.sessions,
-          rules: boot.rules,
+          ...(superseded
+            ? {}
+            : {
+                settings: boot.settings,
+                agents: boot.agents,
+                sessions: boot.sessions,
+                rules: boot.rules
+              }),
           server: boot.server,
           library,
           activeSessionId: boot.sessions[0]?.id ?? '',
@@ -120,22 +201,35 @@ export function StoreProvider({ children }: { children: ReactNode }): React.JSX.
           newSessionType: boot.settings.defaultSessionType
         }
       })
+      // After ready, so the tour reads real persisted state rather than defaults.
+      const pending = TOURS.find((t) => !(boot.settings.toursSeen ?? []).includes(t.id))
+      if (pending) dispatch({ type: 'tour-start', id: pending.id })
     })()
     return () => {
       cancelled = true
     }
   }, [])
 
+  // Another window saved. Merge rather than reload, so in-flight UI state
+  // (open popovers, the active tour) survives.
+  useEffect(() => {
+    if (!window.mochi?.onStateChanged) return
+    return window.mochi.onStateChanged((next) => {
+      synced.current = true
+      lastPersisted.current = JSON.stringify(toSlice(next))
+      dispatch({ type: 'sync', payload: next })
+    })
+  }, [])
+
   // Persist on change, but not during boot — that would immediately rewrite the
   // file we just read with the pre-boot defaults.
   useEffect(() => {
     if (!state.ready) return
-    void window.mochi?.saveState({
-      settings: state.settings,
-      agents: state.agents,
-      sessions: state.sessions,
-      rules: state.rules
-    })
+    const slice = toSlice(state)
+    const json = JSON.stringify(slice)
+    if (json === lastPersisted.current) return
+    lastPersisted.current = json
+    void window.mochi?.saveState(slice)
   }, [state.ready, state.settings, state.agents, state.sessions, state.rules])
 
   // Theme + contrast + accent are applied to the root, and the Windows caption

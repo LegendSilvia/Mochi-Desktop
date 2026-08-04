@@ -5,6 +5,7 @@ import type {
   AppSettings,
   AssetLibrary,
   MascotState,
+  PersistedState,
   ProviderAccount,
   ServerInfo,
   Session,
@@ -37,7 +38,8 @@ const IPC = {
   providerDeleteKey: 'mochi:provider-delete-key',
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
-  mascotState: 'mochi:mascot-state'
+  mascotState: 'mochi:mascot-state',
+  stateChanged: 'mochi:state-changed'
 } as const
 
 export interface Bootstrap {
@@ -83,7 +85,7 @@ export interface MochiApi {
   ragRemove: (id: string) => Promise<void>
   ragSearch: (q: string) => Promise<RagHit[]>
   ragEmbedder: () => Promise<EmbedderInfo>
-  saveState: (patch: StatePatch) => Promise<void>
+  saveState: (patch: StatePatch) => Promise<PersistedState>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
   notify: (title: string, body: string, icon?: string) => Promise<void>
@@ -94,6 +96,8 @@ export interface MochiApi {
   onLibraryChanged: (cb: () => void) => () => void
   onStickerFired: (cb: (p: StickerFiredPayload) => void) => () => void
   onMascotState: (cb: (p: MascotStatePayload) => void) => () => void
+  /** Another window persisted state; merge it so the two never drift. */
+  onStateChanged: (cb: (s: PersistedState) => void) => () => void
 }
 
 /** Subscribe helper that hands back its own unsubscribe, so effects can clean up. */
@@ -127,7 +131,8 @@ const api: MochiApi = {
   deleteProviderKey: (id) => ipcRenderer.invoke(IPC.providerDeleteKey, id),
   onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
   onStickerFired: (cb) => on<StickerFiredPayload>(IPC.stickerFired, cb),
-  onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb)
+  onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb),
+  onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb)
 }
 
 if (process.contextIsolated) {

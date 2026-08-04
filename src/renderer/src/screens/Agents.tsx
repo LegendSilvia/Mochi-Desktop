@@ -187,7 +187,12 @@ export function Agents(): React.JSX.Element {
           </button>
         </div>
 
-        {shown.length === 0 && (
+        {/* Only when a filter is actually narrowing something. With no agents at
+            all `shown` is empty too, and saying "no loadout matches “”" is the
+            first thing a first-run user reads — step 2 of the tour sends every
+            new user to exactly this screen in exactly that state. The "New
+            loadout" card already says what to do. */}
+        {shown.length === 0 && filter.trim() !== '' && (
           <p className="meta empty-filter">No loadout matches “{filter}”.</p>
         )}
 

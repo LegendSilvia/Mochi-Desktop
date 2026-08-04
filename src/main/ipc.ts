@@ -3,7 +3,7 @@ import type { FSWatcher } from 'chokidar'
 import { listSpritePresets, readLibrary, watchAssets } from './assets'
 import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
 import { getServerInfo } from './mastra-server'
-import { getMascotWindow, setMascotInteractive } from './mascot-window'
+import { getMascotWindow, setMascotInteractive, setMascotVisible } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { getPaths } from './paths'
 import { bus } from '../mastra/events'
@@ -31,7 +31,8 @@ export const IPC = {
   // main → renderer
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
-  mascotState: 'mochi:mascot-state'
+  mascotState: 'mochi:mascot-state',
+  stateChanged: 'mochi:state-changed'
 } as const
 
 /** Providers Mastra's model router knows, with the env var each one reads. */
@@ -60,7 +61,45 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.listPresets, () => listSpritePresets())
 
-  ipcMain.handle(IPC.saveState, (_e, patch) => save(patch))
+  /**
+   * Persist, then tell the *other* windows.
+   *
+   * The overlay is a second window with its own store, seeded once at mount —
+   * without this broadcast every settings change (mascot visibility, shell, size,
+   * theme, accent) sat unseen there until the app was restarted.
+   *
+   * INVARIANT — a receiving renderer decides whether to write back by
+   * string-comparing `JSON.stringify` of its own slice against the same of this
+   * payload (see `toSlice` in src/renderer/src/state/store.tsx). That comparison
+   * holds because the receiver stores this payload's own sub-objects **by
+   * reference**: both sides of the compare end up serializing the identical
+   * objects, so key order — here or nested — cannot make them differ.
+   *
+   * So the constraint that matters is on the *renderer* side, not this one: the
+   * `sync` reducer must keep the payload's sub-objects as-is. Any deep clone,
+   * normalisation, or field-by-field rebuild on that path breaks reference
+   * sharing and puts key-order sensitivity back in play. Nothing is required of
+   * `save()` here beyond returning the state it just stored.
+   *
+   * Getting that wrong is not one extra write. A payload that no longer compares
+   * equal makes the receiver save it straight back, which broadcasts to the
+   * original sender, which does the same — an unbounded ping-pong, each hop a
+   * synchronous writeFileSync of the entire state. Excluding the sender below
+   * does not prevent it: the loop runs *between* the two windows, and each hop
+   * has a legitimately different sender.
+   */
+  ipcMain.handle(IPC.saveState, (e, patch) => {
+    const next = save(patch)
+    for (const win of [getWindow(), getMascotWindow()]) {
+      if (!win || win.isDestroyed()) continue
+      // Skip the sender: it already has this state, and echoing it back is how
+      // a save loop starts.
+      if (win.webContents.id === e.sender.id) continue
+      win.webContents.send(IPC.stateChanged, next)
+    }
+    setMascotVisible(next.settings.mascot.visible)
+    return next
+  })
 
   ipcMain.handle(IPC.setTitleBarTheme, (_e, theme: Theme, bg: string, symbol: string) => {
     const win = getWindow()
