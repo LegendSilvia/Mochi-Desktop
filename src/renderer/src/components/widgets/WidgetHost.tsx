@@ -100,6 +100,11 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
     return () => ro.disconnect()
   }, [])
 
+  /** Read inside `zoneAt`, which must not be rebuilt mid-drag — the drag closure
+   *  captured it at pointerdown. */
+  const docksRef = useRef<Record<DockSide, boolean>>({ left: false, right: false, bottom: false })
+  const dockSizeRef = useRef<Record<DockSide, number>>({ left: 0, right: 0, bottom: 0 })
+
   const rect = useCallback(() => hostRef.current?.getBoundingClientRect() ?? null, [])
   const rootRect = useCallback(() => rootRef.current?.getBoundingClientRect() ?? null, [])
   const api = useWidgets(ctx.session, ctx.patch, rect, rootRect)
@@ -124,7 +129,11 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
    * unreachable.
    */
   const zoneAt = useCallback((clientX: number, clientY: number): DockSide | null => {
-    const r = hostRef.current?.getBoundingClientRect()
+    // Against the session row, not the float layer. The float layer is inset by
+    // whatever is already docked, so dragging to the *actual* right edge — over
+    // an existing right dock, which is exactly where you aim to join it — landed
+    // hundreds of pixels outside it and registered no zone at all.
+    const r = rootRef.current?.getBoundingClientRect()
     if (!r) return null
     const d: Array<[DockSide, number]> = [
       ['left', clientX - r.left],
@@ -132,7 +141,11 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       ['bottom', r.bottom - clientY]
     ]
     const [side, dist] = d.reduce((a, b) => (b[1] < a[1] ? b : a))
-    return dist <= SNAP_EDGE && dist >= -8 ? side : null
+    // A dock already occupying that edge is a valid target — you are dropping
+    // *into* it — so the band extends inward across its whole width rather than
+    // stopping at the chat's edge.
+    const band = docksRef.current[side] ? Math.max(SNAP_EDGE, dockSizeRef.current[side]) : SNAP_EDGE
+    return dist <= band && dist >= -8 ? side : null
   }, [])
 
   const hasData = useMemo((): Record<WidgetKind, boolean> => {
@@ -182,6 +195,15 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
     [api.widgets]
   )
   const floating = api.widgets.filter((w) => w.open && !w.dock)
+
+  useEffect(() => {
+    docksRef.current = {
+      left: docked.left.length > 0,
+      right: docked.right.length > 0,
+      bottom: docked.bottom.length > 0
+    }
+    dockSizeRef.current = api.dockSizes
+  }, [docked, api.dockSizes])
 
   const paneFor = (w: WidgetInstance): React.ReactNode => {
     switch (w.kind) {
@@ -393,6 +415,25 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
     )
   }
 
+  /** The exact box a drop on this edge would occupy. */
+  const snapStyle = (side: DockSide): React.CSSProperties => {
+    const l = docked.left.length ? api.dockSizes.left : 0
+    const r = docked.right.length ? api.dockSizes.right : 0
+    const b = docked.bottom.length ? api.dockSizes.bottom : 0
+    if (side === 'left') return { left: 0, top: 0, bottom: 0, width: api.dockSizes.left }
+    if (side === 'right') return { right: 0, top: 0, bottom: 0, width: api.dockSizes.right }
+    return { left: l, right: r, bottom: 0, height: docked.bottom.length ? b : api.dockSizes.bottom }
+  }
+
+  /** What dropping here will do — joining a busy edge is not the same as
+   *  claiming an empty one, and the difference is worth one word. */
+  const snapLabel = (side: DockSide): string => {
+    const n = docked[side].length
+    if (n === 0) return 'Snap'
+    if (n === 1) return 'Split'
+    return 'Add as tab'
+  }
+
   /** Drag a bubble, or a floating header, onto an edge. */
   const beginDrag = (kind: WidgetKind, id: string | null) => (e: React.PointerEvent): void => {
     if (e.button !== 0) return
@@ -432,6 +473,18 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       </div>
       {renderDock('right')}
 
+      {/* Where it would actually land.
+          Positioned against the session, not the float layer: the float layer is
+          inset by whatever is already docked, so a preview drawn inside it
+          pointed at empty chat instead of the column the widget was about to
+          join. The rectangle is the real target geometry, and the corner says
+          what dropping there will do. */}
+      {drag?.side && (
+        <div className="wg-snap" data-side={drag.side} style={snapStyle(drag.side)}>
+          <span className="wg-snap-tag">{snapLabel(drag.side)}</span>
+        </div>
+      )}
+
       {/* Covers the chat column only. The docks are real siblings that took
           their space out of the row, so an `inset: 0` layer would float widgets
           and the rail over them. */}
@@ -460,7 +513,11 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
               subtitle={w.kind === 'editor' ? w.path : undefined}
               icon={meta.icon}
               geom={geom}
-              z={10 + Math.max(0, order.indexOf(w.id))}
+              /* A widget being dragged clears everything — the other panels,
+                 the bubble rail, the snap preview it is being dropped onto.
+                 Sliding under the rail mid-drag is disorienting when the rail
+                 is exactly what you are dragging away from. */
+              z={drag?.id === w.id ? 60 : 10 + Math.max(0, order.indexOf(w.id))}
               onGeom={(next) => api.move(w.id, next)}
               onCollapse={() => api.collapse(w.id)}
               onClose={() => closeWidget(w.id)}
@@ -481,10 +538,6 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
             </WidgetFrame>
           )
         })}
-
-        {/* Where it would land. Drawn only while a drag is actually over an
-            edge, so the chat is not permanently decorated with drop targets. */}
-        {drag?.side && <div className="wg-snap" data-side={drag.side} />}
 
         <div className="wg-rail">
           {bubbles.map(({ key, kind, instance }) => {

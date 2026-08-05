@@ -802,30 +802,27 @@ body.wg-dragging * {
 
 .wg-snap {
   position: absolute;
-  z-index: 45;
+  z-index: 44;
   pointer-events: none;
   background: color-mix(in srgb, var(--ac) 15%, transparent);
   border: 1.5px solid color-mix(in srgb, var(--ac) 55%, transparent);
   border-radius: var(--r-lg);
   animation: wg-snap-in 0.14s ease-out;
+  /* The tag sits in the bottom-right corner of the target, out of the way of
+     whatever is being dragged over it. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 12px;
 }
-.wg-snap[data-side='left'] {
-  top: 8px;
-  bottom: 8px;
-  left: 8px;
-  width: 38%;
-}
-.wg-snap[data-side='right'] {
-  top: 8px;
-  bottom: 8px;
-  right: 8px;
-  width: 38%;
-}
-.wg-snap[data-side='bottom'] {
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
-  height: 34%;
+.wg-snap-tag {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--ac);
+  color: var(--on-ac);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 @keyframes wg-snap-in {
   from {
