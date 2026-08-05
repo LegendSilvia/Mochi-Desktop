@@ -600,49 +600,49 @@ export function Agents(): React.JSX.Element {
               </label>
               <div className="field">
                 <span className="field-label">Model</span>
-                <ModelPicker value={selected.model} onChange={(model) => patch({ model })} />
+                <ModelPicker value={edited.model} onChange={(model) => patch({ model })} />
               </div>
             </section>
 
             <section className="config-card">
               <span className="section-label">How it behaves</span>
-              <Row label="Chattiness" hint={`${selected.chattiness}/10`}>
+              <Row label="Chattiness" hint={`${edited.chattiness}/10`}>
                 <Slider
-                  value={selected.chattiness}
+                  value={edited.chattiness}
                   onChange={(v) => patch({ chattiness: v })}
                   label="Chattiness"
                 />
               </Row>
-              <Row label="Sticker frequency" hint={`${selected.stickerFrequency}/10`}>
+              <Row label="Sticker frequency" hint={`${edited.stickerFrequency}/10`}>
                 <Slider
-                  value={selected.stickerFrequency}
+                  value={edited.stickerFrequency}
                   onChange={(v) => patch({ stickerFrequency: v })}
                   label="Sticker frequency"
                 />
               </Row>
               <Row label="Working memory" hint="remembers facts about you between sessions">
                 <Toggle
-                  on={selected.workingMemory}
+                  on={edited.workingMemory}
                   onChange={(v) => patch({ workingMemory: v })}
                   label="Working memory"
                 />
               </Row>
               <Row label="Semantic recall" hint="finds relevant older messages">
                 <Toggle
-                  on={selected.semanticRecall}
+                  on={edited.semanticRecall}
                   onChange={(v) => patch({ semanticRecall: v })}
                   label="Semantic recall"
                 />
               </Row>
               {/* Only worth showing once recall is on — a match count means
                   nothing while nothing is being matched. */}
-              {selected.semanticRecall && (
+              {edited.semanticRecall && (
                 <Row
                   label="Top matches"
-                  hint={`${selected.recallTopK ?? DEFAULT_RECALL_TOP_K} per turn`}
+                  hint={`${edited.recallTopK ?? DEFAULT_RECALL_TOP_K} per turn`}
                 >
                   <Slider
-                    value={selected.recallTopK ?? DEFAULT_RECALL_TOP_K}
+                    value={edited.recallTopK ?? DEFAULT_RECALL_TOP_K}
                     min={1}
                     max={20}
                     onChange={(v) => patch({ recallTopK: v })}
@@ -650,13 +650,13 @@ export function Agents(): React.JSX.Element {
                   />
                 </Row>
               )}
-              {selected.semanticRecall && (
+              {edited.semanticRecall && (
                 <Row
                   label="Reach past sessions"
                   hint="off: this conversation only · on: everything you've said to this agent"
                 >
                   <Toggle
-                    on={selected.recallScope === 'resource'}
+                    on={edited.recallScope === 'resource'}
                     onChange={(v) => patch({ recallScope: v ? 'resource' : 'thread' })}
                     label="Reach past sessions"
                   />
@@ -664,7 +664,7 @@ export function Agents(): React.JSX.Element {
               )}
               <Row label="Voice replies">
                 <Toggle
-                  on={selected.voiceReplies}
+                  on={edited.voiceReplies}
                   onChange={(v) => patch({ voiceReplies: v })}
                   label="Voice replies"
                 />
@@ -674,7 +674,7 @@ export function Agents(): React.JSX.Element {
                 hint="off by default — this one is worth keeping off"
               >
                 <Toggle
-                  on={selected.canPushWithoutAsking}
+                  on={edited.canPushWithoutAsking}
                   onChange={(v) => patch({ canPushWithoutAsking: v })}
                   label="Push without asking"
                 />
