@@ -73,6 +73,10 @@ interface Dragging {
  */
 export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
+  /** The whole session row, docks included. Dock sizes must be measured against
+   *  this and never against `hostRef` — the float layer is inset *by* the docks,
+   *  so using it as the basis makes a seam drag chase its own tail. */
+  const rootRef = useRef<HTMLDivElement>(null)
   const [adding, setAdding] = useState(false)
   /** Stacking order, most recently touched last. Not persisted — which panel is
    *  on top is a property of the last few seconds, not of the session. */
@@ -97,7 +101,8 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
   }, [])
 
   const rect = useCallback(() => hostRef.current?.getBoundingClientRect() ?? null, [])
-  const api = useWidgets(ctx.session, ctx.patch, rect)
+  const rootRect = useCallback(() => rootRef.current?.getBoundingClientRect() ?? null, [])
+  const api = useWidgets(ctx.session, ctx.patch, rect, rootRect)
   const folder = ctx.session.workspacePath
 
   const raise = useCallback((id: string) => {
@@ -283,7 +288,7 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
         data-side={side}
         style={side === 'bottom' ? { height: size } : { width: size }}
       >
-        <DockGrip side={side} onSize={(px) => api.setDockSize(side, px)} hostRef={hostRef} />
+        <DockGrip side={side} onSize={(px) => api.setDockSize(side, px)} rootRef={rootRef} />
         {groups.map((group, gi) => {
           const key = `${side}:${gi}`
           // Falls back to the first rather than storing a default, so closing the
@@ -419,7 +424,7 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
   }
 
   return (
-    <div className="session">
+    <div className="session" ref={rootRef}>
       {renderDock('left')}
       <div className="session-center">
         {ctx.children}
@@ -550,19 +555,28 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
 function DockGrip({
   side,
   onSize,
-  hostRef
+  rootRef
 }: {
   side: DockSide
   onSize: (px: number) => void
-  hostRef: React.RefObject<HTMLDivElement | null>
+  /** The full session row. Measuring against the float layer instead would use
+   *  a basis that shrinks as the dock grows — the seam then runs away from the
+   *  cursor and oscillates. */
+  rootRef: React.RefObject<HTMLDivElement | null>
 }): React.JSX.Element {
   const start = (e: React.PointerEvent): void => {
     if (e.button !== 0) return
     e.preventDefault()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    document.body.classList.add('wg-dragging')
+    document.body.style.setProperty(
+      '--wg-drag-cursor',
+      side === 'bottom' ? 'ns-resize' : 'ew-resize'
+    )
     const onMove = (ev: PointerEvent): void => {
-      const r = hostRef.current?.getBoundingClientRect()
+      const r = rootRef.current?.getBoundingClientRect()
       if (!r) return
-      // Measured from the window edge rather than by delta, so the column
+      // Measured from the session's own edge rather than by delta, so the column
       // tracks the pointer exactly even if it hits its minimum and stops.
       const px =
         side === 'left'
@@ -575,9 +589,13 @@ function DockGrip({
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.body.classList.remove('wg-dragging')
+      document.body.style.removeProperty('--wg-drag-cursor')
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
   return <div className="wg-dock-grip" data-side={side} onPointerDown={start} />
 }

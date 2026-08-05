@@ -53,7 +53,12 @@ export interface WidgetApi {
 export function useWidgets(
   session: Session | undefined,
   patch: (next: Partial<Session>) => void,
-  hostRect: () => DOMRect | null
+  /** The floating area — what widget geometry is relative to. */
+  hostRect: () => DOMRect | null,
+  /** The whole session row, docks included. Dock sizes are capped against this:
+   *  the floating area is inset *by* the docks, so using it would shrink the
+   *  ceiling as the dock grew and stop it half way. */
+  rootRect: () => DOMRect | null
 ): WidgetApi {
   const widgets = useMemo(() => session?.widgets ?? [], [session?.widgets])
 
@@ -212,7 +217,7 @@ export function useWidgets(
 
   const setDockSize = useCallback(
     (side: DockSide, px: number) => {
-      const rect = hostRect()
+      const rect = rootRect()
       // Never let a dock eat the whole window: the chat has to stay usable, and
       // an edge dragged past the far side would be unrecoverable by pointer.
       const room = side === 'bottom' ? (rect?.height ?? 900) - 260 : (rect?.width ?? 1200) - 320
@@ -221,7 +226,7 @@ export function useWidgets(
         dockSizes: { ...session?.dockSizes, [side]: Math.min(Math.max(min, px), Math.max(min, room)) }
       })
     },
-    [patch, session?.dockSizes, hostRect]
+    [patch, session?.dockSizes, rootRect]
   )
 
   return {
