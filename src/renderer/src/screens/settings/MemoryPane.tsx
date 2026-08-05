@@ -127,6 +127,16 @@ export function MemoryPane(): React.JSX.Element {
             {/* Recall needs an embedder, and the switch alone cannot tell you
                 whether one is reachable — so say it here rather than let the
                 feature look on while it is quietly doing nothing. */}
+            {/* Said before the embedder line, because it outranks it: an
+                embedding key buys nothing here while chats run on the
+                subscription, and that is worth knowing before buying one. */}
+            {agent.semanticRecall && settings.preferSubscription && (
+              <div className="banner-warn">
+                Chats are running on your Claude subscription, and that backend keeps its own
+                history — recall applies to the API-key backend. Turn off &ldquo;Run on my Claude
+                subscription&rdquo; in Settings → Models to use it.
+              </div>
+            )}
             {agent.semanticRecall && (
               <span className="meta">
                 {embedder === null

@@ -64,9 +64,74 @@ export const MODEL_CATALOG: ProviderGroup[] = [
   }
 ]
 
+/**
+ * Models that can actually embed.
+ *
+ * A separate list because embedding is not a thing every model does, and the
+ * chat catalogue offered next to it is a trap: picking a chat model for the
+ * embeddings role looks like it worked, saves without complaint, and then
+ * quietly never embeds anything.
+ *
+ * Anthropic is absent on purpose, and it is the reason this list exists. It
+ * publishes no embeddings endpoint at all — not for Haiku, not for any model —
+ * so the Claude subscription is the one job it cannot cover. Ollama is the way
+ * out: local, no key, nothing leaves the machine.
+ */
+export const EMBEDDING_CATALOG: ProviderGroup[] = [
+  {
+    provider: 'ollama',
+    label: 'Ollama',
+    billing: 'local',
+    models: [
+      {
+        id: 'ollama/nomic-embed-text',
+        label: 'nomic-embed-text',
+        hint: 'local, no key — run: ollama pull nomic-embed-text'
+      },
+      {
+        id: 'ollama/mxbai-embed-large',
+        label: 'mxbai-embed-large',
+        hint: 'local, larger and slower, better recall'
+      }
+    ]
+  },
+  {
+    provider: 'openai',
+    label: 'OpenAI',
+    billing: 'api key',
+    models: [
+      {
+        id: 'openai/text-embedding-3-small',
+        label: 'text-embedding-3-small',
+        hint: 'cheap and good enough for recall'
+      },
+      {
+        id: 'openai/text-embedding-3-large',
+        label: 'text-embedding-3-large',
+        hint: 'more accurate, costs more per token'
+      }
+    ]
+  },
+  {
+    provider: 'google',
+    label: 'Google',
+    billing: 'api key',
+    models: [
+      {
+        id: 'google/gemini-embedding-001',
+        label: 'gemini-embedding-001',
+        hint: 'Google’s embedding model'
+      }
+    ]
+  }
+]
+
 /** Flat lookup for showing a friendly label next to a stored id. */
-export function findModel(id: string): ModelOption | undefined {
-  for (const group of MODEL_CATALOG) {
+export function findModel(
+  id: string,
+  catalog: ProviderGroup[] = MODEL_CATALOG
+): ModelOption | undefined {
+  for (const group of catalog) {
     const hit = group.models.find((m) => m.id === id)
     if (hit) return hit
   }

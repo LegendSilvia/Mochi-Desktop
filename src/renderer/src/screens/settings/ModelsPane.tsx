@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '@renderer/state/context'
 import { Row, ScreenHeader, Toggle } from '@renderer/components/ui/Controls'
 import { ModelPicker } from '@renderer/components/ui/ModelPicker'
+import { EMBEDDING_CATALOG, findModel } from '@shared/models'
 import type { AppSettings, ProviderAccount } from '@shared/types'
 
 export function ModelsPane(): React.JSX.Element {
@@ -129,6 +130,7 @@ export function ModelsPane(): React.JSX.Element {
                 <span className="field-label">{label}</span>
                 <ModelPicker
                   value={settings.modelRoles[key]}
+                  catalog={key === 'embeddings' ? EMBEDDING_CATALOG : undefined}
                   onChange={(model) =>
                     dispatch({
                       type: 'settings',
@@ -136,6 +138,19 @@ export function ModelsPane(): React.JSX.Element {
                     })
                   }
                 />
+                {/* The picker still takes free text, so a chat model can land
+                    here anyway — and it fails by embedding nothing rather than
+                    by erroring, which is the kind of failure you only notice
+                    weeks later when recall has never once worked. */}
+                {key === 'embeddings' &&
+                  !findModel(settings.modelRoles.embeddings, EMBEDDING_CATALOG) && (
+                    <div className="banner-warn">
+                      <span className="mono">{settings.modelRoles.embeddings || 'nothing'}</span> is
+                      not an embedding model, so semantic recall and vector search stay off. Anthropic
+                      publishes no embeddings API for any model — pick Ollama above to embed locally
+                      with no key.
+                    </div>
+                  )}
               </div>
             ))}
             <Row label="Run on my Claude subscription">

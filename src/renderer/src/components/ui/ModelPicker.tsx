@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Check, Search } from 'lucide-react'
-import { MODEL_CATALOG, findModel } from '@shared/models'
+import { MODEL_CATALOG, findModel, type ProviderGroup } from '@shared/models'
 import './modelpicker.css'
 
 /**
@@ -14,10 +14,15 @@ import './modelpicker.css'
  */
 export function ModelPicker({
   value,
-  onChange
+  onChange,
+  catalog = MODEL_CATALOG
 }: {
   value: string
   onChange: (next: string) => void
+  /** Narrows what is on offer. The embeddings role passes the embedding-only
+   *  catalogue, because offering chat models for a job they cannot do is how
+   *  you end up with a setting that saves cleanly and never works. */
+  catalog?: ProviderGroup[]
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -27,7 +32,7 @@ export function ModelPicker({
   const [showAll, setShowAll] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
 
-  const known = findModel(value)
+  const known = findModel(value, catalog)
 
   // Which providers are actually usable right now: one with a stored key, a
   // local runtime, or Anthropic when the Claude subscription is on. Listing
@@ -65,11 +70,11 @@ export function ModelPicker({
   const usable = (p: string): boolean =>
     showAll || connected === null || connected.includes(p) || p === 'anthropic'
 
-  const hiddenCount = MODEL_CATALOG.filter((g) => !usable(g.provider)).length
+  const hiddenCount = catalog.filter((g) => !usable(g.provider)).length
 
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    const base = MODEL_CATALOG.filter((g) => usable(g.provider))
+    const base = catalog.filter((g) => usable(g.provider))
     if (!needle) return base
     return base.map((g) => ({
       ...g,
@@ -81,9 +86,9 @@ export function ModelPicker({
       )
     })).filter((g) => g.models.length > 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, connected, showAll])
+  }, [q, connected, showAll, catalog])
 
-  const custom = q.trim().includes('/') && !findModel(q.trim())
+  const custom = q.trim().includes('/') && !findModel(q.trim(), catalog)
 
   return (
     <div className="mp" ref={boxRef}>
