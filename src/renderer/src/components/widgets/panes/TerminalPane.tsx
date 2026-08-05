@@ -119,7 +119,24 @@ export function TerminalPane({
     })
     observer.observe(host)
 
+    /*
+     * Follow the theme.
+     *
+     * `readTheme` samples the CSS custom properties once, at construction — so a
+     * terminal opened in light mode kept a light palette after switching to
+     * dark, sitting in the layout as a white rectangle. The theme is stamped on
+     * <html>, so watching that attribute is enough.
+     */
+    const themeWatch = new MutationObserver(() => {
+      term.options.theme = readTheme()
+    })
+    themeWatch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'style', 'class']
+    })
+
     return () => {
+      themeWatch.disconnect()
       observer.disconnect()
       typed.dispose()
       term.dispose()

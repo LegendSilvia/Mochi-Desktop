@@ -7,7 +7,8 @@
 
 .wg-host {
   position: absolute;
-  inset: 0;
+  top: 0;
+  /* left / right / bottom are set inline from the docked edge sizes. */
   pointer-events: none;
   overflow: hidden;
   z-index: 5;
@@ -191,6 +192,12 @@
   display: flex;
   flex-direction: column;
 }
+/* An inactive tab's pane stays mounted but must not draw. The `display: flex`
+   above is a class rule and outranks the browser's own `[hidden]`, so without
+   this every tab in a group renders stacked on top of each other. */
+.wg-body[hidden] {
+  display: none;
+}
 
 .wg-rows {
   display: flex;
@@ -206,61 +213,76 @@
 
 /* --- resize grips --------------------------------------------------------- */
 
+/* Entirely *inside* the box. They used to sit at -2px, which `overflow: hidden`
+   on .wg then clipped away — leaving a sliver two or three pixels wide that was
+   almost impossible to hit, which is why resizing felt broken. */
 .wg-grip {
   position: absolute;
+  z-index: 2;
+  touch-action: none;
 }
 .wg-grip-n,
 .wg-grip-s {
-  left: 10px;
-  right: 10px;
-  height: 6px;
+  left: 14px;
+  right: 14px;
+  height: 8px;
   cursor: ns-resize;
 }
 .wg-grip-e,
 .wg-grip-w {
-  top: 10px;
-  bottom: 10px;
-  width: 6px;
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
   cursor: ew-resize;
 }
 .wg-grip-n {
-  top: -2px;
+  top: 0;
 }
 .wg-grip-s {
-  bottom: -2px;
+  bottom: 0;
 }
 .wg-grip-e {
-  right: -2px;
+  right: 0;
 }
 .wg-grip-w {
-  left: -2px;
+  left: 0;
 }
 .wg-grip-ne,
 .wg-grip-nw,
 .wg-grip-se,
 .wg-grip-sw {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .wg-grip-nw {
-  top: -2px;
-  left: -2px;
+  top: 0;
+  left: 0;
   cursor: nwse-resize;
 }
 .wg-grip-se {
-  bottom: -2px;
-  right: -2px;
+  bottom: 0;
+  right: 0;
   cursor: nwse-resize;
 }
 .wg-grip-ne {
-  top: -2px;
-  right: -2px;
+  top: 0;
+  right: 0;
   cursor: nesw-resize;
 }
 .wg-grip-sw {
-  bottom: -2px;
-  left: -2px;
+  bottom: 0;
+  left: 0;
   cursor: nesw-resize;
+}
+
+/* While a drag is running the cursor is pinned on <body>, and nothing else is
+   allowed to answer for it. Without this the pointer crosses the header, the
+   body and the grips as the box moves, and each one re-asserts its own cursor —
+   which reads as flicker. */
+body.wg-dragging,
+body.wg-dragging * {
+  cursor: var(--wg-drag-cursor, default) !important;
+  user-select: none !important;
 }
 
 /* --- file tree ------------------------------------------------------------ */
@@ -625,4 +647,240 @@
   direction: rtl;
   unicode-bidi: isolate;
   text-align: left;
+}
+
+/* --- docked edges ---------------------------------------------------------
+   A docked widget is a real sibling of the chat, not an overlay on it: the
+   chat column shrinks to make room. That is the whole difference between
+   snapping and simply parking a panel near the edge. */
+
+.session-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wg-dock {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  /* Padding and a gap so the panels inside stay rounded objects rather than
+     becoming flush rectangles the moment they are docked. Nothing in this app
+     is square-cornered, docked or not. */
+  padding: 8px;
+  gap: 8px;
+}
+.wg-dock[data-side='left'] {
+  order: -1;
+  flex-direction: column;
+  padding-right: 0;
+}
+.wg-dock[data-side='right'] {
+  order: 1;
+  flex-direction: column;
+  padding-left: 0;
+}
+/* The bottom strip splits across rather than down: two short stacked panes in a
+   260px strip would each be unusable. */
+.wg-dock[data-side='bottom'] {
+  flex-direction: row;
+  padding-top: 0;
+}
+
+/* A docked slot keeps the same shape it had floating — only the shadow goes,
+   since it is no longer hovering above anything. */
+.wg-docked {
+  position: static;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surf);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* --- tabs, past two on one edge ------------------------------------------- */
+
+.wg-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 6px 0;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wg-tabs::-webkit-scrollbar {
+  display: none;
+}
+.wg-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 6px 10px;
+  max-width: 160px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--tx3);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  /* Rounded on top and joined to the pane below, the way a tab reads. */
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+.wg-tab:hover {
+  color: var(--tx2);
+  background: color-mix(in srgb, var(--surf2) 60%, transparent);
+}
+.wg-tab[aria-selected='true'] {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-tab-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wg-tab-x {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.wg-tab-x:hover {
+  background: var(--line2);
+  color: var(--tx);
+}
+
+/* The seam you drag to resize. Sits over the border, a little wider than it
+   looks so it can be grabbed without precision. */
+.wg-dock-grip {
+  position: absolute;
+  z-index: 3;
+}
+.wg-dock-grip[data-side='left'] {
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.wg-dock-grip[data-side='right'] {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.wg-dock-grip[data-side='bottom'] {
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 7px;
+  cursor: ns-resize;
+}
+.wg-dock-grip:hover {
+  background: var(--acs);
+}
+
+/* --- the snap preview -----------------------------------------------------
+   Shown only while a drag is actually over an edge, so the chat is not
+   permanently decorated with drop targets. */
+
+.wg-snap {
+  position: absolute;
+  z-index: 45;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--ac) 15%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--ac) 55%, transparent);
+  border-radius: var(--r-lg);
+  animation: wg-snap-in 0.14s ease-out;
+}
+.wg-snap[data-side='left'] {
+  top: 8px;
+  bottom: 8px;
+  left: 8px;
+  width: 38%;
+}
+.wg-snap[data-side='right'] {
+  top: 8px;
+  bottom: 8px;
+  right: 8px;
+  width: 38%;
+}
+.wg-snap[data-side='bottom'] {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  height: 34%;
+}
+@keyframes wg-snap-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.wg-bubble[data-dragging='true'] {
+  opacity: 0.5;
+}
+
+/* --- a file the editor will not show -------------------------------------- */
+
+.wg-refuse {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 26px 20px;
+  text-align: center;
+  color: var(--tx3);
+}
+.wg-refuse-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx2);
+}
+.wg-refuse-body {
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-width: 34ch;
+}
+.wg-refuse-path {
+  font-size: 10.5px;
+  color: var(--tx3);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.wg-editor-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 9%, transparent);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }

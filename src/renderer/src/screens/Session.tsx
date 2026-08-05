@@ -10,6 +10,7 @@ import {
   FolderTree,
   GitBranch,
   MoreVertical,
+  Info,
   Lock,
   Network,
   Square,
@@ -93,6 +94,7 @@ export function Session(): React.JSX.Element {
   } = useStore()
   const [input, setInput] = useState('')
   const [headMenu, setHeadMenu] = useState(false)
+  const [headInfo, setHeadInfo] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   /** The partial `@name` being typed, or null when the picker was opened from
@@ -123,6 +125,13 @@ export function Session(): React.JSX.Element {
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [headMenu])
+
+  useEffect(() => {
+    if (!headInfo) return
+    const close = (): void => setHeadInfo(false)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [headInfo])
 
   const agent = activeSession ? agentById(activeSession.agentId) : undefined
 
@@ -697,7 +706,17 @@ export function Session(): React.JSX.Element {
   const subagents = activeSession.subagentIds.map(agentById).filter(Boolean)
 
   return (
-    <div className="session">
+    <WidgetHost
+      session={activeSession}
+      patch={patchSession}
+      messages={messages}
+      agent={agent}
+      subagents={subagents.filter((s): s is NonNullable<typeof s> => Boolean(s))}
+      subArt={subArt}
+      rules={rules}
+      stickerSrc={stickerSrc}
+      onAddAgent={() => dispatch({ type: 'toggle', key: 'mentionOpen', value: true })}
+    >
       <div className="session-main">
         <header className="session-head">
           <div className="session-avatar">
@@ -750,18 +769,51 @@ export function Session(): React.JSX.Element {
               <span className="mono">{activeSession.branch}</span>
             </span>
           )}
-          <span className="chip">{agent.model}</span>
-          <span className="chip" title={onSubscription
-            ? 'Running through the Claude Agent SDK on your Claude subscription — no API key involved.'
-            : 'Running through Mastra against the Anthropic API — billed per token to your API key.'}>
-            {onSubscription ? 'subscription' : 'api key'}
-          </span>
-          {activeSession.type !== 'scratch' && agent.workingMemory && (
-            <span className="chip accent">memory on</span>
-          )}
-          {activeSession.type === 'scratch' && (
-            <span className="chip">scratch · nothing saved</span>
-          )}
+          {/* Model, billing and memory are facts about the session, not
+              controls — they never change while you are in it, so three chips
+              spending header width on them all the time is a poor trade. Behind
+              one icon, still one click away. */}
+          <div className="head-info-wrap">
+            <button
+              className="tb-icon"
+              aria-label="Session details"
+              aria-expanded={headInfo}
+              title="Model, billing and memory"
+              onClick={(e) => {
+                e.stopPropagation()
+                setHeadInfo((v) => !v)
+              }}
+            >
+              <Info size={15} strokeWidth={1.8} />
+            </button>
+            {headInfo && (
+              <div className="head-info" onClick={(e) => e.stopPropagation()}>
+                <div className="head-info-row">
+                  <span className="meta">Model</span>
+                  <span className="mono">{agent.model}</span>
+                </div>
+                <div className="head-info-row">
+                  <span className="meta">Billed via</span>
+                  <span className="mono">{onSubscription ? 'subscription' : 'api key'}</span>
+                </div>
+                <div className="head-info-row">
+                  <span className="meta">Memory</span>
+                  <span className="mono">
+                    {activeSession.type === 'scratch'
+                      ? 'scratch — nothing saved'
+                      : agent.workingMemory
+                        ? 'on'
+                        : 'off'}
+                  </span>
+                </div>
+                <div className="head-info-note meta">
+                  {onSubscription
+                    ? 'Running through the Claude Agent SDK on your Claude subscription — no API key involved.'
+                    : 'Running through Mastra against the Anthropic API — billed per token to your API key.'}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="head-menu-wrap">
             <button
               className="tb-icon"
@@ -1191,23 +1243,8 @@ export function Session(): React.JSX.Element {
             <span className="mono">{KEYS.hideMascot()}</span> hide mascot
           </div>
         </div>
-
-        {/* Last in the column so it paints over the transcript and the composer,
-            but transparent to the pointer everywhere except its own panels —
-            see .wg-host. */}
-        <WidgetHost
-          session={activeSession}
-          patch={patchSession}
-          messages={messages}
-          agent={agent}
-          subagents={subagents.filter((s): s is NonNullable<typeof s> => Boolean(s))}
-          subArt={subArt}
-          rules={rules}
-          stickerSrc={stickerSrc}
-          onAddAgent={() => dispatch({ type: 'toggle', key: 'mentionOpen', value: true })}
-        />
       </div>
-    </div>
+    </WidgetHost>
   )
 }
 

@@ -1,6 +1,14 @@
 import { useCallback, useMemo } from 'react'
-import type { Session, WidgetGeom, WidgetInstance, WidgetKind } from '@shared/types'
-import { WIDGETS, clampGeom, defaultGeom } from './registry'
+import type { DockSide, Session, WidgetGeom, WidgetInstance, WidgetKind } from '@shared/types'
+import {
+  DEFAULT_DOCK,
+  DEFAULT_DOCK_H,
+  MIN_DOCK,
+  MIN_DOCK_H,
+  WIDGETS,
+  clampGeom,
+  defaultGeom
+} from './registry'
 
 /**
  * The widgets belonging to one session.
@@ -26,6 +34,16 @@ export interface WidgetApi {
   collapse: (id: string) => void
   expand: (id: string) => void
   move: (id: string, geom: WidgetGeom) => void
+  /** Snap to an edge. The widget stops being an overlay and becomes a column
+   *  the chat makes room for; its floating geometry is kept for the way back. */
+  dock: (id: string, side: DockSide) => void
+  /** Create a widget already snapped to an edge. What dragging a rail bubble
+   *  onto a side does — the widget does not exist until it lands. */
+  openDocked: (kind: WidgetKind, side: DockSide) => void
+  undock: (id: string) => void
+  /** Live size of each edge, in px. */
+  dockSizes: Record<DockSide, number>
+  setDockSize: (side: DockSide, px: number) => void
   /** Point an existing editor at a different file, or open one if none is up.
    *  This is what the navigator calls, and the reason the editor never ends up
    *  with one widget per file you glanced at. */
@@ -127,5 +145,98 @@ export function useWidgets(
     [widgets, write, open]
   )
 
-  return { widgets, find, open, close, collapse, expand, move, openFile }
+  /**
+   * Snap to an edge.
+   *
+   * The floating geometry is stashed rather than overwritten, because undocking
+   * should put the widget back exactly where it was — a docked panel has no
+   * position of its own to return to, so without this it would reappear in a
+   * default slot every time.
+   */
+  const dock = useCallback(
+    (id: string, side: DockSide) => {
+      write(
+        widgets.map((w) =>
+          w.id === id ? { ...w, dock: side, open: true, floatGeom: w.floatGeom ?? w.geom } : w
+        )
+      )
+    },
+    [widgets, write]
+  )
+
+  const openDocked = useCallback(
+    (kind: WidgetKind, side: DockSide) => {
+      const existing = widgets.find((w) => w.kind === kind)
+      if (existing && !WIDGETS[kind].multi) {
+        write(widgets.map((w) => (w.id === existing.id ? { ...w, dock: side, open: true } : w)))
+        return
+      }
+      const rect = hostRect()
+      write([
+        ...widgets,
+        {
+          id: `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+          kind,
+          open: true,
+          dock: side,
+          // Kept so popping it out later has somewhere to go, even though it has
+          // never floated.
+          floatGeom: rect ? defaultGeom(kind, widgets.filter((w) => w.open).length, rect) : undefined
+        }
+      ])
+    },
+    [widgets, write, hostRect]
+  )
+
+  const undock = useCallback(
+    (id: string) => {
+      write(
+        widgets.map((w) =>
+          w.id === id
+            ? { ...w, dock: undefined, geom: w.floatGeom ?? w.geom, floatGeom: undefined }
+            : w
+        )
+      )
+    },
+    [widgets, write]
+  )
+
+  const dockSizes = useMemo(
+    () => ({
+      left: session?.dockSizes?.left ?? DEFAULT_DOCK,
+      right: session?.dockSizes?.right ?? DEFAULT_DOCK,
+      bottom: session?.dockSizes?.bottom ?? DEFAULT_DOCK_H
+    }),
+    [session?.dockSizes]
+  )
+
+  const setDockSize = useCallback(
+    (side: DockSide, px: number) => {
+      const rect = hostRect()
+      // Never let a dock eat the whole window: the chat has to stay usable, and
+      // an edge dragged past the far side would be unrecoverable by pointer.
+      const room = side === 'bottom' ? (rect?.height ?? 900) - 260 : (rect?.width ?? 1200) - 320
+      const min = side === 'bottom' ? MIN_DOCK_H : MIN_DOCK
+      patch({
+        dockSizes: { ...session?.dockSizes, [side]: Math.min(Math.max(min, px), Math.max(min, room)) }
+      })
+    },
+    [patch, session?.dockSizes, hostRect]
+  )
+
+  return {
+    widgets,
+    find,
+    open,
+    close,
+    collapse,
+    expand,
+    move,
+    openFile,
+    dock,
+    openDocked,
+    undock,
+    dockSizes,
+    setDockSize
+  }
 }

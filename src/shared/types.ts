@@ -352,6 +352,10 @@ export interface Session {
   threadId?: string
   workspacePath?: string
   branch?: string
+  /** Size of each docked edge in px — width for the sides, height for the
+   *  bottom. Shared by every widget docked there, since they stack: the size
+   *  belongs to the column, not to the widget. */
+  dockSizes?: Partial<Record<DockSide, number>>
   /** Floating panels open over this chat, with their geometry. Per-session
    *  because a terminal and an open file belong to the folder you are working
    *  in, not to the app. Live PTY ids are deliberately not persisted — the shell
@@ -550,6 +554,10 @@ export interface StickerFireEvent {
  * own once they have something to say, tools are opened by the user or by
  * another widget (clicking a file in the navigator opens the editor).
  */
+/** Edges a widget can snap to. The bottom is a strip under the chat rather than
+ *  a column beside it — the natural home for a terminal. */
+export type DockSide = 'left' | 'right' | 'bottom'
+
 export type WidgetKind =
   | 'agents'
   | 'activity'
@@ -580,6 +588,12 @@ export interface WidgetInstance {
   /** Editor: the workspace-relative file. Terminal: its title. */
   path?: string
   title?: string
+  /** Snapped to an edge. A docked widget is a real column or strip beside the
+   *  chat rather than an overlay on top of it, so the chat gives up the space. */
+  dock?: DockSide
+  /** Where it floated before it was docked, so undocking puts it back rather
+   *  than dropping it in a default position. */
+  floatGeom?: WidgetGeom
 }
 
 /** One row in the file navigator. Mirrors Mastra's `FileEntry`. */
@@ -615,4 +629,15 @@ export interface WsFile {
   /** Handed back on save so a write can refuse when the agent got there first. */
   mtime: number | null
   truncated: boolean
+  /** Readable, but big enough to warn about before you scroll into it. */
+  large?: boolean
+  size: number
+}
+
+/** Why a file could not be opened. None of these are faults — they are files a
+ *  text editor has no business showing, so the editor draws a notice. */
+export interface WsFileRefusal {
+  error: string
+  kind?: 'binary' | 'too-large' | 'directory' | 'undecodable'
+  size?: number
 }

@@ -22,6 +22,7 @@ import type {
   DisplayInfo,
   WsEntry,
   WsFile,
+  WsFileRefusal,
   WsHit,
   WsDiagnostic,
   WsSkill
@@ -204,7 +205,7 @@ export interface MochiApi {
    *  answers with a value or `{ error }` — a session with no folder set is an
    *  ordinary state, not a fault. */
   wsList: (folder: string, path?: string) => Promise<WsEntry[] | { error: string }>
-  wsRead: (folder: string, path: string) => Promise<WsFile | { error: string }>
+  wsRead: (folder: string, path: string) => Promise<WsFile | WsFileRefusal>
   /** `expectedMtime` makes the write refuse when the agent edited the file
    *  first; the result then carries `stale` so the editor can offer a reload. */
   wsWrite: (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { FileWarning, TriangleAlert } from 'lucide-react'
 import type { WsDiagnostic } from '@shared/types'
 
 /** How long to wait after the last keystroke before asking the language server.
@@ -6,6 +7,15 @@ import type { WsDiagnostic } from '@shared/types'
  *  keep a server permanently busy re-parsing a half-written line. */
 const DIAGNOSE_MS = 600
 const HOVER_MS = 320
+
+/** What to call each way a file can be un-openable. The message underneath
+ *  carries the detail; this is the one-line verdict. */
+const REFUSAL_TITLE: Record<string, string> = {
+  binary: 'Not a text file',
+  'too-large': 'Too large to open',
+  directory: 'That is a folder',
+  undecodable: 'Unreadable encoding'
+}
 
 /** Turn a caret offset into the line/character LSP wants. */
 function positionAt(text: string, offset: number): { line: number; character: number } {
@@ -36,6 +46,12 @@ export function EditorPane({
   const [mtime, setMtime] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
+  /** Set when the file is not editable text at all — binary, too big, or in an
+   *  encoding we cannot decode. Draws a notice instead of the textarea. */
+  const [refusal, setRefusal] = useState<{ error: string; kind?: string; size?: number } | null>(
+    null
+  )
+  const [large, setLarge] = useState(false)
   const [busy, setBusy] = useState(false)
   const [diags, setDiags] = useState<WsDiagnostic[]>([])
   const [hover, setHover] = useState<string | null>(null)
@@ -53,14 +69,18 @@ export function EditorPane({
     const result = await window.mochi?.wsRead(folder, path)
     if (!result) return
     if ('error' in result) {
-      setError(result.error)
+      // A refusal carries a `kind`; anything else is a genuine failure.
+      if (result.kind) setRefusal(result)
+      else setError(result.error)
       return
     }
+    setRefusal(null)
     setError(null)
     setStale(false)
     setText(result.text)
     setSaved(result.text)
     setMtime(result.mtime)
+    setLarge(Boolean(result.large))
   }, [folder, path])
 
   /*
@@ -81,7 +101,8 @@ export function EditorPane({
     void window.mochi?.wsRead(folder, path).then((result) => {
       if (!alive || !result) return
       if ('error' in result) {
-        setError(result.error)
+        if (result.kind) setRefusal(result)
+        else setError(result.error)
         return
       }
       setError(null)
@@ -89,6 +110,7 @@ export function EditorPane({
       setText(result.text)
       setSaved(result.text)
       setMtime(result.mtime)
+      setLarge(Boolean(result.large))
     })
     return () => {
       alive = false
@@ -98,23 +120,23 @@ export function EditorPane({
   // Diagnostics track the buffer, not the file on disk — squiggles for what you
   // are typing rather than what you last saved.
   useEffect(() => {
-    if (!path) return
+    if (!path || refusal) return
     const timer = setTimeout(() => {
       void window.mochi?.wsDiagnose(folder, path, text).then((d) => setDiags(d ?? []))
     }, DIAGNOSE_MS)
     return () => clearTimeout(timer)
-  }, [folder, path, text])
+  }, [folder, path, text, refusal])
 
   // Type information for whatever the caret is sitting on.
   useEffect(() => {
-    if (!path) return
+    if (!path || refusal) return
     const timer = setTimeout(() => {
       void window.mochi
         ?.wsHover(folder, path, caret.line, caret.character)
         .then((h) => setHover(h ?? null))
     }, HOVER_MS)
     return () => clearTimeout(timer)
-  }, [folder, path, caret])
+  }, [folder, path, caret, refusal])
 
   const save = useCallback(async (): Promise<void> => {
     if (!path || !dirty) return
@@ -142,6 +164,27 @@ export function EditorPane({
     return <div className="wg-empty meta">Pick a file in the Files widget to open it here.</div>
   }
 
+  /*
+   * Not editable text.
+   *
+   * Showing the decoded bytes instead would be worse than showing nothing: a
+   * screen of replacement characters reads as a rendering bug, and it invites
+   * you to edit and save it — which would destroy the original file.
+   */
+  if (refusal) {
+    return (
+      <div className="wg-refuse">
+        <FileWarning size={22} strokeWidth={1.6} />
+        <div className="wg-refuse-title">{REFUSAL_TITLE[refusal.kind ?? ''] ?? 'Cannot open'}</div>
+        <div className="wg-refuse-body meta">{refusal.error}</div>
+        <div className="mono wg-refuse-path">{path}</div>
+        <button className="wg-btn-text" onClick={() => void load()}>
+          Try again
+        </button>
+      </div>
+    )
+  }
+
   const lines = text.split('\n')
   const bad = new Map<number, WsDiagnostic>()
   for (const d of diags) if (!bad.has(d.line)) bad.set(d.line, d)
@@ -167,6 +210,13 @@ export function EditorPane({
           Save
         </button>
       </div>
+
+      {large && !error && (
+        <div className="wg-editor-warn">
+          <TriangleAlert size={13} strokeWidth={1.9} />
+          This is a large file — editing and diagnostics may be slow.
+        </div>
+      )}
 
       {error && (
         <div className="wg-editor-err">

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Minus, X } from 'lucide-react'
 import type { WidgetGeom } from '@shared/types'
 import { MIN_H, MIN_W } from './registry'
@@ -8,6 +8,19 @@ import type { LucideIcon } from 'lucide-react'
 type Grip = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
 const EDGES: Grip[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
+
+/** The cursor each grip should pin for the whole drag. */
+const CURSOR: Record<Grip, string> = {
+  move: 'grabbing',
+  n: 'ns-resize',
+  s: 'ns-resize',
+  e: 'ew-resize',
+  w: 'ew-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
+  nw: 'nwse-resize',
+  se: 'nwse-resize'
+}
 
 /**
  * The box a widget lives in: title bar, collapse, close, and eight grips.
@@ -28,7 +41,9 @@ export function WidgetFrame({
   onClose,
   onFocus,
   children,
-  actions
+  actions,
+  onDragMove,
+  onDragEnd
 }: {
   title: string
   subtitle?: string
@@ -41,11 +56,28 @@ export function WidgetFrame({
   onFocus: () => void
   children: React.ReactNode
   actions?: React.ReactNode
+  /** Reported on every header drag so the host can offer a snap zone. */
+  onDragMove?: (clientX: number, clientY: number) => void
+  /** Returns true when the host consumed the drop as a dock, in which case the
+   *  floating geometry is deliberately *not* committed — the widget is about to
+   *  stop being a floating widget. */
+  onDragEnd?: (clientX: number, clientY: number) => boolean
 }): React.JSX.Element {
   const boxRef = useRef<HTMLDivElement>(null)
-  /** Live geometry during a drag. Not state: this changes every frame and no
-   *  render depends on it until the pointer comes up. */
-  const draft = useRef<WidgetGeom>(geom)
+  /**
+   * The geometry while a drag is running.
+   *
+   * This used to be written straight to `box.style` to avoid a state update per
+   * frame — which was wrong. Any re-render (the parent tracking a snap zone, the
+   * chat streaming a token, anything at all) re-applied `style` from the *props*
+   * geometry and yanked the box back to where it started, so the panel flickered
+   * between the two and drifted away from the cursor.
+   *
+   * Rendering from state instead means React owns the position and there is
+   * nothing to fight: what is drawn is exactly what the pointer last said.
+   */
+  const [live, setLive] = useState<WidgetGeom | null>(null)
+  const shown = live ?? geom
 
   const start = useCallback(
     (grip: Grip) =>
@@ -57,13 +89,19 @@ export function WidgetFrame({
         e.stopPropagation()
         onFocus()
 
-        const box = boxRef.current
-        if (!box) return
         const from = { ...geom }
         const originX = e.clientX
         const originY = e.clientY
-        draft.current = from
-        ;(e.target as Element).setPointerCapture?.(e.pointerId)
+        let latest = from
+        // Capture on the grip itself, not `e.target`: the target can be a child
+        // that unmounts mid-drag, which silently drops the capture.
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+
+        // Pin the cursor for the duration. As the box moves and resizes the
+        // pointer crosses the header, the body and other grips, and each would
+        // otherwise assert its own cursor — which is the flicker.
+        document.body.classList.add('wg-dragging')
+        document.body.style.setProperty('--wg-drag-cursor', CURSOR[grip])
 
         const onMove = (ev: PointerEvent): void => {
           const dx = ev.clientX - originX
@@ -89,22 +127,32 @@ export function WidgetFrame({
             }
           }
 
-          draft.current = { x, y, w, h }
-          box.style.transform = `translate(${x}px, ${y}px)`
-          box.style.width = `${w}px`
-          box.style.height = `${h}px`
+          latest = { x, y, w, h }
+          setLive(latest)
+          if (grip === 'move') onDragMove?.(ev.clientX, ev.clientY)
         }
 
-        const onUp = (): void => {
+        const onUp = (ev: PointerEvent): void => {
           window.removeEventListener('pointermove', onMove)
           window.removeEventListener('pointerup', onUp)
-          onGeom(draft.current)
+          window.removeEventListener('pointercancel', onUp)
+          document.body.classList.remove('wg-dragging')
+          document.body.style.removeProperty('--wg-drag-cursor')
+          setLive(null)
+          // A drag that ended on an edge becomes a dock, and committing the
+          // floating position first would put the widget briefly in the wrong
+          // place before the layout reflows.
+          if (grip === 'move' && onDragEnd?.(ev.clientX, ev.clientY)) return
+          onGeom(latest)
         }
 
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
+        // Losing the pointer (window blur, touch cancelled) must not leave the
+        // body stuck in drag mode with every cursor overridden.
+        window.addEventListener('pointercancel', onUp)
       },
-    [geom, onGeom, onFocus]
+    [geom, onGeom, onFocus, onDragMove, onDragEnd]
   )
 
   return (
@@ -112,9 +160,9 @@ export function WidgetFrame({
       ref={boxRef}
       className="wg"
       style={{
-        transform: `translate(${geom.x}px, ${geom.y}px)`,
-        width: geom.w,
-        height: geom.h,
+        transform: `translate(${shown.x}px, ${shown.y}px)`,
+        width: shown.w,
+        height: shown.h,
         zIndex: z
       }}
       onPointerDown={onFocus}

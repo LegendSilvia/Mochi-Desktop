@@ -96,6 +96,20 @@ export const PANEL_KINDS: WidgetKind[] = [
 export const MIN_W = 240
 export const MIN_H = 150
 
+/** Docked column sizing. The minimum is what a file tree needs to stay usable;
+ *  the default is a comfortable reading width for an editor. */
+export const MIN_DOCK = 260
+export const DEFAULT_DOCK = 420
+/** The bottom strip is measured in height, and wants to be shorter than a side
+ *  column is wide — it is a terminal or a task list, not a document. */
+export const MIN_DOCK_H = 130
+export const DEFAULT_DOCK_H = 260
+
+/** How close to an edge a drag has to get before it offers to snap there.
+ *  Wide enough to hit without aiming, narrow enough that a widget parked near
+ *  the side does not snap by accident. */
+export const SNAP_EDGE = 42
+
 /**
  * Where a newly opened widget lands.
  *

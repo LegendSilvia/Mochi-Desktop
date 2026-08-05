@@ -194,30 +194,112 @@ export interface ReadResult {
    *  first. Null when the file vanished between read and stat. */
   mtime: number | null
   truncated: boolean
+  /** Readable, but big enough to be worth a word of warning before you scroll
+   *  into it. */
+  large?: boolean
+  size: number
 }
 
-/** Read a text file out of the workspace. */
+export interface ReadRefusal {
+  error: string
+  /** Lets the editor draw a proper notice rather than a red failure — none of
+   *  these are faults, they are files that are not editable text. */
+  kind?: 'binary' | 'too-large' | 'directory' | 'undecodable'
+  size?: number
+}
+
+/** Above this a file is still opened, but the editor says so first. */
+const LARGE_BYTES = 1024 * 1024
+/** Above this it is not opened at all — a textarea this big locks the renderer
+ *  for seconds and there is nothing useful to do with it anyway. */
+const MAX_BYTES = 4 * 1024 * 1024
+
+/**
+ * Is this bytes rather than text?
+ *
+ * A NUL byte is the giveaway and costs nothing to find — no real text file in
+ * any encoding this editor could show contains one. The control-character ratio
+ * is the backstop for formats that happen to avoid NUL.
+ *
+ * Only the head is examined: a file that is text for 8KB and binary afterwards
+ * does not exist in practice, and reading the whole thing to be sure would mean
+ * loading the very files this is trying to avoid loading.
+ */
+function looksBinary(buf: Buffer): boolean {
+  const n = Math.min(buf.length, 8000)
+  if (n === 0) return false
+  let control = 0
+  for (let i = 0; i < n; i++) {
+    const b = buf[i]
+    if (b === 0) return true
+    // Tab, newline, carriage return and form feed are text; the rest of C0 is not.
+    if (b < 32 && b !== 9 && b !== 10 && b !== 13 && b !== 12) control++
+  }
+  return control / n > 0.1
+}
+
+/** Read a file out of the workspace, refusing the ones a text editor cannot show. */
 export async function readWorkspaceFile(
   folder: string,
   path: string
-): Promise<ReadResult | { error: string }> {
+): Promise<ReadResult | ReadRefusal> {
   const ws = workspaceFor(folder)
   const p = safePath(path)
   if (!ws?.filesystem || p === null) return { error: 'No workspace' }
   try {
     const stat = await ws.filesystem.stat(p)
-    if (stat.type === 'directory') return { error: 'That is a folder' }
-    // A 5MB source file is a generated bundle, and loading it into a textarea
-    // locks the renderer for seconds. Better to say so than to hang.
-    if (stat.size > 4 * 1024 * 1024) {
-      return { error: `Too large to open (${Math.round(stat.size / 1024 / 1024)}MB)` }
+    if (stat.type === 'directory') return { error: 'That is a folder', kind: 'directory' }
+    if (stat.size > MAX_BYTES) {
+      return {
+        error: `This file is ${formatBytes(stat.size)} — too large to open here.`,
+        kind: 'too-large',
+        size: stat.size
+      }
     }
-    const raw = await ws.filesystem.readFile(p, { encoding: 'utf-8' })
-    const text = typeof raw === 'string' ? raw : raw.toString('utf-8')
-    return { text, mtime: stat.modifiedAt?.getTime() ?? null, truncated: false }
+
+    // Read as bytes first. Decoding straight to UTF-8 is what turns a .pbix or a
+    // .png into a screen of replacement characters that looks like a rendering
+    // bug rather than "this is not a text file".
+    const raw = await ws.filesystem.readFile(p, { encoding: 'binary' })
+    const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw), 'binary')
+
+    if (looksBinary(buf)) {
+      return {
+        error: `This looks like a binary file (${formatBytes(stat.size)}), not text.`,
+        kind: 'binary',
+        size: stat.size
+      }
+    }
+
+    const text = buf.toString('utf-8')
+    // A file that decoded but came out mostly as U+FFFD is text in some encoding
+    // this cannot read — showing the mojibake would invite editing and saving it,
+    // which destroys the original.
+    const replacements = (text.match(/�/g) ?? []).length
+    if (replacements > 0 && replacements / Math.max(1, text.length) > 0.01) {
+      return {
+        error: 'This file is text, but not in an encoding Mochi can read (try UTF-8).',
+        kind: 'undecodable',
+        size: stat.size
+      }
+    }
+
+    return {
+      text,
+      mtime: stat.modifiedAt?.getTime() ?? null,
+      truncated: false,
+      large: stat.size > LARGE_BYTES,
+      size: stat.size
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 /**
