@@ -27,6 +27,7 @@ import {
 } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { readWorkingMemory, resetRecall, writeWorkingMemory } from './recall'
+import { personalResource } from '../shared/memory'
 import { listOpenRouterModels } from './openrouter'
 import { listSubscriptionModels } from './agent-sdk-route'
 import {
@@ -519,7 +520,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const EDITOR_THREAD = 'mochi-memory-editor'
   const memoryKeysFor = (agentId: string): { threadId: string; resourceId: string } => ({
     threadId: EDITOR_THREAD,
-    resourceId: 'mochi-user:' + agentId
+    resourceId: personalResource(agentId)
   })
 
   ipcMain.handle(IPC.memoryGet, async (_e, agentId: string) => {

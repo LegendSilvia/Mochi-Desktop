@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
+import { personalResource } from '@shared/memory'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
 import { chatFor, flushAllChats, forgetChat, noteActivity, onChatFinish } from '@renderer/lib/chatRegistry'
@@ -41,24 +42,6 @@ import '@renderer/components/widgets/widgets.css'
  *  how much of a turn a session switch or a window close can cost — see the
  *  persistence block below. */
 const STREAM_SAVE_MS = 700
-
-/** Who the memory belongs to. Mastra groups threads (and semantic recall) under
- *  a resource id, which names the *user* rather than the agent — and Mochi has
- *  exactly one of those. */
-const MEMORY_RESOURCE = 'mochi-user'
-
-/**
- * The resource a session's memory hangs off, scoped per agent.
- *
- * It used to be the bare constant for everyone. That is correct for naming the
- * user, and wrong the moment recall is allowed to search across sessions: one
- * bucket means asking Fraux about a past conversation could surface fragments
- * of Helper's, from unrelated work. Per agent, "what it remembers" matches who
- * you were talking to.
- */
-function memoryResource(agentId: string): string {
-  return `${MEMORY_RESOURCE}:${agentId}`
-}
 
 interface AskInput {
   question?: string
@@ -238,7 +221,9 @@ export function Session(): React.JSX.Element {
           // memory never came up — and the task-state processor, which requires
           // an active thread, failed every turn with "computeStateSignal
           // requires Mastra memory with an active resourceId and threadId".
-          ...(threadId ? { memory: { thread: threadId, resource: memoryResource(agent.id) } } : {})
+          ...(threadId
+            ? { memory: { thread: threadId, resource: personalResource(agent.id) } }
+            : {})
         }
       })
     })

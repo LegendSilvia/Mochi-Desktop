@@ -25,6 +25,7 @@ import {
   workingMemoryBlock,
   writeWorkingMemory
 } from './recall'
+import { personalResource } from '../shared/memory'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -1347,10 +1348,26 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
          */
         const memoryKeys =
           agent && body.memory?.thread && body.memory?.resource
-            ? { threadId: body.memory.thread, resourceId: body.memory.resource }
+            ? {
+                threadId: body.memory.thread,
+                /*
+                 * Decided here, not taken from the request.
+                 *
+                 * The resource is what separates one agent's memory from
+                 * another's, so it is the one field a shared conversation must
+                 * not be able to move. Reading it off the wire meant a second
+                 * agent answering in this thread could file its replies — and
+                 * write its working memory — under whichever resource the sender
+                 * happened to name.
+                 */
+                resourceId: personalResource(agentId)
+              }
             : null
+        // Whether anyone else is in this conversation. Decides whether recall
+        // also reads the thread rather than only this agent's own history.
+        const shared = (load().sessions.find((s) => s.id === chatId)?.subagentIds?.length ?? 0) > 0
         const recalled = memoryKeys
-          ? await recallContext(agent!, { ...memoryKeys, prompt })
+          ? await recallContext(agent!, { ...memoryKeys, prompt, shared })
           : null
         // Working memory rides in front too, and before recall: it is the
         // standing facts, where recall is the specific reminder. On the Mastra

@@ -193,7 +193,14 @@ function textOf(message: { content?: { parts?: unknown[] } }): string {
  */
 export async function recallContext(
   loadout: AgentLoadout,
-  opts: { threadId: string; resourceId: string; prompt: string }
+  opts: {
+    threadId: string
+    resourceId: string
+    prompt: string
+    /** True when other agents are in this conversation. See below — it is what
+     *  lets an agent read what the others said here. */
+    shared?: boolean
+  }
 ): Promise<string | null> {
   // `memoryFor` now also answers for working-memory-only loadouts, so recall
   // has to say for itself whether it was asked for.
@@ -201,24 +208,69 @@ export async function recallContext(
   const memory = await memoryFor(loadout)
   if (!memory || !opts.prompt.trim()) return null
 
+  const topK = Math.min(20, Math.max(1, Math.round(loadout.recallTopK ?? DEFAULT_RECALL_TOP_K)))
+
   try {
-    const { messages } = await memory.recall({
+    // `perPage: 0` because semantic hits are the entire point here — without
+    // it recall also returns a page of recent messages, which the Agent SDK
+    // already has and would only duplicate.
+    const own = await memory.recall({
       threadId: opts.threadId,
       resourceId: opts.resourceId,
       vectorSearchString: opts.prompt,
-      // `perPage: 0` because semantic hits are the entire point here — without
-      // it recall also returns a page of recent messages, which the Agent SDK
-      // already has and would only duplicate.
       perPage: 0
     })
-    if (!messages?.length) return null
 
-    const lines = messages
-      .map((m) => ({ role: m.role, text: textOf(m) }))
+    /*
+     * The shared half of a conversation with more than one agent in it.
+     *
+     * Resources stay per agent — that is what keeps each one's notes and past
+     * conversations its own — so the query above finds only what *this* agent
+     * said. What the agents genuinely have in common is the thread, and Mastra
+     * filters thread-scoped recall on `thread_id` alone (`resource_id` is not
+     * consulted), so asking a second time with the scope overridden reaches
+     * every agent's messages in this conversation regardless of whose resource
+     * they were filed under.
+     *
+     * Only for shared sessions: in a solo one this is the same rows a second
+     * time, at the cost of a second embedding round-trip.
+     */
+    const sharedHits = opts.shared
+      ? await memory.recall({
+          threadId: opts.threadId,
+          resourceId: opts.resourceId,
+          vectorSearchString: opts.prompt,
+          perPage: 0,
+          threadConfig: { semanticRecall: { topK, messageRange: 2, scope: 'thread' } }
+        })
+      : null
+
+    // The two queries overlap on this agent's own messages in this thread.
+    const seen = new Set<string>()
+    const hits = [...(own.messages ?? []), ...(sharedHits?.messages ?? [])].filter((m) => {
+      if (!m.id) return true
+      if (seen.has(m.id)) return false
+      seen.add(m.id)
+      return true
+    })
+
+    const lines = hits
+      .map((m) => ({
+        // "You" is only true of this agent's own rows. An excerpt from another
+        // agent in a shared thread, labelled as something this one said, is
+        // worse than not recalling it at all — it would answer as if it had.
+        who:
+          m.role === 'user'
+            ? 'User'
+            : m.resourceId && m.resourceId !== opts.resourceId
+              ? 'Another agent'
+              : 'You',
+        text: textOf(m)
+      }))
       .filter((m) => m.text)
       // Long matches are trimmed rather than dropped: a truncated reminder is
       // still a reminder, and the whole block rides in front of every prompt.
-      .map((m) => `${m.role === 'user' ? 'User' : 'You'}: ${m.text.slice(0, 600)}`)
+      .map((m) => `${m.who}: ${m.text.slice(0, 600)}`)
     if (!lines.length) return null
 
     return [
