@@ -15,7 +15,7 @@ import type { EmbedderInfo } from '@shared/types'
  * component the way the old "add a fact…" box did.
  */
 export function MemoryPane(): React.JSX.Element {
-  const { agents, settings, dispatch, sessions } = useStore()
+  const { agents, settings, dispatch } = useStore()
   const agent = agents.find((a) => a.id === settings.defaultAgentId) ?? agents[0]
   /** The stored working memory, as text. Keyed reload below so switching the
    *  default agent shows that agent's memory rather than the last one's. */
@@ -181,25 +181,21 @@ export function MemoryPane(): React.JSX.Element {
 
         <div className="pane-col">
           <section className="config-card">
-            <span className="section-label">Threads</span>
-            {sessions.map((s) => (
-              <div className="thread-row" key={s.id}>
-                <span className="thread-title">{s.title}</span>
-                <span className="mono meta">{s.threadId ?? 'no thread — scratch'}</span>
-              </div>
-            ))}
-          </section>
-
-          <section className="config-card">
+            {/*
+              This listed every session against its raw thread id. It was a
+              debugging view that survived into the product: the ids mean
+              nothing to anyone using the app, the titles are already in the
+              sidebar, and the list grew without bound — so the pane's most
+              prominent card was the least useful thing on it.
+            */}
             <span className="section-label">Where it lives</span>
             <div className="kv">
               <span className="meta">Provider</span>
               <span className="mono">{settings.storageProvider}</span>
             </div>
-            <div className="kv">
-              <span className="meta">Tables</span>
-              <span className="mono">mastra_threads, mastra_messages, mastra_vectors</span>
-            </div>
+            {/* The table names went with the thread list, for the same reason:
+                knowing a row lives in `mastra_messages` helps nobody decide
+                anything. */}
             <span className="meta">
               Storage lives under your app data folder. Change the provider in Settings → Storage.
             </span>

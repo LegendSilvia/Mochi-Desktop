@@ -66,6 +66,9 @@ export function MascotMenu({
     [sessions]
   )
 
+  /** Aim at a session that does not exist yet. Kept out of the store until a
+   *  message is actually sent — see startNew. */
+  const NEW_SESSION = '__new__'
   const chosen = target ?? recent[0]?.id ?? null
 
   // The window only just became focusable, so the caret has to be asked for
@@ -105,9 +108,15 @@ export function MascotMenu({
     })
   }
 
-  /** A fresh session, created here so the message has somewhere to land. Written
-   *  through the store, which persists and tells the app window — the same path
-   *  the New session screen uses. */
+  /**
+   * A fresh session, created only when there is something to put in it.
+   *
+   * The New session button used to call this directly, so opening the popup,
+   * clicking it and changing your mind left a permanent empty session behind —
+   * three of them in a row is what the list looked like after an afternoon.
+   * The button now only *aims* at a new session; this runs from `send`, once a
+   * message exists to land in it.
+   */
   const startNew = (): string => {
     const id = `s-${Date.now().toString(36)}`
     const next: Session = {
@@ -130,7 +139,7 @@ export function MascotMenu({
   const send = (): void => {
     const body = text.trim()
     if (!body) return
-    const sessionId = chosen ?? startNew()
+    const sessionId = chosen && chosen !== NEW_SESSION ? chosen : startNew()
     void window.mochi?.sendToSession(sessionId, body)
     setText('')
     onClose()
@@ -164,7 +173,11 @@ export function MascotMenu({
             <span className="meta">{agents.find((a) => a.id === s.agentId)?.name ?? s.agentId}</span>
           </button>
         ))}
-        <button className="mo-menu-session mo-menu-new" onClick={() => startNew()}>
+        <button
+          className="mo-menu-session mo-menu-new"
+          data-on={chosen === NEW_SESSION}
+          onClick={() => setTarget(NEW_SESSION)}
+        >
           <Plus size={11} strokeWidth={2.2} />
           <span className="mo-menu-session-name">New session</span>
         </button>

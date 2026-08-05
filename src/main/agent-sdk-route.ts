@@ -142,6 +142,20 @@ export async function listSubscriptionModels(appVersion: string): Promise<Subscr
   }
 }
 
+/**
+ * The model for errands — titling, mascot lines — rather than conversation.
+ *
+ * Only the Anthropic half of the role is usable here: this route runs on the
+ * subscription, which serves nothing else. Anything else returns undefined so
+ * the SDK picks its own default, because a background nicety must never fail
+ * on account of a setting the user made for a different backend.
+ */
+function quickJobModel(): string | undefined {
+  const configured = load().settings.modelRoles?.quickJobs ?? ''
+  const [provider, ...rest] = configured.split('/')
+  return provider === 'anthropic' && rest.length ? rest.join('/') : undefined
+}
+
 /** Tools are declared under an in-process MCP server, so they run here and can
  *  reach the bus directly — same wiring as the Mastra tools, different transport. */
 const TOOL_PREFIX = 'mcp__mochi__'
@@ -1111,6 +1125,17 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
           systemPrompt: 'You write short, concrete titles. You never explain yourself.',
           allowedTools: [],
           env: subscriptionEnv(appVersion),
+          /*
+           * The quick-jobs model, not the conversation one.
+           *
+           * Naming a session is six words off the first exchange, and running
+           * it on whatever the loadout uses meant Opus was being asked to write
+           * a filename. The role already exists for exactly this kind of
+           * errand; only the Anthropic part of it can run here, so a non-
+           * Anthropic choice falls back to the default rather than failing a
+           * title nobody asked for.
+           */
+          model: quickJobModel(),
           maxTurns: 1
         }
       })) {
