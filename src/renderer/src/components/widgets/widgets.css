@@ -13,6 +13,13 @@
   overflow: hidden;
   z-index: 5;
 }
+/* A drag has to be able to cross a docked column — that is where it is going.
+   `clampGeom` still keeps a released widget inside the chat, so dropping the
+   clip here costs nothing once the pointer is up. */
+.wg-host[data-dragging='true'] {
+  overflow: visible;
+  z-index: 70;
+}
 
 /* --- the bubble rail ------------------------------------------------------ */
 

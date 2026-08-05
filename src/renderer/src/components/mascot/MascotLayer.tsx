@@ -123,9 +123,21 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   const [hovering, setHovering] = useState(false)
   const clickTimer = useRef<number | null>(null)
 
-  /** Being handled beats being busy: if the user has picked the mascot up, that
-   *  is what it should be doing, whatever the agent is up to underneath. */
-  const pose: MascotPose | null = dragPose ?? (clicking ? 'click' : hovering ? 'hover' : null)
+  /**
+   * Being handled beats being busy: if the user has picked the mascot up, that
+   * is what it should be doing, whatever the agent is up to underneath.
+   *
+   * Sleep is the exception, and outranks all of it. Hovering or dragging a
+   * sleeping mascot showed the hover and held sprites, so she looked awake
+   * while still being asleep — the pointer passing over her is exactly the
+   * "ordinary activity" that is supposed to leave her resting. A click is the
+   * one thing that wakes her (see the pointerup handler), and by the time the
+   * click pose is read the state has already changed, so it still plays.
+   */
+  const asleep = mascotState === 'sleeping'
+  const pose: MascotPose | null = asleep
+    ? null
+    : (dragPose ?? (clicking ? 'click' : hovering ? 'hover' : null))
 
   const flashClick = useCallback(() => {
     if (clickTimer.current !== null) window.clearTimeout(clickTimer.current)

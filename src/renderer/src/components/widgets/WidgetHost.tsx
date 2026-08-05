@@ -491,6 +491,11 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       <div
         className="wg-host"
         ref={hostRef}
+        // While something is being dragged the layer stops clipping and rises
+        // above the docks — otherwise a panel dragged toward a docked edge is
+        // sliced off at the boundary of its own container, which is precisely
+        // the direction you drag when you mean to snap it there.
+        data-dragging={drag ? 'true' : undefined}
         style={{
           left: docked.left.length ? api.dockSizes.left : 0,
           right: docked.right.length ? api.dockSizes.right : 0,
