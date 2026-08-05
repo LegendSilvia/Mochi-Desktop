@@ -26,6 +26,7 @@ import {
   setMascotVisible
 } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
+import { resetRecall } from './recall'
 import {
   destroyWorkspaces,
   diagnoseFile,
@@ -303,6 +304,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // Monitor and always-on-top level are window properties the renderer cannot
     // touch, so they are re-applied here from whatever was just persisted.
     applyMascotWindowConfig()
+    // Recall memories are built per agent from the loadout's own settings and
+    // the embedding model, and both live in what was just saved — so a memory
+    // built a moment ago may already be answering with the wrong topK, the
+    // wrong scope, or an embedder the user has since replaced.
+    resetRecall()
     return next
   })
 

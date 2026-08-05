@@ -18,6 +18,7 @@ import { bus } from '../mastra/events'
 import { load } from './store'
 import { readLibrary } from './assets'
 import { search } from './rag'
+import { recallContext, rememberTurn } from './recall'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -950,7 +951,13 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
 
   app.post('/agent-sdk/chat/:agentId', async (c) => {
     const agentId = c.req.param('agentId')
-    const body = (await c.req.json()) as { id?: string; messages?: IncomingMessage[] }
+    const body = (await c.req.json()) as {
+      id?: string
+      messages?: IncomingMessage[]
+      /** Sent by the renderer for both backends. Mastra reads it for its own
+       *  memory; here it is what lets recall find this conversation. */
+      memory?: { threadId?: string; resourceId?: string }
+    }
     const chatId = body.id ?? agentId
     const prompt = latestUserText(body.messages)
 
@@ -986,7 +993,29 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         // No id to resume means the agent has never heard any of this — either a
         // brand-new chat (where there is nothing to replay anyway) or one being
         // picked up after a restart. `replayPrompt` is a no-op in the first case.
-        const opening = resume ? prompt : replayPrompt(body.messages, prompt)
+        /*
+         * What the agent remembers, from conversations the Agent SDK cannot see.
+         *
+         * `resume` gives it this thread's own transcript, and nothing else —
+         * anything said in an earlier session, or far enough back that the CLI
+         * has compacted it away, is simply gone. Recall is what reaches those,
+         * so it rides in front of the prompt on every turn rather than only the
+         * first: the useful match is usually for what was just asked.
+         */
+        const memoryKeys =
+          agent && body.memory?.threadId && body.memory?.resourceId
+            ? { threadId: body.memory.threadId, resourceId: body.memory.resourceId }
+            : null
+        const recalled = memoryKeys
+          ? await recallContext(agent!, { ...memoryKeys, prompt })
+          : null
+
+        const base = resume ? prompt : replayPrompt(body.messages, prompt)
+        const opening = recalled ? `${recalled}\n\n---\n\n${base}` : base
+        /** The reply as the user sees it, kept so the exchange can be filed for
+         *  later recall — the Agent SDK keeps its own transcript, and Mastra
+         *  would otherwise never hear a word of this conversation. */
+        let replyText = ''
         let textIndex = 0
         /** SDK content-block index → the stream part we opened for it. */
         const openBlocks = new Map<number, { id: string; kind: 'text' | 'thinking' }>()
@@ -1197,7 +1226,10 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 if (!open || !text) continue
                 // Only real prose counts as "the user has seen something" —
                 // reasoning alone should not block the resume retry.
-                if (open.kind === 'text') streamed = true
+                if (open.kind === 'text') {
+                  streamed = true
+                  replyText += text
+                }
                 writer.write({
                   type: open.kind === 'text' ? 'text-delta' : 'reasoning-delta',
                   id: open.id,
@@ -1292,6 +1324,13 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               errorText: err instanceof Error ? err.message : String(err)
             })
           }
+        }
+
+        // File the exchange away for later recall. After the reply, never
+        // before: an unanswered question is not worth remembering, and a turn
+        // that errored has nothing to embed.
+        if (memoryKeys && agent && replyText.trim()) {
+          await rememberTurn(agent, { ...memoryKeys, prompt, reply: replyText })
         }
 
         writer.write({ type: 'finish-step' })

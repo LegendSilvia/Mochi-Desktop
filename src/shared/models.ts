@@ -179,11 +179,11 @@ export const EMBEDDING_CATALOG: ProviderGroup[] = [
         label: 'text-embedding-3-large',
         hint: 'via OpenRouter, more accurate and dearer'
       },
-      {
-        id: 'openrouter/qwen/qwen3-embedding-0.6b',
-        label: 'qwen3-embedding-0.6b',
-        hint: 'via OpenRouter, small and cheap'
-      }
+      // `qwen/qwen3-embedding-0.6b` was here, from OpenRouter's own reference.
+      // It answers 404 "No endpoints found" — their docs list it as an example
+      // without it being served. Only ids that have actually returned a vector
+      // belong in this list; a model that embeds nothing looks exactly like
+      // recall being broken.
     ]
   }
 ]
