@@ -84,6 +84,12 @@ export function chatFor(
   return chat
 }
 
+/** The live chat for a session, if it has one. Lets a finished turn be acted on
+ *  by session id — the finish callback is global and carries nothing else. */
+export function chatOf(sessionId: string): Chat<UIMessage> | undefined {
+  return live.get(sessionId)?.chat
+}
+
 /** Drop a deleted session's chat. Without this the map is a leak that also
  *  resurrects a conversation the user asked to be rid of. */
 export function forgetChat(sessionId: string): void {

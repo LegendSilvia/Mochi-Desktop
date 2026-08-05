@@ -16,6 +16,7 @@ import {
   Square,
   RotateCcw,
   AlertTriangle,
+  Users,
   X
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
@@ -23,7 +24,14 @@ import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
 import { personalResource } from '@shared/memory'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
-import { chatFor, flushAllChats, forgetChat, noteActivity, onChatFinish } from '@renderer/lib/chatRegistry'
+import {
+  chatFor,
+  chatOf,
+  flushAllChats,
+  forgetChat,
+  noteActivity,
+  onChatFinish
+} from '@renderer/lib/chatRegistry'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { WidgetHost } from '@renderer/components/widgets/WidgetHost'
 import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
@@ -72,6 +80,61 @@ function isFailure(message: UIMessage): boolean {
  */
 function speakerId(message: UIMessage): string | undefined {
   return (message.metadata as { agentId?: string } | undefined)?.agentId
+}
+
+/**
+ * How many times one user message may be passed between agents.
+ *
+ * The whole safety property of peer tagging lives in this number. Two agents
+ * that each end a reply by tagging the other will otherwise talk until the
+ * five-hour window is gone, in a chat nobody is reading, and each pass costs a
+ * full turn. Four is enough for a genuine round trip and a follow-up; anything
+ * longer is a loop, not a conversation.
+ */
+const TAG_CHAIN_LIMIT = 4
+
+/** A turn one agent handed to another, rather than one the user asked for. */
+interface Handoff {
+  from: string
+  to: string
+  /** Position in this chain. The user's own message is depth 0. */
+  depth: number
+}
+
+function handoffOf(message: UIMessage | undefined): Handoff | undefined {
+  return (message?.metadata as { handoff?: Handoff } | undefined)?.handoff
+}
+
+/** The chain hit its limit here. Rendered so the stop is visible — see
+ *  `TAG_CHAIN_LIMIT`. */
+function chainStopOf(
+  message: UIMessage
+): { from: string; to: string; limit: number } | undefined {
+  return (message.metadata as { chainStopped?: { from: string; to: string; limit: number } })
+    ?.chainStopped
+}
+
+/**
+ * The agent a message is *addressed to*, as opposed to one it merely mentions.
+ *
+ * Position is what separates the two. Any `@name` used to count, which made
+ * talking about an agent indistinguishable from talking to one: Fraux writing
+ * "I'll send @new-agent a single message instead" was explaining what it would
+ * do, and handed Helper the turn while saying so. A tag at the start of a
+ * message is who it is for; one at the end is a call-out to them; one buried in
+ * a sentence is a reference to them.
+ *
+ * Both ends are needed. People type `@helper do this`, and the mention picker
+ * appends its tag after whatever you have already written.
+ */
+function addressedTag(text: string, roster: string[], self?: string): string | null {
+  const trimmed = text.trim()
+  const ends = [/^@([\w-]+)\b/.exec(trimmed), /@([\w-]+)[\s.!?,:;]*$/.exec(trimmed)]
+  for (const match of ends) {
+    const id = match?.[1]
+    if (id && id !== self && roster.includes(id)) return id
+  }
+  return null
 }
 
 /** A partial `@name` immediately before the caret — what opens and filters the
@@ -215,13 +278,11 @@ export function Session(): React.JSX.Element {
     const addressee = (list: UIMessage[]): typeof agent => {
       const last = [...list].reverse().find((m) => m.role === 'user')
       if (!last) return agent
-      // The first tag wins. More than one is a fan-out, which needs a turn
-      // policy — a depth cap and a queue — before it can be honoured safely.
-      for (const [, id] of flattenText(last).matchAll(/@([\w-]+)/g)) {
-        const found = inSession.find((a) => a.id === id)
-        if (found) return found
-      }
-      return agent
+      const id = addressedTag(
+        flattenText(last),
+        inSession.map((a) => a.id)
+      )
+      return inSession.find((a) => a.id === id) ?? agent
     }
 
     return new DefaultChatTransport({
@@ -361,6 +422,88 @@ export function Session(): React.JSX.Element {
    * turn into whatever just broke. The chips stay put and go out after the next
    * reply.
    */
+  /** The live sessions array, for callbacks that resolve after this render. */
+  const sessionsRef = useRef(sessions)
+  const agentsRef = useRef(agents)
+  useEffect(() => {
+    sessionsRef.current = sessions
+    agentsRef.current = agents
+  }, [sessions, agents])
+
+  /** Assistant messages already acted on, so a re-render or a second finish
+   *  event cannot fire the same tag twice. */
+  const passedRef = useRef<Set<string>>(new Set())
+
+  /**
+   * An agent tagging another hands it the turn.
+   *
+   * Same rule as the user's own tag — `@name` means that agent answers — so a
+   * reply that ends "@helper can you check this?" enqueues exactly one turn for
+   * Helper, carrying what was said as its prompt. It goes out as a user-role
+   * message because that is the only role the backends read a prompt from, and
+   * `metadata.handoff` is what tells the transcript to render it as a handoff
+   * rather than as something you typed.
+   *
+   * Read through refs: this is registered once and would otherwise close over
+   * the roster as it stood when the session mounted.
+   */
+  const passTheTag = useCallback((sessionId: string) => {
+    const chat = chatOf(sessionId)
+    const session = sessionsRef.current.find((s) => s.id === sessionId)
+    if (!chat || !session) return
+
+    const last = chat.messages[chat.messages.length - 1]
+    if (!last || last.role !== 'assistant' || isFailure(last)) return
+    if (!last.id || passedRef.current.has(last.id)) return
+
+    const roster = [session.agentId, ...session.subagentIds]
+    const from = speakerId(last) ?? session.agentId
+    const to = addressedTag(flattenText(last), roster, from)
+    if (!to) return
+
+    passedRef.current.add(last.id)
+    const depth = (handoffOf(chat.messages[chat.messages.length - 2])?.depth ?? 0) + 1
+
+    // The cap is announced, not silent. A chain that simply stops looks exactly
+    // like an agent that had nothing more to say, and the difference matters:
+    // one is finished, the other was cut off mid-thought.
+    if (depth > TAG_CHAIN_LIMIT) {
+      chat.messages = [
+        ...chat.messages,
+        {
+          id: `mochi-chain-${last.id}`,
+          role: 'assistant',
+          metadata: { chainStopped: { from, to, limit: TAG_CHAIN_LIMIT } },
+          parts: []
+        }
+      ]
+      // Written by hand: the registry saves on finish, and this lands after it.
+      saveMessages(sessionId, chat.messages)
+      return
+    }
+
+    /*
+     * The tag leads, so the existing routing carries it, and the sentence after
+     * says who is calling.
+     *
+     * Main strips an agent's own tag before the model sees it, so `@to` alone
+     * arrived as a bare quote from nobody — the first agent to receive one
+     * replied "Tag didn't render on your end", which is a fair complaint about
+     * being handed a line with no speaker attached.
+     */
+    const fromName = agentsRef.current.find((a) => a.id === from)?.name ?? from
+    void chat.sendMessage({
+      role: 'user',
+      parts: [
+        {
+          type: 'text',
+          text: `@${to} ${fromName} tagged you here and said:\n\n${flattenText(last)}`
+        }
+      ],
+      metadata: { handoff: { from, to, depth } }
+    })
+  }, [])
+
   useEffect(() => {
     onChatFinish((sessionId) => {
       devlog.push('chat', 'turn finished')
@@ -368,12 +511,16 @@ export function Session(): React.JSX.Element {
       // focus test — the overlay is a non-focusable window and cannot tell
       // "backgrounded" from "I am the overlay". A no-op when Mochi is in front.
       void window.mochi?.agentFinished(finishLineRef.current)
+      // Agents passing the turn between themselves runs for every session, not
+      // only the visible one: a chain that halts because you looked elsewhere
+      // would be a stranger bug than one that runs on.
+      passTheTag(sessionId)
       // Only this session's queue, and only while it is the one on screen — the
       // chips belong to the conversation you are looking at.
       if (sessionId === activeSession?.id) drainQueue()
     })
     return () => onChatFinish(null)
-  }, [activeSession?.id, drainQueue])
+  }, [activeSession?.id, drainQueue, passTheTag])
 
   useEffect(() => {
     sendRef.current = (text: string) => sendMessage({ text })
@@ -557,12 +704,6 @@ export function Session(): React.JSX.Element {
    *  fire a second request. A ref rather than state precisely because writing
    *  state here is what broke this — see below. */
   const titleAsked = useRef<Set<string>>(new Set())
-  /** The live sessions array, for callbacks that resolve after this render. */
-  const sessionsRef = useRef(sessions)
-  useEffect(() => {
-    sessionsRef.current = sessions
-  }, [sessions])
-
   // Let the agent name the session once the first exchange lands. Only ever
   // runs once per session, and never touches a title you set yourself.
   useEffect(() => {
@@ -849,10 +990,12 @@ export function Session(): React.JSX.Element {
     if (recorded) return recorded
     for (let i = index; i >= 0; i--) {
       if (messages[i]?.role !== 'user') continue
-      for (const [, id] of flattenText(messages[i]).matchAll(/@([\w-]+)/g)) {
-        if (id === activeSession.agentId || activeSession.subagentIds.includes(id)) return id
-      }
-      break
+      return (
+        addressedTag(flattenText(messages[i]), [
+          activeSession.agentId,
+          ...activeSession.subagentIds
+        ]) ?? activeSession.agentId
+      )
     }
     return activeSession.agentId
   }
@@ -861,9 +1004,7 @@ export function Session(): React.JSX.Element {
    *  so the composer never promises one agent and send reaches another. */
   const addressed =
     agentById(
-      [...input.matchAll(/@([\w-]+)/g)]
-        .map(([, id]) => id)
-        .find((id) => id === activeSession.agentId || activeSession.subagentIds.includes(id)) ??
+      addressedTag(input, [activeSession.agentId, ...activeSession.subagentIds]) ??
         activeSession.agentId
     ) ?? agent
 
@@ -1095,6 +1236,40 @@ export function Session(): React.JSX.Element {
           )}
 
           {messages.map((message, mi) => {
+            /* Where a chain of agents tagging each other was stopped. Shown as
+               a line in the transcript rather than nothing at all — see
+               `TAG_CHAIN_LIMIT` for why a silent stop is the wrong answer. */
+            const stopped = chainStopOf(message)
+            if (stopped) {
+              return (
+                <div key={message.id ?? mi} className="msg-note">
+                  <Users size={13} strokeWidth={1.9} />
+                  <span>
+                    Stopped here. {agentById(stopped.from)?.name ?? stopped.from} tagged{' '}
+                    {agentById(stopped.to)?.name ?? stopped.to} after {stopped.limit} passes between
+                    agents. Say something to carry on.
+                  </span>
+                </div>
+              )
+            }
+
+            /* A turn one agent handed to another. It is a user-role message
+               because that is the only role the backends read a prompt from,
+               but it is not something you typed, so it does not get your
+               bubble. */
+            const handoff = message.role === 'user' ? handoffOf(message) : undefined
+            if (handoff) {
+              return (
+                <div key={message.id ?? mi} className="msg-note">
+                  <Users size={13} strokeWidth={1.9} />
+                  <span>
+                    {agentById(handoff.from)?.name ?? handoff.from} tagged{' '}
+                    {agentById(handoff.to)?.name ?? handoff.to}
+                  </span>
+                </div>
+              )
+            }
+
             if (isFailure(message)) {
               return (
                 <div key={message.id ?? mi} className="msg-failure">

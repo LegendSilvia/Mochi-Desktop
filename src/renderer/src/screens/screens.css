@@ -405,6 +405,26 @@
 
 /* --- a turn that failed --------------------------------------------------- */
 
+/* One agent handing the turn to another, and where a chain was stopped.
+   Centred and quiet: it is punctuation between two replies, not a reply — the
+   thing to read is what the agents said either side of it. */
+.msg-note {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 560px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surf2);
+  color: var(--tx3);
+  font-size: 11.5px;
+  text-align: center;
+}
+.msg-note > svg {
+  flex-shrink: 0;
+}
+
 .msg-failure {
   display: flex;
   align-items: center;
