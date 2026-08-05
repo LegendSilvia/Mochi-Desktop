@@ -1,5 +1,5 @@
 import { Mastra } from '@mastra/core'
-import { Agent } from '@mastra/core/agent'
+import { Agent, type ToolsInput } from '@mastra/core/agent'
 import type { AnyWorkspace } from '@mastra/core/workspace'
 import { ModelRouterEmbeddingModel } from '@mastra/core/llm'
 import { Memory } from '@mastra/memory'
@@ -90,11 +90,26 @@ export interface BuildAgentOptions {
    *  imports; both run in the same process, but the dependency only points one
    *  way. */
   workspaceFor?: (folder: string) => AnyWorkspace | null
+  /** The loadout as it stands on disk right now, injected the same way. Without
+   *  it the agent answers with whatever it was built from at startup. */
+  loadoutFor?: (id: string) => AgentLoadout | undefined
 }
 
 /** Build a Mastra Agent from a Mochi loadout. Loadout *is* the agent. */
 export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions): Agent {
-  const tools = {
+  /*
+   * The loadout as it is *now*, not as it was at boot.
+   *
+   * Mastra builds these agents once, when the server starts, so a captured copy
+   * makes every edit a lie until the app is restarted: changing the model in the
+   * loadout kept answering on the old one, and the memory switches did nothing.
+   * Mastra's own answer to this is `DynamicArgument` — `model`, `instructions`,
+   * `tools` and `memory` all accept a function resolved per request — so each of
+   * them reads through this instead of closing over the startup value.
+   */
+  const current = (): AgentLoadout => opts.loadoutFor?.(loadout.id) ?? loadout
+
+  const toolsFor = (l: AgentLoadout): ToolsInput => ({
     // The library is not a loadout choice. `toolIds` is not editable anywhere in
     // the UI, so gating these behind it would hide them from every agent that
     // already exists — and the subscription backend offers them unconditionally,
@@ -102,44 +117,91 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
     // asymmetry worth closing.
     ...docTools,
     ...Object.fromEntries(
-      loadout.toolIds
-        .filter((id): id is MochiToolId => id in mochiTools)
-        .map((id) => [id, mochiTools[id]])
+      l.toolIds.filter((id): id is MochiToolId => id in mochiTools).map((id) => [id, mochiTools[id]])
     )
-  }
+  })
 
   // Chattiness and "can push without asking" are behaviour knobs, not model
   // params — the cheapest honest way to honour them is to say so in the prompt.
-  const behaviour = [
-    loadout.chattiness <= 3
-      ? 'Keep replies short. No preamble.'
-      : loadout.chattiness >= 8
-        ? 'You may think out loud and explain your reasoning.'
-        : 'Explain briefly, then get to the point.',
-    loadout.canPushWithoutAsking
-      ? ''
-      : 'Never push to git without asking the user first. Show the diff and wait.'
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const behaviourFor = (l: AgentLoadout): string =>
+    [
+      l.chattiness <= 3
+        ? 'Keep replies short. No preamble.'
+        : l.chattiness >= 8
+          ? 'You may think out loud and explain your reasoning.'
+          : 'Explain briefly, then get to the point.',
+      l.canPushWithoutAsking
+        ? ''
+        : 'Never push to git without asking the user first. Show the diff and wait.'
+    ]
+      .filter(Boolean)
+      .join('\n')
 
-  // The vector store is only built once we know an embedder exists to fill it.
-  // A fresh install with no keys and no local embedder still starts and chats —
-  // it just falls back to plain message history.
-  const embedder = loadout.semanticRecall ? embedderFor(opts.embeddingModel) : null
-  const recallParts = embedder
-    ? {
-        vector: new LibSQLVector({ id: `mochi-vector-${loadout.id}`, url: opts.databaseUrl }),
-        embedder
+  /*
+   * Memory, rebuilt only when the settings that shape it change.
+   *
+   * A fresh `Memory` per request would open a new LibSQL store and vector index
+   * every turn, so this is keyed by the switches that actually alter it. In the
+   * common case — nothing changed — it is one lookup and the same instance the
+   * last turn used.
+   */
+  const memories = new Map<string, Memory>()
+  const memoryFor = (l: AgentLoadout): Memory => {
+    const key = [l.workingMemory, l.semanticRecall, l.recallScope, recallTopK(l)].join('|')
+    const cached = memories.get(key)
+    if (cached) return cached
+
+    // The vector store is only built once we know an embedder exists to fill it.
+    // A fresh install with no keys and no local embedder still starts and chats —
+    // it just falls back to plain message history.
+    const embedder = l.semanticRecall ? embedderFor(opts.embeddingModel) : null
+    const recallParts = embedder
+      ? {
+          vector: new LibSQLVector({ id: `mochi-vector-${loadout.id}`, url: opts.databaseUrl }),
+          embedder
+        }
+      : {}
+    const built = new Memory({
+      storage: new LibSQLStore({ id: `mochi-store-${loadout.id}`, url: opts.databaseUrl }),
+      ...recallParts,
+      options: {
+        lastMessages: 20,
+        workingMemory: { enabled: l.workingMemory },
+        /**
+         * Recall is what reaches past `lastMessages` — the twenty-first message
+         * back is gone otherwise, however relevant it is.
+         *
+         * `messageRange` is not a loadout knob because a bare match is close to
+         * useless: recalling "use the staging bucket" without the question it
+         * answered gives the model a fragment it has to guess the context of.
+         * Two either side is the smallest window that keeps a match legible.
+         *
+         * Scope is the loadout's call. `thread` recovers what fell out of the
+         * recent-message window; `resource` reaches into past sessions too,
+         * which is what "do you remember last time?" is actually asking for.
+         * The resource is per agent (see `memoryResource` in Session.tsx), so
+         * the wide setting means "this agent's own history" rather than every
+         * conversation in the app.
+         */
+        semanticRecall: embedder
+          ? {
+              topK: recallTopK(l),
+              messageRange: 2,
+              scope: l.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
+            }
+          : false
       }
-    : {}
+    })
+    memories.set(key, built)
+    return built
+  }
 
   return new Agent({
     id: loadout.id,
     name: loadout.name,
-    instructions: `${loadout.instructions}\n\n${behaviour}`,
-    model: loadout.model,
-    tools,
+    instructions: () => `${current().instructions}\n\n${behaviourFor(current())}`,
+    model: () => current().model,
+    tools: () => toolsFor(current()),
     // Task tracking. Registered as a signal provider rather than by adding the
     // four task tools by hand: the provider also installs `TaskStateProcessor`,
     // and without that the tools work for a single turn and then silently lose
@@ -168,37 +230,7 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
           return opts.workspaceFor?.(folder) ?? undefined
         }
       : undefined,
-    memory: new Memory({
-      storage: new LibSQLStore({ id: `mochi-store-${loadout.id}`, url: opts.databaseUrl }),
-      ...recallParts,
-      options: {
-        lastMessages: 20,
-        workingMemory: { enabled: loadout.workingMemory },
-        /**
-         * Recall is what reaches past `lastMessages` — the twenty-first message
-         * back is gone otherwise, however relevant it is.
-         *
-         * `messageRange` is not a loadout knob because a bare match is close to
-         * useless: recalling "use the staging bucket" without the question it
-         * answered gives the model a fragment it has to guess the context of.
-         * Two either side is the smallest window that keeps a match legible.
-         *
-         * Scope is the loadout's call. `thread` recovers what fell out of the
-         * recent-message window; `resource` reaches into past sessions too,
-         * which is what "do you remember last time?" is actually asking for.
-         * The resource is per agent (see `memoryResource` in Session.tsx), so
-         * the wide setting means "this agent's own history" rather than every
-         * conversation in the app.
-         */
-        semanticRecall: embedder
-          ? {
-              topK: recallTopK(loadout),
-              messageRange: 2,
-              scope: loadout.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
-            }
-          : false
-      }
-    })
+    memory: () => memoryFor(current())
   })
 }
 
@@ -211,16 +243,23 @@ export interface CreateMastraOptions {
   /** Injected by main so the agent and the widgets share one Workspace per
    *  folder. Omit and the agent simply has no file tools. */
   workspaceFor?: (folder: string) => AnyWorkspace | null
+  /** Injected by main so an edited loadout takes effect on the next turn rather
+   *  than the next launch. Omit and each agent stays as `loadouts` described it. */
+  loadoutFor?: (id: string) => AgentLoadout | undefined
 }
 
 export function createMastra({
   databaseUrl,
   loadouts = DEFAULT_AGENTS,
   embeddingModel = 'openai/text-embedding-3-small',
-  workspaceFor
+  workspaceFor,
+  loadoutFor
 }: CreateMastraOptions): Mastra {
   const agents = Object.fromEntries(
-    loadouts.map((l) => [l.id, agentFromLoadout(l, { databaseUrl, embeddingModel, workspaceFor })])
+    loadouts.map((l) => [
+      l.id,
+      agentFromLoadout(l, { databaseUrl, embeddingModel, workspaceFor, loadoutFor })
+    ])
   )
 
   return new Mastra({

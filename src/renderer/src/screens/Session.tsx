@@ -170,7 +170,19 @@ export function Session(): React.JSX.Element {
   // constant. Both routes speak the same UI-message-stream protocol; they differ
   // only in what pays — /chat bills an API key, /agent-sdk/chat draws on the
   // Claude subscription via the Agent SDK.
-  const onSubscription = settings.preferSubscription
+  /*
+   * The subscription only pays for Anthropic, so the model decides the route as
+   * much as the setting does.
+   *
+   * This read the setting alone, which meant picking any `openrouter/…` or
+   * `openai/…` model sent the turn to a backend that cannot run it. The backend
+   * refused correctly — but the only way out was to know that "Run on my Claude
+   * subscription" had to be turned off globally, for every agent, to use one
+   * non-Anthropic model. Falling through to the API-key backend per agent is
+   * what the setting already means: use the subscription where it applies.
+   */
+  const onSubscription =
+    settings.preferSubscription && (agent?.model ?? '').startsWith('anthropic/')
   const folder = activeSession?.workspacePath
   const threadId = activeSession?.threadId
   const transport = useMemo(() => {
@@ -199,11 +211,18 @@ export function Session(): React.JSX.Element {
           id,
           messages,
           ...(folder ? { requestContext: { workspacePath: folder } } : {}),
-          // `resourceId` is the *user*, not the agent — it is the key working
+          // `resource` is the *user*, not the agent — it is the key working
           // memory and semantic recall group threads under. Mochi is a
           // single-user desktop app, so it is one constant; the thread is what
           // separates one session from another.
-          ...(threadId ? { memory: { threadId, resourceId: memoryResource(agent.id) } } : {})
+          //
+          // `thread`/`resource`, not `threadId`/`resourceId`: the Mastra route
+          // spreads this straight into `agent.stream()`, whose `AgentMemoryOption`
+          // uses those names. Under the old names it saw no thread at all, so
+          // memory never came up — and the task-state processor, which requires
+          // an active thread, failed every turn with "computeStateSignal
+          // requires Mastra memory with an active resourceId and threadId".
+          ...(threadId ? { memory: { thread: threadId, resource: memoryResource(agent.id) } } : {})
         }
       })
     })

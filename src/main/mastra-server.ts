@@ -58,7 +58,11 @@ export async function startMastraServer(appVersion: string): Promise<ServerInfo>
     embeddingModel: embedder.ready ? `${embedder.kind}/${embedder.model}` : '',
     // Hands the agent the same folder-keyed Workspace the widgets use, so
     // "what the agent can reach" and "what you can browse" are one thing.
-    workspaceFor
+    workspaceFor,
+    // Read per turn, not captured here: `agents` above is a snapshot taken at
+    // launch, and the loadout screen writes to disk. Without this, editing an
+    // agent's model kept answering on the model it had when the app started.
+    loadoutFor: (id) => load().agents.find((a) => a.id === id)
   })
 
   const app = new Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>()

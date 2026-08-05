@@ -1159,9 +1159,11 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     const body = (await c.req.json()) as {
       id?: string
       messages?: IncomingMessage[]
-      /** Sent by the renderer for both backends. Mastra reads it for its own
-       *  memory; here it is what lets recall find this conversation. */
-      memory?: { threadId?: string; resourceId?: string }
+      /** Sent by the renderer for both backends, in Mastra's own shape — the
+       *  Mastra route spreads the body into `agent.stream()`, so the names are
+       *  its `AgentMemoryOption` and not ours. Here it is what lets recall find
+       *  this conversation. */
+      memory?: { thread?: string; resource?: string }
     }
     const chatId = body.id ?? agentId
     const prompt = latestUserText(body.messages)
@@ -1208,8 +1210,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
          * first: the useful match is usually for what was just asked.
          */
         const memoryKeys =
-          agent && body.memory?.threadId && body.memory?.resourceId
-            ? { threadId: body.memory.threadId, resourceId: body.memory.resourceId }
+          agent && body.memory?.thread && body.memory?.resource
+            ? { threadId: body.memory.thread, resourceId: body.memory.resource }
             : null
         const recalled = memoryKeys
           ? await recallContext(agent!, { ...memoryKeys, prompt })

@@ -111,6 +111,19 @@ export async function listOpenRouterModels(opts: {
   url.searchParams.set('output_modalities', modality)
   url.searchParams.set('sort', 'most-popular')
   url.searchParams.set('limit', String(LIMIT))
+  /*
+   * Chat models are only offered if they can call tools.
+   *
+   * Every Mochi agent carries tools — the document library unconditionally, the
+   * task tools through the signal provider — so a model without tool support is
+   * not a model that works here with fewer features. It is one that fails the
+   * turn: OpenRouter answers 404 "No endpoints found that support tool use",
+   * which reads like the model is missing rather than unsuitable. Hermes 3 70B
+   * is one such, and it was pickable straight off the most-popular list.
+   *
+   * Not applied to embeddings, which never see a tool.
+   */
+  if (modality === 'text') url.searchParams.set('supported_parameters', 'tools')
   if (q) url.searchParams.set('q', q)
 
   try {
