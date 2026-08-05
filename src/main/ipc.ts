@@ -50,7 +50,7 @@ import {
 import { getPaths } from './paths'
 import { basename, join } from 'node:path'
 import { bus } from '../mastra/events'
-import { notifyIfAway, setAttentionWindow } from './attention'
+import { isUserLooking, notifyIfAway, setAttentionWindow } from './attention'
 import type { MascotState, ProviderAccount, SpriteSlot, Theme } from '../shared/types'
 
 export const IPC = {
@@ -511,7 +511,48 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // Approvals reach the overlay this way rather than down the chat stream, which
   // only the app window is reading. The mascot is often the only part of Mochi
   // on screen when a run stops to ask.
-  bus.on('approval', (payload) => broadcast(IPC.approval, payload))
+  /*
+   * Approvals: always to the app, to the mascot only when you are not looking.
+   *
+   * The card in the transcript is the real one. The mascot's copy exists for the
+   * case where Mochi is buried behind something else and a run has quietly
+   * stopped to ask — putting it on the desktop while you are already staring at
+   * the same question in the chat is just the same prompt twice.
+   *
+   * Held rather than dropped, because "not looking" can become true after the
+   * fact: switching away from Mochi with a question still open is exactly when
+   * the desktop copy earns its place.
+   */
+  const pendingApprovals = new Map<string, unknown>()
+
+  const toMascot = (payload: unknown): void => {
+    const win = getMascotWindow()
+    if (win && !win.isDestroyed()) win.webContents.send(IPC.approval, payload)
+  }
+
+  bus.on('approval', (payload) => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) win.webContents.send(IPC.approval, payload)
+
+    const settled = typeof payload === 'object' && payload !== null && 'settled' in payload
+    const id = (payload as { id?: string }).id
+    if (settled) {
+      if (id) pendingApprovals.delete(id)
+      // Always forwarded: a card the mascot is already showing has to come down
+      // wherever it was answered.
+      toMascot(payload)
+      return
+    }
+    if (id) pendingApprovals.set(id, payload)
+    if (!isUserLooking()) toMascot(payload)
+  })
+
+  // Switching away with a question still open is when the desktop copy is worth
+  // having, so anything still unanswered goes over at that moment.
+  app.on('browser-window-blur', () => {
+    if (isUserLooking()) return
+    for (const payload of pendingApprovals.values()) toMascot(payload)
+  })
 
   /**
    * PTY output goes to the app window alone.

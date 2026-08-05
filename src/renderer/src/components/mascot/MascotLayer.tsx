@@ -373,9 +373,16 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
       // test a degenerate box on every tick.
       .filter((r) => r.w > 0 && r.h > 0)
 
-    // Held on through a drag: the pointer routinely outruns the sprite, and
-    // going click-through underneath it mid-drag would drop the mascot.
-    const locked = dragging.current || menuOpen || Boolean(approval)
+    /*
+     * Held on only through a drag, where the pointer routinely outruns the
+     * sprite and going click-through underneath it would drop the mascot.
+     *
+     * A pending approval must NOT lock: the lock makes this window capture the
+     * mouse across the entire work area, so an approval card left the whole
+     * desktop — Mochi included — unclickable until it was answered. The card has
+     * its own rect in the list above, which is all it needs to be clickable.
+     */
+    const locked = dragging.current || menuOpen
     const key = JSON.stringify([boxes, locked])
     if (key === interactive.current) return
     interactive.current = key
