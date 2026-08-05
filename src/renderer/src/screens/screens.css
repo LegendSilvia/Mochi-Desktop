@@ -2009,3 +2009,10 @@
   font-size: 10.5px;
   line-height: 1.5;
 }
+
+/* The keyboard's position in the mention picker. Distinct from :hover so the
+   two never disagree — moving the mouse sets the same index rather than
+   painting a second highlight somewhere else in the list. */
+.mention-row[data-active='true'] {
+  background: var(--acs);
+}

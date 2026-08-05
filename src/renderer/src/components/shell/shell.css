@@ -542,3 +542,42 @@
   background: var(--line);
   margin: 5px 4px;
 }
+
+/*
+ * The sidebar's resize edge.
+ *
+ * Overlaps the rail's own border rather than sitting beside it, so the target
+ * is the seam you can see. Wider than the 1px border because a 1px hit area is
+ * a test of aim, not a control — the visible line stays 1px, only the grab
+ * zone is generous.
+ */
+.rail {
+  position: relative;
+}
+
+.rail-grip {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: ew-resize;
+  /* Above the rail's content so a drag started over a session row still
+     resizes, below anything that floats out of the rail. */
+  z-index: 5;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.rail-grip:hover,
+body.rail-resizing .rail-grip {
+  background: var(--acs);
+}
+
+/* Pin the cursor for the whole drag: without this it flickers as the pointer
+   crosses the rail, the seam and the chat beneath. */
+body.rail-resizing,
+body.rail-resizing * {
+  cursor: ew-resize !important;
+  user-select: none;
+}

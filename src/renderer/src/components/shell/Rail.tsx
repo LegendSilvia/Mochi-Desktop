@@ -25,6 +25,44 @@ import { forgetChat } from '@renderer/lib/chatRegistry'
 import { AccountPopover } from './AccountPopover'
 import type { Session } from '@shared/types'
 
+/**
+ * The sidebar width, kept locally rather than in settings.
+ *
+ * It is a property of this screen, not of the profile: the width that suits a
+ * laptop is wrong on a monitor, and settings.json is rewritten on every
+ * preference change — which a drag would do sixty times a second. Losing it
+ * costs one drag.
+ */
+const RAIL_KEY = 'mochi:rail-width'
+const RAIL_DEFAULT = 248
+/** Narrow enough to be mostly icons, wide enough to read a long title. Below
+ *  the minimum the rows stop being legible; above the maximum the chat is the
+ *  thing being squeezed. */
+const RAIL_MIN = 180
+const RAIL_MAX = 480
+
+function setRailWidth(px: number): void {
+  document.documentElement.style.setProperty('--rail-w', `${Math.round(px)}px`)
+}
+
+/**
+ * Applied at import, before React first renders.
+ *
+ * In an effect it would paint at the default width and then jump, which reads
+ * as the app resizing itself every time you open it.
+ */
+function applySavedRailWidth(): void {
+  try {
+    const saved = Number(localStorage.getItem(RAIL_KEY))
+    if (Number.isFinite(saved) && saved > 0) {
+      setRailWidth(Math.min(RAIL_MAX, Math.max(RAIL_MIN, saved)))
+    }
+  } catch {
+    // No storage, or it is full. The token default already applies.
+  }
+}
+applySavedRailWidth()
+
 const DAY = 24 * 60 * 60 * 1000
 
 function dayLabel(ts: number): string {
@@ -82,6 +120,52 @@ export function Rail(): React.JSX.Element {
   useEffect(() => {
     if (renamingId) renameRef.current?.select()
   }, [renamingId])
+
+  /**
+   * Drag the rail wider or narrower.
+   *
+   * Written straight to the CSS variable rather than through state: `--rail-w`
+   * is what the rail and the tour spotlight both read, so moving it moves
+   * everything at once, and a state update per pointer move would re-render the
+   * whole session list sixty times a second for a number no component needs.
+   *
+   * The width is saved on release, not during — see `applySavedRailWidth`.
+   */
+  const startResize = (e: React.PointerEvent): void => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const startX = e.clientX
+    // Read from the variable rather than the element: the rail's own box is
+    // what we are about to change, and starting from a rounded layout width
+    // would make every drag drift by a fraction of a pixel.
+    const startW =
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--rail-w')) ||
+      RAIL_DEFAULT
+    let latest = startW
+
+    document.body.classList.add('rail-resizing')
+
+    const onMove = (ev: PointerEvent): void => {
+      latest = Math.min(RAIL_MAX, Math.max(RAIL_MIN, startW + (ev.clientX - startX)))
+      setRailWidth(latest)
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.body.classList.remove('rail-resizing')
+      try {
+        localStorage.setItem(RAIL_KEY, String(Math.round(latest)))
+      } catch {
+        // A width that fails to save is a width you set again next time.
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    // Losing the pointer must not leave the whole app stuck in a resize cursor.
+    window.addEventListener('pointercancel', onUp)
+  }
 
   const patch = (id: string, next: Partial<Session>): void => {
     dispatch({
@@ -404,6 +488,18 @@ export function Rail(): React.JSX.Element {
       </div>
 
       <AccountPopover sessionCount={live.length} />
+
+      {/* Sits inside the rail rather than between panes: the rail is a flex
+          item with a border, and a separate splitter element between it and the
+          content would need its own column and would shift everything by its
+          own width. */}
+      <div
+        className="rail-grip"
+        role="separator"
+        aria-label="Resize the sidebar"
+        aria-orientation="vertical"
+        onPointerDown={startResize}
+      />
     </aside>
   )
 }

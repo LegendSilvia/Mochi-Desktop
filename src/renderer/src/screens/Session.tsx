@@ -115,6 +115,9 @@ export function Session(): React.JSX.Element {
   /** The partial `@name` being typed, or null when the picker was opened from
    *  the toolbar button instead. Drives the filter and the token replacement. */
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  /** Which row the arrow keys are on. Reset whenever the list changes, so a
+   *  narrowing filter cannot leave the highlight past the end of it. */
+  const [mentionIndex, setMentionIndex] = useState(0)
 
   /*
    * Approvals answered somewhere other than this card.
@@ -759,6 +762,16 @@ export function Session(): React.JSX.Element {
         : true)
   )
 
+  /**
+   * The highlighted row, clamped rather than reset.
+   *
+   * A filter that narrows the list can leave the stored index past its end.
+   * Resetting it would need an effect, and every hook here sits above an early
+   * return — so the value is corrected where it is read instead, which is also
+   * one less render.
+   */
+  const activeMention = Math.min(mentionIndex, Math.max(0, mentionable.length - 1))
+
   const pickWorkspace = (): void => {
     void window.mochi?.pickPaths('folder').then((paths) => {
       if (paths[0]) patchSession({ workspacePath: paths[0], kind: 'code' })
@@ -1144,13 +1157,15 @@ export function Session(): React.JSX.Element {
             {mentionable.length === 0 && (
               <div className="mention-empty meta">No agent matches that name.</div>
             )}
-            {mentionable.map((a) => {
+            {mentionable.map((a, i) => {
               const inSession = activeSession.subagentIds.includes(a.id)
               return (
                 <button
                   key={a.id}
                   className="mention-row"
                   data-in={inSession}
+                  data-active={i === activeMention}
+                  onMouseEnter={() => setMentionIndex(i)}
                   onClick={() => addMention(a.id)}
                 >
                   <span className="mention-avatar">{a.name[0]}</span>
@@ -1247,6 +1262,31 @@ export function Session(): React.JSX.Element {
                   setMentionQuery(null)
                   dispatch({ type: 'toggle', key: 'mentionOpen', value: false })
                   return
+                }
+                /*
+                 * Arrow keys move through the list, Enter takes what is
+                 * highlighted.
+                 *
+                 * Enter used to take `mentionable[0]` unconditionally, so the
+                 * picker could show six agents and only the first was reachable
+                 * from the keyboard — everything else needed the mouse.
+                 */
+                if (mentionOpen && mentionable.length > 0) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    const step = e.key === 'ArrowDown' ? 1 : -1
+                    // Wraps, so holding one arrow reaches everything without
+                    // having to know which end of the list you are at.
+                    setMentionIndex(
+                      () => (activeMention + step + mentionable.length) % mentionable.length
+                    )
+                    return
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addMention((mentionable[activeMention] ?? mentionable[0]).id)
+                    return
+                  }
                 }
                 if (e.key === 'Enter' && mentionQuery !== null && mentionable[0]) {
                   e.preventDefault()
