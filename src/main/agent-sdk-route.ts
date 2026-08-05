@@ -446,7 +446,9 @@ interface MemoryContext {
 
 function buildMochiServer(
   appVersion: string,
-  memory?: MemoryContext | null
+  memory?: MemoryContext | null,
+  /** Whose server this is. Only used to stop an agent handing work to itself. */
+  selfId?: string
 ): ReturnType<typeof createSdkMcpServer> {
   /**
    * Hand a subtask to another loadout.
@@ -474,6 +476,23 @@ function buildMochiServer(
       })
 
       if (!target) return say(`No agent called "${agentId}" exists in this session.`)
+
+      /*
+       * You cannot hand work to yourself.
+       *
+       * Tagging an agent used to mean the supervisor delegating to it. Now the
+       * tag routes the turn to that agent directly — so the message it receives
+       * still opens with `@its-own-id`, and read as the old instruction that
+       * says "delegate", it spawned a second copy of itself, waited for it, and
+       * relayed its own answer back in quotes. A whole extra turn to say what it
+       * already knew.
+       */
+      if (selfId && agentId === selfId) {
+        return say(
+          `That is you. A message tagged @${agentId} is addressed to you — answer it ` +
+            `yourself rather than handing it on.`
+        )
+      }
 
       if (settings.delegationMode === 'simulated') {
         return say(
@@ -869,23 +888,36 @@ function userMcpServers(): Record<string, McpServerConfig> {
 }
 
 /**
- * Who this session may delegate to.
+ * Who else is in this conversation.
  *
- * `@agent` adds ids to the session; without telling the supervisor they exist,
- * the delegate tool has no way to be used — which is why the mention popover
- * looked decorative even after the tool landed.
+ * `@agent` adds ids to the session; without telling the agent they exist, the
+ * delegate tool has no way to be used — which is why the mention popover looked
+ * decorative even after the tool landed.
+ *
+ * It now also has to say what a tag *means*, because that changed. `@name` used
+ * to be a hint to the supervisor to delegate; it routes the turn to that agent
+ * directly. So the message an agent receives can open with its own id, and the
+ * old framing made it delegate to itself and quote its own reply back.
  */
-function describeSubagents(sessionId: string): string {
+function describeSubagents(sessionId: string, selfId: string): string {
   const { sessions, agents } = load()
-  const ids = sessions.find((s) => s.id === sessionId)?.subagentIds ?? []
-  const roster = ids
+  const session = sessions.find((s) => s.id === sessionId)
+  const others = [session?.agentId, ...(session?.subagentIds ?? [])]
+    .filter((id): id is string => Boolean(id) && id !== selfId)
     .map((id) => agents.find((a) => a.id === id))
     .filter((a): a is AgentLoadout => Boolean(a))
-  if (roster.length === 0) return ''
-  const lines = roster.map((a) => `- ${a.id} (${a.name}): ${a.description}`).join('\n')
+
+  const you =
+    `You are @${selfId} in this conversation. A message tagged @${selfId} is addressed ` +
+    `to you — answer it yourself, in your own voice. Never delegate to @${selfId}.`
+  if (others.length === 0) return you
+
+  const lines = others.map((a) => `- @${a.id} (${a.name}): ${a.description}`).join('\n')
   return (
-    `You may delegate to these agents with the delegate tool. You stay the supervisor — ` +
-    `decide when to hand off, and always report back in your own voice.\n${lines}`
+    `${you}\n\nOthers here. Tagging one of them puts the next turn to them and they ` +
+    `answer for themselves, so you do not need to relay anything. Use the delegate ` +
+    `tool instead only for a self-contained subtask whose answer you want back to ` +
+    `carry on with.\n${lines}`
   )
 }
 
@@ -996,6 +1028,25 @@ function latestUserText(messages: IncomingMessage[] | undefined): string {
       .trim()
   }
   return ''
+}
+
+/**
+ * Take this agent's own tag out of the message addressed to it.
+ *
+ * The tag is routing: the renderer already used it to decide whose turn this
+ * is, and by the time the text gets here it has been delivered. Leaving it in
+ * reads to the model as an instruction about someone else — "@new-agent, what
+ * do you know about me" arriving *at* new-agent had it reason "I need to relay
+ * this to the new-agent", call `delegate` on itself, and quote its own answer
+ * back. The self-delegation guard catches that, but the cheaper fix is not to
+ * hand it the temptation.
+ *
+ * Only its own tag. Anyone else's is a genuine mention and has to survive.
+ */
+function stripSelfTag(text: string, agentId: string): string {
+  return text
+    .replace(new RegExp(`(^|\\s)@${agentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), '$1')
+    .trim()
 }
 
 /** Roughly a few thousand words of history — enough to recover the thread of a
@@ -1293,7 +1344,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
       memory?: { thread?: string; resource?: string }
     }
     const chatId = body.id ?? agentId
-    const prompt = latestUserText(body.messages)
+    const prompt = stripSelfTag(latestUserText(body.messages), agentId)
 
     const { agents, settings } = load()
     const agent = agents.find((a) => a.id === agentId)
@@ -1404,7 +1455,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     buildSystemPrompt(agent, settings.userName),
                     workspace.note,
                     ASK_USER_NOTE,
-                    describeSubagents(chatId)
+                    describeSubagents(chatId, agentId)
                   ]
                     .filter(Boolean)
                     .join('\n\n')
@@ -1415,7 +1466,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               mcpServers: {
                 mochi: buildMochiServer(
                   appVersion,
-                  memoryKeys && agent ? { loadout: agent, ...memoryKeys } : null
+                  memoryKeys && agent ? { loadout: agent, ...memoryKeys } : null,
+                  agentId
                 ),
                 ...userMcpServers()
               },

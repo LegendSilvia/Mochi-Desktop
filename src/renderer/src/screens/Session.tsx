@@ -184,11 +184,48 @@ export function Session(): React.JSX.Element {
     settings.preferSubscription && (agent?.model ?? '').startsWith('anthropic/')
   const folder = activeSession?.workspacePath
   const threadId = activeSession?.threadId
+  const preferSubscription = settings.preferSubscription
+  const subagentIds = activeSession?.subagentIds
   const transport = useMemo(() => {
     if (!server || !agent) return undefined
-    const route = onSubscription ? 'agent-sdk/chat' : 'chat'
+
+    /** Which backend an agent's own model puts it on. Per agent, because the
+     *  subscription only covers Anthropic — see the note above. */
+    const routeFor = (a: { model: string }): string =>
+      preferSubscription && a.model.startsWith('anthropic/') ? 'agent-sdk/chat' : 'chat'
+
+    /*
+     * Who a message is addressed to.
+     *
+     * `@name` used to reach the session's agent like any other text, and it
+     * answered by calling `delegate` — so the tagged agent's words arrived
+     * quoted, second-hand, under someone else's name, having been told only
+     * what the supervisor chose to pass on. Tagging is not delegation: it means
+     * *that* agent takes this turn and answers as itself.
+     *
+     * Only agents already in the session are addressable; the mention picker
+     * adds them on the way in. An unknown tag is left as plain text rather than
+     * silently redirected, so a typo reaches the agent you were talking to.
+     */
+    const inSession = [
+      agent,
+      ...(subagentIds ?? []).map((id) => agents.find((a) => a.id === id))
+    ].filter((a): a is NonNullable<typeof a> => Boolean(a))
+
+    const addressee = (list: UIMessage[]): typeof agent => {
+      const last = [...list].reverse().find((m) => m.role === 'user')
+      if (!last) return agent
+      // The first tag wins. More than one is a fan-out, which needs a turn
+      // policy — a depth cap and a queue — before it can be honoured safely.
+      for (const [, id] of flattenText(last).matchAll(/@([\w-]+)/g)) {
+        const found = inSession.find((a) => a.id === id)
+        if (found) return found
+      }
+      return agent
+    }
+
     return new DefaultChatTransport({
-      api: `${server.baseUrl}/${route}/${agent.id}`,
+      api: `${server.baseUrl}/${routeFor(agent)}/${agent.id}`,
       /**
        * Three things ride along with every turn that the default body omits.
        *
@@ -202,32 +239,38 @@ export function Session(): React.JSX.Element {
        * sessions did and was never actually sent, which is why the Mastra
        * backend started every reply from nothing.
        */
-      prepareSendMessagesRequest: ({ api, body, headers, messages, id }) => ({
-        api,
-        headers,
-        body: {
-          ...body,
-          id,
-          messages,
-          ...(folder ? { requestContext: { workspacePath: folder } } : {}),
-          // `resource` is the *user*, not the agent — it is the key working
-          // memory and semantic recall group threads under. Mochi is a
-          // single-user desktop app, so it is one constant; the thread is what
-          // separates one session from another.
-          //
-          // `thread`/`resource`, not `threadId`/`resourceId`: the Mastra route
-          // spreads this straight into `agent.stream()`, whose `AgentMemoryOption`
-          // uses those names. Under the old names it saw no thread at all, so
-          // memory never came up — and the task-state processor, which requires
-          // an active thread, failed every turn with "computeStateSignal
-          // requires Mastra memory with an active resourceId and threadId".
-          ...(threadId
-            ? { memory: { thread: threadId, resource: personalResource(agent.id) } }
-            : {})
+      prepareSendMessagesRequest: ({ body, headers, messages, id }) => {
+        // Resolved per turn, not per transport: who answers can change with
+        // every message, and rebuilding the Chat to switch would drop the
+        // transcript it is holding.
+        const to = addressee(messages)
+        return {
+          api: `${server.baseUrl}/${routeFor(to)}/${to.id}`,
+          headers,
+          body: {
+            ...body,
+            id,
+            messages,
+            ...(folder ? { requestContext: { workspacePath: folder } } : {}),
+            // The thread is the session's; every agent in it shares that one.
+            // The resource is the agent's own, so their memories stay separate —
+            // main decides it from the URL rather than trusting this, but the
+            // Mastra route still reads it from here.
+            //
+            // `thread`/`resource`, not `threadId`/`resourceId`: the Mastra route
+            // spreads this straight into `agent.stream()`, whose `AgentMemoryOption`
+            // uses those names. Under the old names it saw no thread at all, so
+            // memory never came up — and the task-state processor, which requires
+            // an active thread, failed every turn with "computeStateSignal
+            // requires Mastra memory with an active resourceId and threadId".
+            ...(threadId
+              ? { memory: { thread: threadId, resource: personalResource(to.id) } }
+              : {})
+          }
         }
-      })
+      }
     })
-  }, [server, agent, onSubscription, folder, threadId])
+  }, [server, agent, agents, subagentIds, preferSubscription, folder, threadId])
 
   // Seeded once per session id — useChat only reads `messages` when it builds a
   // new Chat, which is exactly when the id changes.
@@ -792,6 +835,38 @@ export function Session(): React.JSX.Element {
    */
   const activeMention = Math.min(mentionIndex, Math.max(0, mentionable.length - 1))
 
+  /**
+   * Who said message `index`.
+   *
+   * The subscription route stamps the agent on the message, which is the answer
+   * whenever it is there. Mastra's `chatRoute` has no hook for writing metadata,
+   * and nothing written before that existed carries any — so the fallback reads
+   * it off the question instead: the turn went to whoever the user tagged, and
+   * to the session's own agent when nobody was.
+   */
+  const speakerAt = (index: number): string => {
+    const recorded = messages[index] && speakerId(messages[index])
+    if (recorded) return recorded
+    for (let i = index; i >= 0; i--) {
+      if (messages[i]?.role !== 'user') continue
+      for (const [, id] of flattenText(messages[i]).matchAll(/@([\w-]+)/g)) {
+        if (id === activeSession.agentId || activeSession.subagentIds.includes(id)) return id
+      }
+      break
+    }
+    return activeSession.agentId
+  }
+
+  /** Who the message being typed will go to — the same rule the transport uses,
+   *  so the composer never promises one agent and send reaches another. */
+  const addressed =
+    agentById(
+      [...input.matchAll(/@([\w-]+)/g)]
+        .map(([, id]) => id)
+        .find((id) => id === activeSession.agentId || activeSession.subagentIds.includes(id)) ??
+        activeSession.agentId
+    ) ?? agent
+
   const pickWorkspace = (): void => {
     void window.mochi?.pickPaths('folder').then((paths) => {
       if (paths[0]) patchSession({ workspacePath: paths[0], kind: 'code' })
@@ -1049,12 +1124,12 @@ export function Session(): React.JSX.Element {
              * harder to spot, not easier. A user message in between resets it,
              * so each answer is attributed.
              */
-            const whoId = speakerId(message) ?? activeSession.agentId
+            const whoId = speakerAt(mi)
             const who = agentById(whoId) ?? agent
             const before = messages[mi - 1]
             const spokeBefore =
               before && before.role === 'assistant' && !isFailure(before)
-                ? (speakerId(before) ?? activeSession.agentId)
+                ? speakerAt(mi - 1)
                 : null
             const namePart = message.parts.findIndex((p) => p.type === 'text')
 
@@ -1193,7 +1268,15 @@ export function Session(): React.JSX.Element {
             )
           })}
 
-          <Thinking messages={messages} status={status} />
+          {/* `messages.length` is the index the reply *will* take, so this
+              resolves the same way the message itself will once it arrives —
+              no chance of the waiting line naming one agent and the answer
+              landing under another. */}
+          <Thinking
+            messages={messages}
+            status={status}
+            who={agentById(speakerAt(messages.length))?.name}
+          />
         </div>
 
         {mentionOpen && (
@@ -1299,8 +1382,8 @@ export function Session(): React.JSX.Element {
                 openAsks.length > 0
                   ? 'Pick an answer above, or choose to write your own…'
                   : busy
-                    ? `${agent.name} is working — your message will be queued…`
-                    : `Message ${agent.name}…`
+                    ? `${agentById(speakerAt(messages.length))?.name ?? agent.name} is working — your message will be queued…`
+                    : `Message ${addressed.name}…`
               }
               onChange={onInputChange}
               onKeyDown={(e) => {
