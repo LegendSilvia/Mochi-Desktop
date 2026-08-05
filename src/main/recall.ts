@@ -119,8 +119,9 @@ export async function workingMemoryBlock(
     if (!text?.trim()) return null
     return [
       'What you have previously noted about this user. Treat it as true unless',
-      'they correct you, and use updateMemory to revise it when you learn',
-      'something lasting. Do not mention this block itself.',
+      'they correct you. Learned something new and lasting? appendMemory. Need to',
+      'correct or remove a line above? updateMemory, with the whole block.',
+      'Do not mention this block itself.',
       '',
       text.trim()
     ].join('\n')

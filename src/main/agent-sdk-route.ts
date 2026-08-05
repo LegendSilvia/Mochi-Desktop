@@ -245,6 +245,7 @@ const AUTO_APPROVED = [
   `${TOOL_PREFIX}askUser`,
   `${TOOL_PREFIX}delegate`,
   `${TOOL_PREFIX}searchDocs`,
+  `${TOOL_PREFIX}appendMemory`,
   `${TOOL_PREFIX}updateMemory`,
   'TodoWrite',
   'ToolSearch',
@@ -573,13 +574,73 @@ function buildMochiServer(
    * shows exactly what is stored and lets you edit or clear it, which is a
    * better answer than a prompt you would learn to click through.
    */
+  /**
+   * Add one fact without touching the rest.
+   *
+   * `updateMemory` replaces the whole store, which makes learning one new thing
+   * an operation that has to restate everything already known — and getting that
+   * wrong deletes it. The guard there catches the damage; this removes the
+   * occasion for it. Appending is what "remember this too" actually means, and
+   * it is the call the agent reaches for most.
+   */
+  const appendMemory = tool(
+    'appendMemory',
+    'Add one lasting fact about the user to what you already keep, leaving the ' +
+      'rest untouched. This is the one to use when you learn something new — ' +
+      'updateMemory replaces everything and is only for revising or removing what ' +
+      'is already written. Keep it to a short factual line. Do not record ' +
+      'passwords, keys, or anything they asked you to forget.',
+    {
+      fact: z
+        .string()
+        .describe('One short line to add, e.g. "Prefers tabs over spaces." No heading.')
+    },
+    async ({ fact }) => {
+      const say = (text: string): { content: Array<{ type: 'text'; text: string }> } => ({
+        content: [{ type: 'text' as const, text }]
+      })
+      if (!memory) return say('Working memory is off for this agent.')
+
+      const line = fact.trim().replace(/^[-*]\s*/, '')
+      if (!line) return say('Nothing to add — `fact` was empty.')
+
+      const keys = { threadId: memory.threadId, resourceId: memory.resourceId }
+      const current = (await readWorkingMemory(memory.loadout, keys)).trim()
+
+      // Said twice is said once. Models re-derive the same fact across turns,
+      // and a memory that accumulates duplicates gets long enough to be dropped
+      // for length while saying very little.
+      if (current.toLowerCase().includes(line.toLowerCase())) {
+        return say('Already noted — nothing changed.')
+      }
+
+      /*
+       * Bounded, because this block rides in front of every prompt.
+       * Refusing rather than trimming: dropping the oldest line silently is the
+       * same class of invisible loss the update guard exists to stop, and the
+       * agent can consolidate far better than a truncation can.
+       */
+      const MAX = 4000
+      const next = current ? `${current}\n- ${line}` : `- ${line}`
+      if (next.length > MAX) {
+        return say(
+          `Not saved: the memory is at its ${MAX}-character limit. Use updateMemory ` +
+            `to rewrite it more concisely, keeping what still matters, then add this again.`
+        )
+      }
+
+      const ok = await writeWorkingMemory(memory.loadout, { ...keys, text: next })
+      return say(ok ? 'Noted.' : 'Could not save that just now.')
+    }
+  )
+
   const updateMemory = tool(
     'updateMemory',
-    'Record lasting facts about the user — their name, how they work, decisions ' +
-      'they have made, preferences worth honouring next time. Pass the FULL memory ' +
-      'each time: this replaces what was stored, so include everything still true, ' +
-      'not only what is new. Keep it short and factual. Do not record passwords, ' +
-      'keys, or anything they asked you to forget.',
+    'Replace everything you keep about the user. Use appendMemory instead when ' +
+      'you have simply learned something new — this one is for revising or removing ' +
+      'what is already written. Pass the FULL memory: it replaces what was stored, ' +
+      'so include everything still true, not only what changed. Keep it short and ' +
+      'factual. Do not record passwords, keys, or anything they asked you to forget.',
     {
       memory: z
         .string()
@@ -736,7 +797,16 @@ function buildMochiServer(
   return createSdkMcpServer({
     name: 'mochi',
     version: '0.1.0',
-    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs, saveDoc, updateMemory],
+    tools: [
+      sendSticker,
+      setMascotState,
+      askUser,
+      delegate,
+      searchDocs,
+      saveDoc,
+      appendMemory,
+      updateMemory
+    ],
     // Load both tools into the turn-1 prompt instead of leaving them behind tool
     // search. Deferred loading made the harness spend a round trip on ToolSearch
     // and then emit a stray extra reply when the "new tools available" reminder
