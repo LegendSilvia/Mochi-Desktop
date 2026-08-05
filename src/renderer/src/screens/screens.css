@@ -569,6 +569,18 @@
   white-space: pre-wrap;
 }
 
+/* Who is speaking, printed above their first line and only when it changes.
+   `block` because `.msg-body` is `pre-wrap`: inline, the newline separating it
+   from the reply would be rendered as a blank line. */
+.msg-who {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--tx2);
+}
+
 /*
  * Borderless.
  *

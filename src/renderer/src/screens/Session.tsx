@@ -74,6 +74,23 @@ function isFailure(message: UIMessage): boolean {
   return (message.metadata as { mochiError?: boolean } | undefined)?.mochiError === true
 }
 
+/**
+ * Which agent said it.
+ *
+ * A transcript used to have exactly one possible speaker, so nothing recorded
+ * who it was — the session's agent was the answer by construction. That stops
+ * being true the moment an agent can pull another into the chat, and a reply
+ * with no attribution is then unreadable: two agents, one avatar, no way to
+ * tell which one just contradicted the other.
+ *
+ * `undefined` for every message written before this existed, and for one still
+ * arriving; the caller falls back to the session's own agent, which is what
+ * those messages meant.
+ */
+function speakerId(message: UIMessage): string | undefined {
+  return (message.metadata as { agentId?: string } | undefined)?.agentId
+}
+
 /** A partial `@name` immediately before the caret — what opens and filters the
  *  mention picker while typing. */
 const MENTION_AT_CARET = /@([\w-]*)$/
@@ -153,16 +170,15 @@ export function Session(): React.JSX.Element {
 
   const agent = activeSession ? agentById(activeSession.agentId) : undefined
 
-  // The agent's own mascot art. Shared with the loadout and start-a-session
-  // screens — see `useAgentArt` for why the store's `spriteSrc` cannot serve it.
-  const art = useAgentArt(agent ? [agent.spritePreset] : [])
-  // Every subagent's folder, so the Agents widget shows faces rather than
-  // initials. Above the early return because hooks cannot sit below one.
-  const subArt = useAgentArt(
-    (activeSession?.subagentIds ?? [])
-      .map((id) => agentById(id)?.spritePreset)
-      .filter((p): p is string => Boolean(p))
-  )
+  // Mascot art for every agent, not just this session's. Shared with the
+  // loadout and start-a-session screens — see `useAgentArt` for why the store's
+  // `spriteSrc` cannot serve it.
+  //
+  // It used to load the one folder the session's agent uses, which is enough
+  // right up until a reply comes from someone else: the transcript would then
+  // show that agent's name over this one's face. There are a handful of agents
+  // and each folder is loaded once, so asking for all of them costs nothing.
+  const art = useAgentArt(agents.map((a) => a.spritePreset))
   const agentArt = agent ? art[agent.spritePreset] : null
 
   // The transport is rebuilt when the agent, the server port or the backend
@@ -833,7 +849,7 @@ export function Session(): React.JSX.Element {
       messages={messages}
       agent={agent}
       subagents={subagents.filter((s): s is NonNullable<typeof s> => Boolean(s))}
-      subArt={subArt}
+      subArt={art}
       rules={rules}
       stickerSrc={stickerSrc}
       onAddAgent={() => dispatch({ type: 'toggle', key: 'mentionOpen', value: true })}
@@ -1037,6 +1053,26 @@ export function Session(): React.JSX.Element {
 
             const source = flattenText(message)
             const isLast = mi === messages.length - 1
+
+            /*
+             * Who is speaking, and whether to say so.
+             *
+             * The name is printed when it changes rather than over every reply.
+             * A solo session is still the common case, and "Fraux" stamped on
+             * each of forty consecutive messages is noise that makes the one
+             * time it matters — the message where the speaker actually changed —
+             * harder to spot, not easier. A user message in between resets it,
+             * so each answer is attributed.
+             */
+            const whoId = speakerId(message) ?? activeSession.agentId
+            const who = agentById(whoId) ?? agent
+            const before = messages[mi - 1]
+            const spokeBefore =
+              before && before.role === 'assistant' && !isFailure(before)
+                ? (speakerId(before) ?? activeSession.agentId)
+                : null
+            const namePart = message.parts.findIndex((p) => p.type === 'text')
+
             return (
               <div key={message.id ?? mi} className="msg-group" data-role={message.role}>
                 {message.parts.map((part, pi) => {
@@ -1051,13 +1087,21 @@ export function Session(): React.JSX.Element {
                     ) : (
                       <div key={pi} className="msg-agent">
                         <div className="msg-avatar">
-                          {agentArt ? (
-                            <img className="avatar-art" src={agentArt} alt="" draggable={false} />
+                          {art[who.spritePreset] ? (
+                            <img
+                              className="avatar-art"
+                              src={art[who.spritePreset] as string}
+                              alt=""
+                              draggable={false}
+                            />
                           ) : (
-                            <span className="agent-initial">{agent.name[0]}</span>
+                            <span className="agent-initial">{who.name[0]}</span>
                           )}
                         </div>
                         <div className="msg-body">
+                          {pi === namePart && whoId !== spokeBefore && (
+                            <span className="msg-who">{who.name}</span>
+                          )}
                           {/* Only the reply currently arriving animates. `mi`
                               is the message index, so this is "the last message,
                               while the run is live" — anything else, including

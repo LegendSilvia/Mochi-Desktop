@@ -1180,6 +1180,16 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
         writer.write({ type: 'start' })
+        /*
+         * Who this reply is from, recorded rather than inferred.
+         *
+         * The renderer can work it out today — a session has one agent — and it
+         * falls back to exactly that for anything without this. But the point of
+         * the transcript naming a speaker is the case where the answer is *not*
+         * the session's agent, and by then guessing would be wrong. Written
+         * before the first token so the name is there while the reply streams.
+         */
+        writer.write({ type: 'message-metadata', messageMetadata: { agentId } })
         writer.write({ type: 'start-step' })
 
         if (provider !== 'anthropic') {
