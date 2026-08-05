@@ -38,6 +38,7 @@ import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/To
 import { isPresentational } from '@renderer/lib/toolKinds'
 import { Thinking } from '@renderer/components/chat/Thinking'
 import { SmoothText } from '@renderer/components/chat/SmoothText'
+import { withMentions } from '@renderer/components/chat/mentions'
 import { MessageActions } from '@renderer/components/chat/MessageActions'
 import { AskDock, type PendingAsk } from '@renderer/components/chat/AskDock'
 import { PermissionCard, type PermissionRequest } from '@renderer/components/chat/PermissionCard'
@@ -1076,16 +1077,11 @@ export function Session(): React.JSX.Element {
               )}
             </p>
           </div>
-          {subagents.length > 0 && (
-            <div className="avatar-stack">
-              <span className="stack-avatar">{agent.name[0]}</span>
-              {subagents.map((s) => (
-                <span key={s!.id} className="stack-avatar">
-                  {s!.name[0]}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* The stack of initials that used to sit here said the same thing as
+              "+1 agent" beside the description, one line up, and said it worse:
+              two agents sharing a mascot folder gave two identical letters. Who
+              is in the room is now answered where it matters, by the name over
+              each reply. */}
           <span className="session-spacer" />
           {/* Only once a folder is actually set. An empty strip saying "no
               folder" was permanent furniture in every chat that never needed
@@ -1253,22 +1249,13 @@ export function Session(): React.JSX.Element {
               )
             }
 
-            /* A turn one agent handed to another. It is a user-role message
-               because that is the only role the backends read a prompt from,
-               but it is not something you typed, so it does not get your
-               bubble. */
-            const handoff = message.role === 'user' ? handoffOf(message) : undefined
-            if (handoff) {
-              return (
-                <div key={message.id ?? mi} className="msg-note">
-                  <Users size={13} strokeWidth={1.9} />
-                  <span>
-                    {agentById(handoff.from)?.name ?? handoff.from} tagged{' '}
-                    {agentById(handoff.to)?.name ?? handoff.to}
-                  </span>
-                </div>
-              )
-            }
+            /* A turn one agent handed to another renders as nothing at all.
+               It is a user-role message, because that is the only role the
+               backends read a prompt from, but you did not type it — and a
+               line announcing "Helper tagged Fraux" only repeats what the tag
+               in the reply above and the name over the reply below already
+               say. The names carry it; this was scaffolding. */
+            if (message.role === 'user' && handoffOf(message)) return null
 
             if (isFailure(message)) {
               return (
@@ -1317,7 +1304,7 @@ export function Session(): React.JSX.Element {
                     // their asterisks silently disappear.
                     return message.role === 'user' ? (
                       <div key={pi} className="msg-user">
-                        {part.text}
+                        {withMentions(part.text)}
                       </div>
                     ) : (
                       <div key={pi} className="msg-agent">

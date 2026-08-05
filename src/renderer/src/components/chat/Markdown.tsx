@@ -1,4 +1,5 @@
-import { Fragment, useMemo } from 'react'
+import { useMemo } from 'react'
+import { withMentions } from './mentions'
 import './markdown.css'
 
 /**
@@ -197,12 +198,15 @@ function renderInline(text: string, key = 0): React.ReactNode[] {
 
   while (rest) {
     const m = INLINE.exec(rest)
+    // Mentions are picked out of the plain runs between markdown spans rather
+    // than being another alternative in INLINE — that way a tag inside `code`
+    // stays code, and one inside **bold** is found by the recursive call.
     if (!m || m.index === undefined) {
-      out.push(<Fragment key={n++}>{rest}</Fragment>)
+      out.push(...withMentions(rest, n))
       break
     }
 
-    if (m.index > 0) out.push(<Fragment key={n++}>{rest.slice(0, m.index)}</Fragment>)
+    if (m.index > 0) out.push(...withMentions(rest.slice(0, m.index), (n += 50)))
 
     const [full, , code, strong, strongAlt, strike, em, linkText, linkHref, bare] = m
 

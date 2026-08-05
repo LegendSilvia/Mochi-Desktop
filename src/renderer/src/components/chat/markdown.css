@@ -80,6 +80,18 @@
 
 /* --- code ---------------------------------------------------------------- */
 
+/* `@name`. Tinted rather than boxed: it appears mid-sentence and often more
+   than once, and a chip per tag would break the line into pieces. The accent is
+   the same one the app uses for "this does something". */
+.md-mention {
+  padding: 0.5px 3px;
+  margin: 0 -1px;
+  border-radius: 4px;
+  background: var(--acs);
+  color: var(--ac);
+  font-weight: 600;
+}
+
 .md-code {
   padding: 1.5px 5px;
   border-radius: var(--r-sm);
