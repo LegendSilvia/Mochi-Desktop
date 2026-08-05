@@ -6,7 +6,7 @@ import { Memory } from '@mastra/memory'
 import { TaskSignalProvider } from '@mastra/core/signals'
 import { LibSQLStore, LibSQLVector } from '@mastra/libsql'
 import { chatRoute } from '@mastra/ai-sdk'
-import { mochiTools, type MochiToolId } from './tools/mochi-tools'
+import { docTools, mochiTools, type MochiToolId } from './tools/mochi-tools'
 import { DEFAULT_AGENTS, DEFAULT_RECALL_TOP_K } from '../shared/defaults'
 import type { AgentLoadout } from '../shared/types'
 
@@ -94,11 +94,19 @@ export interface BuildAgentOptions {
 
 /** Build a Mastra Agent from a Mochi loadout. Loadout *is* the agent. */
 export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions): Agent {
-  const tools = Object.fromEntries(
-    loadout.toolIds
-      .filter((id): id is MochiToolId => id in mochiTools)
-      .map((id) => [id, mochiTools[id]])
-  )
+  const tools = {
+    // The library is not a loadout choice. `toolIds` is not editable anywhere in
+    // the UI, so gating these behind it would hide them from every agent that
+    // already exists — and the subscription backend offers them unconditionally,
+    // so an agent that lost its library merely by switching backend was the
+    // asymmetry worth closing.
+    ...docTools,
+    ...Object.fromEntries(
+      loadout.toolIds
+        .filter((id): id is MochiToolId => id in mochiTools)
+        .map((id) => [id, mochiTools[id]])
+    )
+  }
 
   // Chattiness and "can push without asking" are behaviour knobs, not model
   // params — the cheapest honest way to honour them is to say so in the prompt.

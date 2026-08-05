@@ -5,10 +5,11 @@ import { HonoBindings, HonoVariables, MastraServer } from '@mastra/hono'
 import { createReadStream } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createMastra } from '../mastra/index'
+import { provideDocs } from '../mastra/tools/mochi-tools'
 import { registerAgentSdkRoute } from './agent-sdk-route'
 import { databaseUrl } from './paths'
 import { load } from './store'
-import { embedderInfo } from './rag'
+import { addNote, embedderInfo, search } from './rag'
 import { workspaceFor } from './workspace'
 import type { ServerInfo } from '../shared/types'
 
@@ -30,6 +31,10 @@ let handle: { close: () => void } | null = null
 
 export async function startMastraServer(appVersion: string): Promise<ServerInfo> {
   if (info) return info
+
+  // Hand the Mastra tools the document library. Injected rather than imported
+  // so src/mastra stays free of main-process dependencies.
+  provideDocs({ search, addNote })
 
   const { agents } = load()
 

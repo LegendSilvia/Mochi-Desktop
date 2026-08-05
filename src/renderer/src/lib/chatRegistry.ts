@@ -106,6 +106,49 @@ export function flushAllChats(): void {
   for (const [sessionId, entry] of live) saveMessages(sessionId, entry.chat.messages)
 }
 
+/**
+ * How often a still-streaming chat is written while nobody is watching it.
+ *
+ * Matches the foreground throttle, so a background turn is no more exposed than
+ * the one on screen.
+ */
+const SWEEP_MS = 700
+
+let sweep: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Save streaming chats as they go, not only when they end.
+ *
+ * The unload flush covers closing the window, and `onFinish` covers a turn that
+ * completes — between them sits the case neither catches: the app being killed
+ * rather than closed. A crash, Task Manager, or the power going out runs no
+ * handler at all, so a long reply that had been streaming for a minute was lost
+ * whole.
+ *
+ * Only runs while something is actually streaming, and stops itself when
+ * nothing is, so an idle Mochi does no periodic work.
+ */
+export function noteActivity(): void {
+  ensureSweeping()
+}
+
+function ensureSweeping(): void {
+  if (sweep) return
+  sweep = setInterval(() => {
+    let busy = false
+    for (const [sessionId, entry] of live) {
+      const status = entry.chat.status
+      if (status !== 'streaming' && status !== 'submitted') continue
+      busy = true
+      saveMessages(sessionId, entry.chat.messages)
+    }
+    if (!busy && sweep) {
+      clearInterval(sweep)
+      sweep = null
+    }
+  }, SWEEP_MS)
+}
+
 /** True while a session that isn't on screen is still working. */
 export function isChatBusy(sessionId: string): boolean {
   const status = live.get(sessionId)?.chat.status

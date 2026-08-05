@@ -22,7 +22,7 @@ import { useStore } from '@renderer/state/context'
 import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
-import { chatFor, flushAllChats, forgetChat, onChatFinish } from '@renderer/lib/chatRegistry'
+import { chatFor, flushAllChats, forgetChat, noteActivity, onChatFinish } from '@renderer/lib/chatRegistry'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { WidgetHost } from '@renderer/components/widgets/WidgetHost'
 import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
@@ -313,6 +313,7 @@ export function Session(): React.JSX.Element {
     sendRef.current = (text: string) => sendMessage({ text })
   }, [sendMessage])
 
+
   /**
    * Stop, on both sides.
    *
@@ -353,6 +354,13 @@ export function Session(): React.JSX.Element {
   }, [agent])
 
   const busy = status === 'streaming' || status === 'submitted'
+
+  // Start the registry's periodic save whenever a turn begins, from any send
+  // path. Watching `busy` rather than wrapping each call site means a turn
+  // started by the queue, a retry or the mascot is covered the same way.
+  useEffect(() => {
+    if (busy) noteActivity()
+  }, [busy])
 
   // Stream lifecycle and tool traffic, for the debug log. Both are no-ops unless
   // developer mode armed the buffer.
