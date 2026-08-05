@@ -18,7 +18,13 @@ import { bus } from '../mastra/events'
 import { load } from './store'
 import { readLibrary } from './assets'
 import { addNote, search } from './rag'
-import { recallContext, rememberTurn, workingMemoryBlock, writeWorkingMemory } from './recall'
+import {
+  readWorkingMemory,
+  recallContext,
+  rememberTurn,
+  workingMemoryBlock,
+  writeWorkingMemory
+} from './recall'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -577,9 +583,16 @@ function buildMochiServer(
     {
       memory: z
         .string()
-        .describe('The complete memory, in markdown. Replaces the previous contents.')
+        .describe('The complete memory, in markdown. Replaces the previous contents.'),
+      forget: z
+        .boolean()
+        .optional()
+        .describe(
+          'Set only when deliberately removing information the user asked you to ' +
+            'drop. Without it, an update that would delete most of the memory is refused.'
+        )
     },
-    async ({ memory: text }) => {
+    async ({ memory: text, forget }) => {
       if (!memory) {
         return {
           content: [
@@ -587,11 +600,54 @@ function buildMochiServer(
           ]
         }
       }
-      const ok = await writeWorkingMemory(memory.loadout, {
-        threadId: memory.threadId,
-        resourceId: memory.resourceId,
-        text
-      })
+
+      /*
+       * A write that would destroy most of what is stored has to be deliberate.
+       *
+       * This tool replaces rather than appends, and the description says to
+       * resend everything still true — but nothing enforced it, so a model that
+       * passed only the fact it had just learned silently erased the rest, and
+       * the loss was invisible until someone opened Settings → Memory and found
+       * it empty. A refusal that hands back the current text is recoverable: the
+       * model can merge and call again. Silent replacement is not.
+       *
+       * Deliberate deletion is still possible — `forget` says so — because "stop
+       * remembering that" is a reasonable thing to ask an agent.
+       */
+      const next = text.trim()
+      const keys = { threadId: memory.threadId, resourceId: memory.resourceId }
+      const current = (await readWorkingMemory(memory.loadout, keys)).trim()
+
+      if (!next && !forget) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                'Not saved: that would blank the memory. Pass the full memory you ' +
+                'want kept, or set forget: true if the user asked you to drop all of it.'
+            }
+          ]
+        }
+      }
+
+      if (current && next.length < current.length / 2 && !forget) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                'Not saved: that is less than half of what is stored, and this tool ' +
+                'replaces rather than appends — so it would delete the rest. Here is ' +
+                'the current memory. Send it back with your change merged in, or set ' +
+                'forget: true if the user really asked you to drop that much.\n\n' +
+                current
+            }
+          ]
+        }
+      }
+
+      const ok = await writeWorkingMemory(memory.loadout, { ...keys, text })
       return {
         content: [
           { type: 'text' as const, text: ok ? 'Noted.' : 'Could not save that just now.' }
