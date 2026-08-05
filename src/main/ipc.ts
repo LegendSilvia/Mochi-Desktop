@@ -28,6 +28,7 @@ import {
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { resetRecall } from './recall'
 import { listOpenRouterModels } from './openrouter'
+import { listSubscriptionModels } from './agent-sdk-route'
 import {
   destroyWorkspaces,
   diagnoseFile,
@@ -67,6 +68,7 @@ export const IPC = {
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
   openrouterModels: 'mochi:openrouter-models',
+  anthropicModels: 'mochi:anthropic-models',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
@@ -501,6 +503,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.openrouterModels, (_e, opts: { modality?: 'text' | 'embeddings'; q?: string }) =>
     listOpenRouterModels(opts ?? {})
   )
+
+  // What the Claude subscription itself says it can run.
+  ipcMain.handle(IPC.anthropicModels, () => listSubscriptionModels(app.getVersion()))
 
   /** Both windows get every event — the overlay is a second view of the same
    *  state, not a separate app, so neither may miss a sticker or a state change. */

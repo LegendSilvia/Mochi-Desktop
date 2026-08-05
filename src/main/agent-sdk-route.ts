@@ -60,6 +60,88 @@ function subscriptionEnv(appVersion: string): Record<string, string | undefined>
   return env
 }
 
+/**
+ * The models this subscription can actually run, asked of the subscription.
+ *
+ * The Anthropic group in the picker was hand-written, so a model the account
+ * cannot reach was selectable and only failed at turn time — the user picked
+ * it, sent a message, and got an error telling them to pick something else.
+ * `supportedModels()` is the account's own answer, aliases resolved.
+ *
+ * It hangs off a live `Query`, so there is no way to ask without starting a
+ * session. The prompt here is an async generator that yields *nothing* and
+ * parks on a promise: the subprocess comes up, answers, and exits when the
+ * promise resolves and the input ends. No user message is ever sent, so this
+ * costs no turn — only the process spawn, which is why the caller caches it.
+ */
+export interface SubscriptionModel {
+  id: string
+  label: string
+  hint: string
+}
+
+/** Spawning a subprocess to read a list that changes a few times a year is
+ *  worth doing once, not once per picker. Stale rows beat a spinner. */
+let modelCache: { at: number; rows: SubscriptionModel[] } | null = null
+const MODEL_TTL_MS = 30 * 60 * 1000
+
+export async function listSubscriptionModels(appVersion: string): Promise<SubscriptionModel[]> {
+  if (modelCache && Date.now() - modelCache.at < MODEL_TTL_MS) return modelCache.rows
+
+  // Initialised to a no-op rather than null: the executor runs synchronously so
+  // this is always replaced, but control-flow analysis cannot see that and
+  // would type the call site as possibly-null.
+  let release: () => void = () => {}
+  const hold = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  // Yields nothing, deliberately: a yielded message would be a turn, and this
+  // only needs the session to exist long enough to answer a question about
+  // itself. It parks until `release` ends the input and the subprocess exits.
+  // eslint-disable-next-line require-yield
+  async function* idle(): AsyncGenerator<SDKUserMessage> {
+    await hold
+  }
+
+  const session = query({
+    prompt: idle(),
+    options: {
+      env: subscriptionEnv(appVersion),
+      // Nothing is going to run, so the agent is given nothing to run with.
+      // A models query that could touch the filesystem would be absurd.
+      allowedTools: [],
+      disallowedTools: DISALLOWED_BUILTINS
+    }
+  })
+
+  try {
+    const models = await session.supportedModels()
+    const rows = models
+      .filter((m) => m.value)
+      .map((m) => ({
+        // Router form, so the value means the same thing on both backends.
+        id: `anthropic/${m.resolvedModel ?? m.value}`,
+        label: m.displayName || m.value,
+        hint: m.description || 'available on your Claude subscription'
+      }))
+    // Aliases resolve onto the same wire id ('sonnet' and 'claude-sonnet-5'),
+    // and two rows that set the identical value is a choice with no meaning.
+    const seen = new Set<string>()
+    const unique = rows.filter((r) => !seen.has(r.id) && seen.add(r.id))
+    if (unique.length) modelCache = { at: Date.now(), rows: unique }
+    return unique
+  } catch (err) {
+    console.error('[mochi] could not list subscription models:', err)
+    // Whatever we had last is better than an empty group.
+    return modelCache?.rows ?? []
+  } finally {
+    // Ends the input stream, which is what lets the subprocess exit. Skipping
+    // this would leak a Claude Code process for every picker that opened.
+    release()
+  }
+}
+
 /** Tools are declared under an in-process MCP server, so they run here and can
  *  reach the bus directly — same wiring as the Mastra tools, different transport. */
 const TOOL_PREFIX = 'mcp__mochi__'

@@ -101,17 +101,47 @@ export function ModelPicker({
     }
   }, [open, q, modality])
 
+  /*
+   * Anthropic's list, asked of the subscription rather than written down.
+   *
+   * The account decides what it can run — plan, entitlements, and whatever
+   * shipped this week. A hand-written list made models the account cannot reach
+   * selectable, and the only feedback was an error after sending a message.
+   *
+   * Not searched server-side like OpenRouter: this is a dozen rows, so the
+   * client filter handles it and one fetch per open is enough.
+   */
+  const [liveAnthropic, setLiveAnthropic] = useState<ModelOption[] | null>(null)
+  useEffect(() => {
+    if (!open || modality !== 'text') return
+    let cancelled = false
+    void window.mochi?.anthropicModels().then((rows) => {
+      if (!cancelled) setLiveAnthropic(rows)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, modality])
+
   // The live rows are searched too, so a model picked from OpenRouter shows its
   // name rather than falling back to the bare id it has no catalogue entry for.
-  const known = findModel(value, catalog) ?? live?.find((m) => m.id === value)
+  const known =
+    findModel(value, catalog) ??
+    live?.find((m) => m.id === value) ??
+    liveAnthropic?.find((m) => m.id === value)
 
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase()
     const base = catalog
       .filter((g) => usable(g.provider))
-      // The live list replaces the written-down one entirely when it arrives.
+      // A live list replaces the written-down one entirely when it arrives.
       // Merging them would reintroduce exactly the ids that do not resolve.
       .map((g) => (g.provider === 'openrouter' && live?.length ? { ...g, models: live } : g))
+      .map((g) =>
+        g.provider === 'anthropic' && liveAnthropic?.length
+          ? { ...g, models: liveAnthropic }
+          : g
+      )
     if (!needle) return base
     return base
       .map((g) =>
@@ -132,7 +162,7 @@ export function ModelPicker({
       )
       .filter((g) => g.models.length > 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, connected, showAll, catalog, live])
+  }, [q, connected, showAll, catalog, live, liveAnthropic])
 
   const custom = q.trim().includes('/') && !findModel(q.trim(), catalog)
 
