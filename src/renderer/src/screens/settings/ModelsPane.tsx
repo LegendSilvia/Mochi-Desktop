@@ -131,6 +131,7 @@ export function ModelsPane(): React.JSX.Element {
                 <ModelPicker
                   value={settings.modelRoles[key]}
                   catalog={key === 'embeddings' ? EMBEDDING_CATALOG : undefined}
+                  modality={key === 'embeddings' ? 'embeddings' : 'text'}
                   onChange={(model) =>
                     dispatch({
                       type: 'settings',

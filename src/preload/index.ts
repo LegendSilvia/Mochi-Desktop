@@ -43,6 +43,7 @@ const IPC = {
   ragRemove: 'mochi:rag-remove',
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
+  openrouterModels: 'mochi:openrouter-models',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
@@ -174,6 +175,9 @@ export interface MochiApi {
   ragRemove: (id: string) => Promise<void>
   ragSearch: (q: string) => Promise<RagHit[]>
   ragEmbedder: () => Promise<EmbedderInfo>
+  openrouterModels: (opts: { modality?: 'text' | 'embeddings'; q?: string }) => Promise<
+    Array<{ id: string; label: string; hint: string }>
+  >
   /** File contents, so a diff can number its lines. Null when unreadable. */
   readText: (path: string) => Promise<string | null>
   /** Set the mascot state for every window at once. Sleep is decided in the
@@ -273,6 +277,7 @@ const api: MochiApi = {
   ragRemove: (id) => ipcRenderer.invoke(IPC.ragRemove, id),
   ragSearch: (q) => ipcRenderer.invoke(IPC.ragSearch, q),
   ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
+  openrouterModels: (opts) => ipcRenderer.invoke(IPC.openrouterModels, opts),
   readText: (path) => ipcRenderer.invoke(IPC.readText, path),
   setMascotState: (state, note) => ipcRenderer.invoke(IPC.setMascotState, state, note),
   focusSession: (sessionId) => ipcRenderer.invoke(IPC.focusSession, sessionId),

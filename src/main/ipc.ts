@@ -27,6 +27,7 @@ import {
 } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
 import { resetRecall } from './recall'
+import { listOpenRouterModels } from './openrouter'
 import {
   destroyWorkspaces,
   diagnoseFile,
@@ -65,6 +66,7 @@ export const IPC = {
   ragRemove: 'mochi:rag-remove',
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
+  openrouterModels: 'mochi:openrouter-models',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
@@ -494,6 +496,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.ragRemove, (_e, id: string) => removeDocument(id))
   ipcMain.handle(IPC.ragSearch, (_e, q: string) => search(q))
   ipcMain.handle(IPC.ragEmbedder, () => embedderInfo())
+
+  // The live catalogue behind the OpenRouter group in the model picker.
+  ipcMain.handle(IPC.openrouterModels, (_e, opts: { modality?: 'text' | 'embeddings'; q?: string }) =>
+    listOpenRouterModels(opts ?? {})
+  )
 
   /** Both windows get every event — the overlay is a second view of the same
    *  state, not a separate app, so neither may miss a sticker or a state change. */
