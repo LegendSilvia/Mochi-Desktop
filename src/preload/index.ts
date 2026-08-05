@@ -158,8 +158,14 @@ export interface MochiApi {
   /** Read one back. The art is unpacked into a new mascot folder; the returned
    *  loadout still needs a unique id, which the renderer assigns. */
   agentImport: () => Promise<MochiResult<{ agent: AgentLoadout; preset: string }>>
-  /** Overlay window only: let clicks through, or capture them over the sprite. */
-  mascotInteractive: (interactive: boolean) => Promise<void>
+  /** Overlay window only: the boxes that should catch the mouse, in window
+   *  coordinates, plus a lock held during a drag or while a menu is open. Main
+   *  polls the cursor against these — it cannot use forwarded mouse events,
+   *  which is what made the cursor flicker desktop-wide. */
+  mascotInteractive: (
+    rects: Array<{ x: number; y: number; w: number; h: number }>,
+    locked: boolean
+  ) => Promise<void>
   /** Native open dialog for the composer's attach and workspace buttons. */
   pickPaths: (kind: 'file' | 'folder') => Promise<string[]>
   /** Document library backing the searchDocs tool. */
@@ -260,7 +266,7 @@ const api: MochiApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.getBootstrap),
   library: (spritePreset) => ipcRenderer.invoke(IPC.getLibrary, spritePreset),
   listPresets: () => ipcRenderer.invoke(IPC.listPresets),
-  mascotInteractive: (interactive) => ipcRenderer.invoke(IPC.mascotInteractive, interactive),
+  mascotInteractive: (rects, locked) => ipcRenderer.invoke(IPC.mascotInteractive, rects, locked),
   pickPaths: (kind) => ipcRenderer.invoke(IPC.pickPaths, kind),
   ragAdd: (paths) => ipcRenderer.invoke(IPC.ragAdd, paths),
   ragList: () => ipcRenderer.invoke(IPC.ragList),

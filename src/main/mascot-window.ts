@@ -31,8 +31,8 @@ function targetDisplay(displayId: number | null | undefined): Electron.Display {
  * always-on-top window covering the work area.
  *
  * Mouse events are ignored by default so the transparent expanse doesn't
- * swallow clicks meant for the windows underneath; the renderer turns that off
- * while the pointer is genuinely over the sprite (see setMascotInteractive).
+ * swallow clicks meant for the windows underneath; main turns that off while the
+ * pointer is genuinely over the sprite (see setMascotHitRects).
  */
 
 let win: BrowserWindow | null = null
@@ -76,7 +76,9 @@ export function createMascotWindow(): BrowserWindow {
   // also sits above some full-screen apps and games, which not everyone wants.
   win.setAlwaysOnTop(true, load().settings.mascot.onTopLevel ?? 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  win.setIgnoreMouseEvents(true, { forward: true })
+  // No `forward: true`. See setMascotHitRects for why: forwarding is what made
+  // the cursor flicker across the whole desktop.
+  win.setIgnoreMouseEvents(true)
 
   // Respect the persisted setting: a window that always shows itself on ready
   // cannot be started hidden, which is the default on a fresh install.
@@ -84,6 +86,7 @@ export function createMascotWindow(): BrowserWindow {
     if (load().settings.mascot.visible) win?.showInactive()
   })
   win.on('closed', () => {
+    stopPolling()
     win = null
   })
 
@@ -102,20 +105,98 @@ export function createMascotWindow(): BrowserWindow {
 }
 
 export function destroyMascotWindow(): void {
+  stopMascotHitTest()
   if (win && !win.isDestroyed()) win.destroy()
   win = null
 }
 
 /**
- * Let clicks through, or don't.
+ * Click-through, decided here rather than in the renderer.
  *
- * `forward: true` matters — without it the renderer stops receiving the
- * mousemove events it needs to notice the pointer arriving over the sprite, and
- * the mascot becomes permanently un-grabbable.
+ * This used to be `setIgnoreMouseEvents(true, { forward: true })`, with the
+ * renderer watching `mousemove` to notice the pointer arriving over the sprite.
+ * Forwarding is what made that possible and is also what made the cursor
+ * flicker: on Windows every mouse event passed through a transparent,
+ * always-on-top window makes the system re-evaluate the cursor, and this window
+ * covers the entire work area — so it happened for every movement anywhere on
+ * screen, over any application. Confirmed by hiding the mascot, which stopped it.
+ *
+ * So the overlay now ignores the mouse outright, with no forwarding, and main
+ * polls the cursor position instead. `screen.getCursorScreenPoint()` is a cheap
+ * syscall and needs no events to pass through anything.
  */
-export function setMascotInteractive(interactive: boolean): void {
+interface HitRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+let hitRects: HitRect[] = []
+/** Held on while the mascot is being dragged or its menu is open — the pointer
+ *  is allowed to leave the sprite without the window going click-through
+ *  underneath it mid-gesture. */
+let hitLocked = false
+let interactiveNow = false
+let poll: NodeJS.Timeout | null = null
+
+/** Fast enough that reaching for the mascot feels immediate, slow enough to cost
+ *  nothing. A miss only delays grabbing it by a frame or two. */
+const POLL_MS = 40
+
+function stopPolling(): void {
+  if (poll) clearInterval(poll)
+  poll = null
+}
+
+function applyInteractive(next: boolean): void {
+  if (next === interactiveNow) return
+  interactiveNow = next
+  if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!next)
+}
+
+function tick(): void {
+  if (!win || win.isDestroyed() || !win.isVisible()) {
+    applyInteractive(false)
+    return
+  }
+  if (hitLocked) {
+    applyInteractive(true)
+    return
+  }
+  if (hitRects.length === 0) {
+    applyInteractive(false)
+    return
+  }
+  const p = screen.getCursorScreenPoint()
+  const b = win.getBounds()
+  const x = p.x - b.x
+  const y = p.y - b.y
+  applyInteractive(
+    hitRects.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
+  )
+}
+
+/**
+ * The parts of the overlay that should catch the mouse, in window coordinates.
+ *
+ * Sent by the renderer, which is the only side that knows where the sprite, its
+ * bubbles, its menu and any approval card currently are.
+ */
+export function setMascotHitRects(rects: HitRect[], locked: boolean): void {
+  hitRects = rects
+  hitLocked = locked
   if (!win || win.isDestroyed()) return
-  win.setIgnoreMouseEvents(!interactive, { forward: true })
+  // Answer this movement now rather than waiting up to a frame for the poll —
+  // it matters when the lock is what just changed.
+  tick()
+  if (!poll) poll = setInterval(tick, POLL_MS)
+}
+
+export function stopMascotHitTest(): void {
+  stopPolling()
+  hitRects = []
+  hitLocked = false
 }
 
 /**

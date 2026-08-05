@@ -22,7 +22,7 @@ import {
   getMascotWindow,
   listDisplays,
   setMascotFocusable,
-  setMascotInteractive,
+  setMascotHitRects,
   setMascotVisible
 } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
@@ -412,9 +412,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     delete process.env[provider.envVar]
   })
 
-  ipcMain.handle(IPC.mascotInteractive, (_e, interactive: boolean) => {
-    setMascotInteractive(Boolean(interactive))
-  })
+  /**
+   * Where the overlay should catch the mouse.
+   *
+   * The renderer reports rects rather than a boolean now: main polls the cursor
+   * against them, because the old scheme needed mouse-event forwarding through a
+   * full-screen transparent window and that is what made the cursor flicker
+   * across the entire desktop. See mascot-window.ts.
+   */
+  ipcMain.handle(
+    IPC.mascotInteractive,
+    (_e, rects: Array<{ x: number; y: number; w: number; h: number }>, locked: boolean) => {
+      setMascotHitRects(Array.isArray(rects) ? rects : [], Boolean(locked))
+    }
+  )
 
   /** Native picker for the composer's attach and workspace buttons. Returns the
    *  chosen paths, or an empty list when the user cancels. */

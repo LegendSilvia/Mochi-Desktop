@@ -341,84 +341,74 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
   // Click-through. The overlay covers the entire work area, so it must ignore
   // the mouse everywhere except over the sprite itself — otherwise it would eat
   // every click meant for the windows underneath.
-  const interactive = useRef(false)
-  useEffect(() => {
-    // Bound to visibility as well as to `overlay`: when the mascot is hidden the
-    // component renders null, `wrapRef` goes empty and `onMove` can no longer
-    // tell that the pointer has left the sprite. Hiding while the pointer is
-    // over it would strand the window with mouse events still enabled, and the
-    // next time it was shown it would swallow clicks meant for the desktop until
-    // a mousemove happened to heal it. Tearing the effect down here runs the
-    // cleanup below, which releases the capture — no second copy of the logic.
-    if (!overlay || !cfg.visible) return
-    const over = (el: HTMLElement | null, e: MouseEvent): boolean => {
-      if (!el) return false
-      const r = el.getBoundingClientRect()
-      return (
-        e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
-      )
-    }
+  const interactive = useRef('')
 
-    /*
-     * Coalesced to one test per frame.
-     *
-     * This overlay spans the whole work area, so it sees every mouse move made
-     * anywhere on screen — including over other applications. Running four
-     * getBoundingClientRect() calls on each one forces a layout per event, at
-     * whatever rate the mouse reports, for a question that can only change once
-     * per frame.
-     */
-    let queued: MouseEvent | null = null
-    let frame = 0
-    const onMove = (ev: MouseEvent): void => {
-      queued = ev
-      if (frame) return
-      frame = requestAnimationFrame(() => {
-        frame = 0
-        const pending = queued
-        queued = null
-        if (pending) test(pending)
+  /**
+   * Click-through, reported as geometry rather than decided here.
+   *
+   * This used to watch `mousemove` and call `mascotInteractive(true|false)`,
+   * which required the overlay to forward mouse events — and forwarding through
+   * a transparent, always-on-top window covering the whole work area is what
+   * made the cursor flicker for every movement anywhere on screen, in any
+   * application. Hiding the mascot stopped it, which is what pinned it down.
+   *
+   * So main polls the cursor against these boxes instead and the overlay ignores
+   * the mouse outright. No effect dependency list: the rects come from four refs
+   * that change with almost anything, and a stringified compare is cheaper than
+   * getting the dependency list wrong and stranding the window interactive.
+   */
+  const reportRects = useCallback((): void => {
+    const boxes = [wrapRef.current, approvalRef.current, menuRef.current, bubblesRef.current]
+      .filter((el) => el !== null)
+      .map((el) => {
+        const r = el.getBoundingClientRect()
+        return {
+          x: Math.round(r.left),
+          y: Math.round(r.top),
+          w: Math.round(r.width),
+          h: Math.round(r.height)
+        }
       })
-    }
+      // A collapsed element has no area to hit, and sending it would make main
+      // test a degenerate box on every tick.
+      .filter((r) => r.w > 0 && r.h > 0)
 
-    const test = (e: MouseEvent): void => {
-      if (!wrapRef.current) return
-      const onSprite = over(wrapRef.current, e)
-      /*
-       * The approval card counts as part of the mascot for click-through.
-       *
-       * It is positioned out of flow so it cannot shove the sprite around, which
-       * also means it does not grow the wrapper's rect — so a hit test on the
-       * wrapper alone left the Allow and Deny buttons unclickable. Testing it
-       * separately is the narrow fix; making the whole overlay interactive while
-       * an approval is pending would block every click to every other app on the
-       * desktop until the user answered.
-       */
-      const inside =
-        onSprite ||
-        over(approvalRef.current, e) ||
-        over(menuRef.current, e) ||
-        over(bubblesRef.current, e)
-      // Hover can change while `inside` does not — moving from the sprite onto
-      // the approval card keeps the window interactive but is no longer a hover.
-      setHovering(onSprite)
-      if (inside === interactive.current) return
-      interactive.current = inside
-      // The same hit-test already decides click-through, so hover comes free
-      // here. `pointerenter` cannot do this job in the overlay: the window
-      // ignores the mouse until this call turns it back on, so the pointer is
-      // already over the sprite by the time DOM events start arriving.
-      void window.mochi?.mascotInteractive(inside)
-    }
-    window.addEventListener('mousemove', onMove)
+    // Held on through a drag: the pointer routinely outruns the sprite, and
+    // going click-through underneath it mid-drag would drop the mascot.
+    const locked = dragging.current || menuOpen || Boolean(approval)
+    const key = JSON.stringify([boxes, locked])
+    if (key === interactive.current) return
+    interactive.current = key
+    void window.mochi?.mascotInteractive(boxes, locked)
+  }, [menuOpen, approval])
+
+  // Whatever a render changed.
+  useEffect(reportRects)
+
+  /*
+   * …and on a slow tick, because most of what moves the sprite never renders.
+   *
+   * The idle motion is a CSS animation and the drag position is written straight
+   * to the transform, so the box React last saw drifts away from the box on
+   * screen — leaving the mascot with a hit area beside itself. Re-reading a few
+   * rects seven times a second is cheap, and the send is skipped unless
+   * something actually changed.
+   */
+  useEffect(() => {
+    if (!overlay || !cfg.visible) return
+    const timer = setInterval(reportRects, 150)
+    return () => clearInterval(timer)
+  }, [overlay, cfg.visible, reportRects])
+
+  // Hand the mouse back when the overlay unmounts or the mascot is hidden, so
+  // the window cannot be stranded catching clicks meant for the desktop.
+  useEffect(() => {
+    if (!overlay) return
     return () => {
-      window.removeEventListener('mousemove', onMove)
-      if (frame) cancelAnimationFrame(frame)
-      interactive.current = false
-      setHovering(false)
-      void window.mochi?.mascotInteractive(false)
+      interactive.current = ''
+      void window.mochi?.mascotInteractive([], false)
     }
-  }, [overlay, cfg.visible])
+  }, [overlay])
 
   // Initial placement. A stored position that would cover the rail or the title
   // bar is rejected outright rather than clamped — clamping it would park the
