@@ -34,6 +34,7 @@ export const BLANK_AGENT: Omit<AgentLoadout, 'id' | 'name'> = {
   workingMemory: true,
   semanticRecall: false,
   recallTopK: DEFAULT_RECALL_TOP_K,
+  recallScope: 'thread',
   voiceReplies: false,
   canPushWithoutAsking: false,
   spritePreset: 'sprout'

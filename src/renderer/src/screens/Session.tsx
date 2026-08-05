@@ -46,6 +46,19 @@ const STREAM_SAVE_MS = 700
  *  exactly one of those. */
 const MEMORY_RESOURCE = 'mochi-user'
 
+/**
+ * The resource a session's memory hangs off, scoped per agent.
+ *
+ * It used to be the bare constant for everyone. That is correct for naming the
+ * user, and wrong the moment recall is allowed to search across sessions: one
+ * bucket means asking Fraux about a past conversation could surface fragments
+ * of Helper's, from unrelated work. Per agent, "what it remembers" matches who
+ * you were talking to.
+ */
+function memoryResource(agentId: string): string {
+  return `${MEMORY_RESOURCE}:${agentId}`
+}
+
 interface AskInput {
   question?: string
   options?: string[]
@@ -186,7 +199,7 @@ export function Session(): React.JSX.Element {
           // memory and semantic recall group threads under. Mochi is a
           // single-user desktop app, so it is one constant; the thread is what
           // separates one session from another.
-          ...(threadId ? { memory: { threadId, resourceId: MEMORY_RESOURCE } } : {})
+          ...(threadId ? { memory: { threadId, resourceId: memoryResource(agent.id) } } : {})
         }
       })
     })

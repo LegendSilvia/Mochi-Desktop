@@ -301,6 +301,19 @@ export interface AgentLoadout {
    * `DEFAULT_RECALL_TOP_K` rather than assuming it is set.
    */
   recallTopK?: number
+  /**
+   * How far recall may reach.
+   *
+   * `thread` searches this session only — it recovers what fell out of the
+   * recent-message window, and nothing else. `resource` searches every past
+   * session with this agent, which is what "do you remember last time?"
+   * actually asks for.
+   *
+   * Optional for the same reason as `recallTopK`: loadouts predate it.
+   * Defaults to `thread`, because reaching into other conversations should be
+   * something you turned on rather than something that happened to you.
+   */
+  recallScope?: 'thread' | 'resource'
   voiceReplies: boolean
   /** Deliberately defaults to false — pushing without asking is a big deal. */
   canPushWithoutAsking: boolean

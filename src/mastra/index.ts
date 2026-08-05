@@ -175,13 +175,19 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
          * answered gives the model a fragment it has to guess the context of.
          * Two either side is the smallest window that keeps a match legible.
          *
-         * Thread scope, deliberately. `scope: 'resource'` would search every
-         * session at once, and every session shares one resource id — so a
-         * question about one project would pull in fragments of every other,
-         * which is worse than not recalling at all.
+         * Scope is the loadout's call. `thread` recovers what fell out of the
+         * recent-message window; `resource` reaches into past sessions too,
+         * which is what "do you remember last time?" is actually asking for.
+         * The resource is per agent (see `memoryResource` in Session.tsx), so
+         * the wide setting means "this agent's own history" rather than every
+         * conversation in the app.
          */
         semanticRecall: embedder
-          ? { topK: recallTopK(loadout), messageRange: 2, scope: 'thread' as const }
+          ? {
+              topK: recallTopK(loadout),
+              messageRange: 2,
+              scope: loadout.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
+            }
           : false
       }
     })

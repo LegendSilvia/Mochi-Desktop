@@ -650,6 +650,18 @@ export function Agents(): React.JSX.Element {
                   />
                 </Row>
               )}
+              {selected.semanticRecall && (
+                <Row
+                  label="Reach past sessions"
+                  hint="off: this conversation only · on: everything you've said to this agent"
+                >
+                  <Toggle
+                    on={selected.recallScope === 'resource'}
+                    onChange={(v) => patch({ recallScope: v ? 'resource' : 'thread' })}
+                    label="Reach past sessions"
+                  />
+                </Row>
+              )}
               <Row label="Voice replies">
                 <Toggle
                   on={selected.voiceReplies}
