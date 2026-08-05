@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
+import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
@@ -798,17 +799,29 @@ export function Session(): React.JSX.Element {
                 </div>
                 <div className="head-info-row">
                   <span className="meta">Memory</span>
+                  {/* Said per backend, because they do not share one. Mastra's
+                      Memory is what the loadout switches configure, and it only
+                      backs the API-key route — reporting "on" here while the
+                      Agent SDK keeps its own transcript would credit those
+                      switches with something they are not doing. */}
                   <span className="mono">
                     {activeSession.type === 'scratch'
                       ? 'scratch — nothing saved'
-                      : agent.workingMemory
-                        ? 'on'
-                        : 'off'}
+                      : onSubscription
+                        ? 'kept by the agent sdk'
+                        : [
+                            agent.workingMemory ? 'working' : null,
+                            agent.semanticRecall
+                              ? `recall ×${agent.recallTopK ?? DEFAULT_RECALL_TOP_K}`
+                              : null
+                          ]
+                            .filter(Boolean)
+                            .join(' + ') || 'off'}
                   </span>
                 </div>
                 <div className="head-info-note meta">
                   {onSubscription
-                    ? 'Running through the Claude Agent SDK on your Claude subscription — no API key involved.'
+                    ? 'Running through the Claude Agent SDK on your Claude subscription — no API key involved. It keeps its own history, so the loadout’s memory and recall switches apply to the API-key backend.'
                     : 'Running through Mastra against the Anthropic API — billed per token to your API key.'}
                 </div>
               </div>

@@ -13,6 +13,14 @@ import type { AgentLoadout, AppSettings, Session, StickerRule } from './types'
  */
 export const DEFAULT_AGENTS: AgentLoadout[] = []
 
+/**
+ * Matches semantic recall pulls in per turn.
+ *
+ * Also the fallback for loadouts saved before the setting existed, which is why
+ * it lives here rather than as a literal at each use site.
+ */
+export const DEFAULT_RECALL_TOP_K = 5
+
 /** The loadout the Agents screen builds when there is nothing to clone from. */
 export const BLANK_AGENT: Omit<AgentLoadout, 'id' | 'name'> = {
   description: 'a fresh loadout — tell it who it is',
@@ -25,6 +33,7 @@ export const BLANK_AGENT: Omit<AgentLoadout, 'id' | 'name'> = {
   stickerFrequency: 4,
   workingMemory: true,
   semanticRecall: false,
+  recallTopK: DEFAULT_RECALL_TOP_K,
   voiceReplies: false,
   canPushWithoutAsking: false,
   spritePreset: 'sprout'

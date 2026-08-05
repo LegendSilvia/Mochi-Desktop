@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { Row, ScreenHeader, Slider, Toggle } from '@renderer/components/ui/Controls'
+import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
+import type { EmbedderInfo } from '@shared/types'
 
 /**
  * Memory pane.
@@ -15,7 +17,12 @@ export function MemoryPane(): React.JSX.Element {
   const agent = agents.find((a) => a.id === settings.defaultAgentId) ?? agents[0]
   const [facts, setFacts] = useState<string[]>([])
   const [draft, setDraft] = useState('')
-  const [topMatches, setTopMatches] = useState(5)
+  /** Whether this machine can embed at all — the same check RAG reports. */
+  const [embedder, setEmbedder] = useState<EmbedderInfo | null>(null)
+
+  useEffect(() => {
+    void window.mochi?.ragEmbedder().then(setEmbedder)
+  }, [])
 
   // Every control below is bound to an agent. With none created yet there is
   // nothing to configure, so say that instead of dereferencing undefined.
@@ -108,15 +115,31 @@ export function MemoryPane(): React.JSX.Element {
                 label="Semantic recall"
               />
             </Row>
-            <Row label="Top matches" hint={`${topMatches}`}>
+            <Row label="Top matches" hint={`${agent.recallTopK ?? DEFAULT_RECALL_TOP_K}`}>
               <Slider
-                value={topMatches}
+                value={agent.recallTopK ?? DEFAULT_RECALL_TOP_K}
                 min={1}
                 max={20}
-                onChange={setTopMatches}
+                onChange={(v) => patchAgent({ recallTopK: v })}
                 label="Top matches"
               />
             </Row>
+            {/* Recall needs an embedder, and the switch alone cannot tell you
+                whether one is reachable — so say it here rather than let the
+                feature look on while it is quietly doing nothing. */}
+            {agent.semanticRecall && (
+              <span className="meta">
+                {embedder === null
+                  ? 'checking for an embedder…'
+                  : embedder.ready
+                    ? `Embedding with ${embedder.model} — ${embedder.detail}.`
+                    : embedder.kind === 'none'
+                      ? 'Off until an embedder is reachable. Anthropic has no embeddings API, so this is the one thing a Claude subscription cannot cover — set an embedding model in Settings → Models, or run Ollama locally.'
+                      : // Worth quoting: this branch knows *why* it isn't ready,
+                        // usually a model that hasn't been pulled yet.
+                        `Off until the embedder is ready — ${embedder.detail}.`}
+              </span>
+            )}
           </section>
         </div>
 

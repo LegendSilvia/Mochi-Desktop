@@ -7,7 +7,7 @@ import { TaskSignalProvider } from '@mastra/core/signals'
 import { LibSQLStore, LibSQLVector } from '@mastra/libsql'
 import { chatRoute } from '@mastra/ai-sdk'
 import { mochiTools, type MochiToolId } from './tools/mochi-tools'
-import { DEFAULT_AGENTS } from '../shared/defaults'
+import { DEFAULT_AGENTS, DEFAULT_RECALL_TOP_K } from '../shared/defaults'
 import type { AgentLoadout } from '../shared/types'
 
 /**
@@ -18,26 +18,64 @@ import type { AgentLoadout } from '../shared/types'
  * in the shipped app.
  */
 
-/** Env var Mastra's model router reads for each provider prefix. */
-const PROVIDER_ENV: Record<string, string> = {
-  openai: 'OPENAI_API_KEY',
-  anthropic: 'ANTHROPIC_API_KEY',
-  google: 'GOOGLE_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY'
+/**
+ * Embedding servers that run on this machine and speak OpenAI's
+ * `/v1/embeddings` shape.
+ *
+ * Passing a `url` makes the model router skip both its provider registry and
+ * its API-key check, which is the whole point: Anthropic has no embeddings API,
+ * so someone on a Claude subscription has no key for this and no way to get
+ * one. A local embedder is what keeps semantic recall from being a feature only
+ * OpenAI customers can switch on.
+ *
+ * Same server RAG already talks to (src/main/rag.ts) — one local embedder for
+ * the app, not two.
+ */
+const LOCAL_EMBEDDERS: Record<string, string> = {
+  ollama: 'http://127.0.0.1:11434/v1'
 }
 
 /**
- * Semantic recall needs a vector store *and* a reachable embedder. The Memory
- * constructor throws outright when the vector store is missing, and a missing
- * API key fails later at query time — so we check up front and degrade to plain
- * message history rather than taking the whole server down.
+ * The embedder for a model-role string, or null when none can be built.
+ *
+ * Semantic recall needs a vector store *and* a reachable embedder, so this is
+ * decided up front: recall degrades to plain message history rather than
+ * taking the whole server down.
+ *
+ * The hosted branch lets the router do the deciding rather than keeping a
+ * second copy of its provider table here. Its constructor already throws both
+ * for a provider it doesn't know and for a missing key. The copy this replaces
+ * had drifted: it answered "yes, that works" for any provider it didn't
+ * recognise, so pointing embeddings at `ollama/…` — which is *not* a router
+ * provider — threw `Unknown provider` while building the agent and took the
+ * whole Mastra server down at startup.
  */
-export function canEmbed(embeddingModel: string): boolean {
-  const provider = embeddingModel.split('/')[0]
-  const envVar = PROVIDER_ENV[provider]
-  // A local provider (ollama and friends) needs no key.
-  if (!envVar) return true
-  return Boolean(process.env[envVar])
+export function embedderFor(embeddingModel: string): ModelRouterEmbeddingModel | null {
+  const [providerId, ...rest] = (embeddingModel ?? '').split('/')
+  const modelId = rest.join('/')
+  if (!providerId || !modelId) return null
+
+  const url = LOCAL_EMBEDDERS[providerId]
+  if (url) return new ModelRouterEmbeddingModel({ providerId, modelId, url })
+
+  try {
+    return new ModelRouterEmbeddingModel(`${providerId}/${modelId}`)
+  } catch {
+    // No key for this provider, or not one the router knows.
+    return null
+  }
+}
+
+/**
+ * How many matches recall pulls in, clamped to the range the UI offers.
+ *
+ * Loadouts saved before this setting existed have no value at all — the store
+ * merges settings shallowly and does not backfill agents — so the default is
+ * applied here rather than trusted to be present.
+ */
+function recallTopK(loadout: AgentLoadout): number {
+  const wanted = loadout.recallTopK ?? DEFAULT_RECALL_TOP_K
+  return Math.min(20, Math.max(1, Math.round(wanted)))
 }
 
 export interface BuildAgentOptions {
@@ -73,15 +111,14 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
     .filter(Boolean)
     .join('\n')
 
-  // `new ModelRouterEmbeddingModel(...)` throws immediately when the provider
-  // key is absent, so the embedder and vector store are only constructed once we
-  // know a key exists. A fresh install with no keys still starts and chats —
+  // The vector store is only built once we know an embedder exists to fill it.
+  // A fresh install with no keys and no local embedder still starts and chats —
   // it just falls back to plain message history.
-  const semanticRecall = loadout.semanticRecall && canEmbed(opts.embeddingModel)
-  const recallParts = semanticRecall
+  const embedder = loadout.semanticRecall ? embedderFor(opts.embeddingModel) : null
+  const recallParts = embedder
     ? {
         vector: new LibSQLVector({ id: `mochi-vector-${loadout.id}`, url: opts.databaseUrl }),
-        embedder: new ModelRouterEmbeddingModel(opts.embeddingModel)
+        embedder
       }
     : {}
 
@@ -125,7 +162,23 @@ export function agentFromLoadout(loadout: AgentLoadout, opts: BuildAgentOptions)
       options: {
         lastMessages: 20,
         workingMemory: { enabled: loadout.workingMemory },
-        semanticRecall
+        /**
+         * Recall is what reaches past `lastMessages` — the twenty-first message
+         * back is gone otherwise, however relevant it is.
+         *
+         * `messageRange` is not a loadout knob because a bare match is close to
+         * useless: recalling "use the staging bucket" without the question it
+         * answered gives the model a fragment it has to guess the context of.
+         * Two either side is the smallest window that keeps a match legible.
+         *
+         * Thread scope, deliberately. `scope: 'resource'` would search every
+         * session at once, and every session shares one resource id — so a
+         * question about one project would pull in fragments of every other,
+         * which is worse than not recalling at all.
+         */
+        semanticRecall: embedder
+          ? { topK: recallTopK(loadout), messageRange: 2, scope: 'thread' as const }
+          : false
       }
     })
   })

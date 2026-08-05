@@ -293,6 +293,14 @@ export interface AgentLoadout {
   stickerFrequency: number
   workingMemory: boolean
   semanticRecall: boolean
+  /**
+   * Matches semantic recall pulls in per turn, 1–20.
+   *
+   * Optional because loadouts saved before this existed have no value for it
+   * and the store's merge does not backfill agents — read it through
+   * `DEFAULT_RECALL_TOP_K` rather than assuming it is set.
+   */
+  recallTopK?: number
   voiceReplies: boolean
   /** Deliberately defaults to false — pushing without asking is a big deal. */
   canPushWithoutAsking: boolean

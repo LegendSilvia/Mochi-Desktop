@@ -24,7 +24,7 @@ import {
 import { clearNavGuard, setNavGuard } from '@renderer/lib/navGuard'
 import { useAgentArt } from '@renderer/lib/useAgentArt'
 import { ModelPicker } from '@renderer/components/ui/ModelPicker'
-import { BLANK_AGENT } from '@shared/defaults'
+import { BLANK_AGENT, DEFAULT_RECALL_TOP_K } from '@shared/defaults'
 import type { AgentLoadout } from '@shared/types'
 import './screens.css'
 
@@ -634,6 +634,22 @@ export function Agents(): React.JSX.Element {
                   label="Semantic recall"
                 />
               </Row>
+              {/* Only worth showing once recall is on — a match count means
+                  nothing while nothing is being matched. */}
+              {selected.semanticRecall && (
+                <Row
+                  label="Top matches"
+                  hint={`${selected.recallTopK ?? DEFAULT_RECALL_TOP_K} per turn`}
+                >
+                  <Slider
+                    value={selected.recallTopK ?? DEFAULT_RECALL_TOP_K}
+                    min={1}
+                    max={20}
+                    onChange={(v) => patch({ recallTopK: v })}
+                    label="Top matches"
+                  />
+                </Row>
+              )}
               <Row label="Voice replies">
                 <Toggle
                   on={selected.voiceReplies}
