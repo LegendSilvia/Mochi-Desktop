@@ -22,6 +22,7 @@ import { useStore } from '@renderer/state/context'
 import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
+import { chatFor, forgetChat, onChatFinish } from '@renderer/lib/chatRegistry'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { WidgetHost } from '@renderer/components/widgets/WidgetHost'
 import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
@@ -258,23 +259,55 @@ export function Session(): React.JSX.Element {
     sendRef.current?.(next)
   }, [])
 
+  /**
+   * The chat, held outside React so switching sessions does not abandon a turn.
+   *
+   * The registry owns the instances; this only names the one this session
+   * wants. `transportKey` is what tells the registry a rebuild is warranted —
+   * useMemo identity alone would rebuild on every render that touches its
+   * dependencies, and a rebuild mid-turn is the loss we are fixing.
+   */
+  const transportKey = `${server?.baseUrl ?? ''}|${agent?.id ?? ''}|${
+    onSubscription ? 'sdk' : 'mastra'
+  }|${folder ?? ''}|${threadId ?? ''}`
+  const chat = useMemo(
+    () =>
+      chatFor(activeSession?.id ?? 'no-session', transportKey, () => ({
+        transport: transport ?? new DefaultChatTransport({ api: '' }),
+        messages: initialMessages
+      })),
+    // `transport` and `initialMessages` are read through the builder, and both
+    // are derived from these — listing them too would defeat the key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSession?.id, transportKey]
+  )
+
   const { messages, sendMessage, setMessages, regenerate, stop, status, error, clearError } =
-    useChat({
-      transport,
-      id: activeSession?.id,
-      messages: initialMessages,
-      // Deliberately not drained on error: after a failure the user should get
-      // to see it and decide, rather than have the queue push another turn into
-      // whatever just broke. The chips stay put and go out after the next reply.
-      onFinish: () => {
-        devlog.push('chat', 'turn finished')
-        // Tell the user the work is done if they have looked away. Main owns the
-        // focus test — the overlay is a non-focusable window and cannot tell
-        // "backgrounded" from "I am the overlay". A no-op when Mochi is in front.
-        void window.mochi?.agentFinished(finishLineRef.current)
-        drainQueue()
-      }
+    useChat({ chat })
+
+  /*
+   * Finishing is the registry's event now, not the hook's, because a turn can
+   * finish while its session is off screen. Saving happens there; this is the
+   * part that needs the mounted component.
+   *
+   * The queue is deliberately not drained on error: after a failure the user
+   * should get to see it and decide, rather than have the queue push another
+   * turn into whatever just broke. The chips stay put and go out after the next
+   * reply.
+   */
+  useEffect(() => {
+    onChatFinish((sessionId) => {
+      devlog.push('chat', 'turn finished')
+      // Tell the user the work is done if they have looked away. Main owns the
+      // focus test — the overlay is a non-focusable window and cannot tell
+      // "backgrounded" from "I am the overlay". A no-op when Mochi is in front.
+      void window.mochi?.agentFinished(finishLineRef.current)
+      // Only this session's queue, and only while it is the one on screen — the
+      // chips belong to the conversation you are looking at.
+      if (sessionId === activeSession?.id) drainQueue()
     })
+    return () => onChatFinish(null)
+  }, [activeSession?.id, drainQueue])
 
   useEffect(() => {
     sendRef.current = (text: string) => sendMessage({ text })
@@ -875,6 +908,10 @@ export function Session(): React.JSX.Element {
                   className="rail-menu-item danger"
                   onClick={() => {
                     forgetMessages(activeSession.id)
+                    // The chat outlives this component now, so a delete has to
+                    // reach it too — otherwise a turn keeps running for a
+                    // session that no longer exists, and saves itself back.
+                    forgetChat(activeSession.id)
                     dispatch({
                       type: 'sessions',
                       sessions: sessions.filter((s) => s.id !== activeSession.id)

@@ -21,6 +21,7 @@ import { useStore } from '@renderer/state/context'
 import type { Screen } from '@renderer/state/screens'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages } from '@renderer/lib/history'
+import { forgetChat } from '@renderer/lib/chatRegistry'
 import { AccountPopover } from './AccountPopover'
 import type { Session } from '@shared/types'
 
@@ -122,6 +123,8 @@ export function Rail(): React.JSX.Element {
     // Drop the transcript too — otherwise a deleted session leaves its whole
     // conversation behind in storage forever.
     forgetMessages(id)
+    // The chat outlives the component now, so deleting a session has to say so.
+    forgetChat(id)
     const rest = sessions.filter((s) => s.id !== id)
     dispatch({ type: 'sessions', sessions: rest })
     // Deleting the open session would leave the chat pointing at nothing.
