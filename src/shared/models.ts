@@ -61,6 +61,44 @@ export const MODEL_CATALOG: ProviderGroup[] = [
       { id: 'ollama/llama3.2', label: 'Llama 3.2', hint: 'runs on your machine, no key needed' },
       { id: 'ollama/qwen2.5-coder', label: 'Qwen 2.5 Coder', hint: 'local coding model' }
     ]
+  },
+  {
+    /**
+     * One key, most providers.
+     *
+     * These ids carry the upstream provider inside the model — `openrouter` +
+     * `anthropic/claude-opus-5`, three segments rather than two. Every id below
+     * is checked against the router's own bundled provider list; OpenRouter's
+     * catalogue is far larger than this, so type any of theirs directly.
+     */
+    provider: 'openrouter',
+    label: 'OpenRouter',
+    billing: 'api key',
+    models: [
+      {
+        id: 'openrouter/anthropic/claude-opus-5',
+        label: 'Claude Opus 5',
+        hint: 'via OpenRouter, billed per token rather than to a subscription'
+      },
+      {
+        id: 'openrouter/anthropic/claude-sonnet-5',
+        label: 'Claude Sonnet 5',
+        hint: 'via OpenRouter, cheaper and quicker than Opus'
+      },
+      { id: 'openrouter/openai/gpt-5', label: 'GPT-5', hint: 'via OpenRouter' },
+      { id: 'openrouter/openai/gpt-5-mini', label: 'GPT-5 mini', hint: 'via OpenRouter, cheap' },
+      {
+        id: 'openrouter/google/gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        hint: 'via OpenRouter, fast and long context'
+      },
+      {
+        id: 'openrouter/deepseek/deepseek-v3.2',
+        label: 'DeepSeek V3.2',
+        hint: 'via OpenRouter, strong for the price'
+      },
+      { id: 'openrouter/qwen/qwen3-max', label: 'Qwen3 Max', hint: 'via OpenRouter' }
+    ]
   }
 ]
 
@@ -121,6 +159,30 @@ export const EMBEDDING_CATALOG: ProviderGroup[] = [
         id: 'google/gemini-embedding-001',
         label: 'gemini-embedding-001',
         hint: 'Google’s embedding model'
+      }
+    ]
+  },
+  {
+    /** Ids from OpenRouter's own embeddings reference. Three segments, same as
+     *  their chat ids — the upstream provider lives in the model. */
+    provider: 'openrouter',
+    label: 'OpenRouter',
+    billing: 'api key',
+    models: [
+      {
+        id: 'openrouter/openai/text-embedding-3-small',
+        label: 'text-embedding-3-small',
+        hint: 'via OpenRouter — one key for chat and embeddings'
+      },
+      {
+        id: 'openrouter/openai/text-embedding-3-large',
+        label: 'text-embedding-3-large',
+        hint: 'via OpenRouter, more accurate and dearer'
+      },
+      {
+        id: 'openrouter/qwen/qwen3-embedding-0.6b',
+        label: 'qwen3-embedding-0.6b',
+        hint: 'via OpenRouter, small and cheap'
       }
     ]
   }

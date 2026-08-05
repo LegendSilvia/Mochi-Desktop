@@ -59,7 +59,11 @@ export function embedderFor(embeddingModel: string): ModelRouterEmbeddingModel |
   if (url) return new ModelRouterEmbeddingModel({ providerId, modelId, url })
 
   try {
-    return new ModelRouterEmbeddingModel(`${providerId}/${modelId}`)
+    // The object form, not `provider/model`. The string form splits on every
+    // slash and rejects anything that isn't exactly two parts, which rules out
+    // every OpenRouter id — they carry the upstream provider in the model, as
+    // in `openrouter` + `openai/text-embedding-3-small`.
+    return new ModelRouterEmbeddingModel({ providerId, modelId })
   } catch {
     // No key for this provider, or not one the router knows.
     return null

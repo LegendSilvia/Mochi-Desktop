@@ -83,14 +83,42 @@ function chunkText(text: string): string[] {
 
 /** Which embedder we can actually use right now. Checked rather than assumed —
  *  Ollama being installed and Ollama being *running* are different things. */
+/**
+ * Hosted embedders that speak OpenAI's `/embeddings` shape.
+ *
+ * OpenRouter is here rather than special-cased because it is the same request
+ * with a different base URL and key. Its model ids keep the upstream provider
+ * in them (`openai/text-embedding-3-small`), so `model` is everything after the
+ * first slash rather than a single segment — which is why the split above keeps
+ * the remainder intact instead of taking `rest[0]`.
+ */
+const HOSTED: Record<string, { url: string; envVar: string; detail: string }> = {
+  openai: {
+    url: 'https://api.openai.com/v1/embeddings',
+    envVar: 'OPENAI_API_KEY',
+    detail: 'hosted, billed to your OpenAI key'
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/embeddings',
+    envVar: 'OPENROUTER_API_KEY',
+    detail: 'hosted, billed to your OpenRouter key'
+  }
+}
+
 export async function embedderInfo(): Promise<EmbedderInfo> {
   const { settings } = load()
   const configured = settings.modelRoles?.embeddings ?? ''
   const [provider, ...rest] = configured.split('/')
   const model = rest.join('/')
 
-  if (provider === 'openai' && process.env.OPENAI_API_KEY) {
-    return { kind: 'openai', model, ready: true, detail: 'hosted, billed to your OpenAI key' }
+  const hosted = HOSTED[provider]
+  if (hosted && model && process.env[hosted.envVar]) {
+    return {
+      kind: provider as 'openai' | 'openrouter',
+      model,
+      ready: true,
+      detail: hosted.detail
+    }
   }
 
   const ollamaModel = provider === 'ollama' && model ? model : 'nomic-embed-text'
@@ -123,12 +151,13 @@ async function embed(texts: string[]): Promise<number[][] | null> {
   const info = await embedderInfo()
   if (!info.ready) return null
 
-  if (info.kind === 'openai') {
-    const res = await fetch('https://api.openai.com/v1/embeddings', {
+  const hosted = HOSTED[info.kind]
+  if (hosted) {
+    const res = await fetch(hosted.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        Authorization: `Bearer ${process.env[hosted.envVar]}`
       },
       body: JSON.stringify({ model: info.model || 'text-embedding-3-small', input: texts })
     })

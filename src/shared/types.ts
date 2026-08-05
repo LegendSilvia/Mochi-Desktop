@@ -533,7 +533,7 @@ export interface RagHit {
 
 /** What can currently turn text into vectors, if anything. */
 export interface EmbedderInfo {
-  kind: 'ollama' | 'openai' | 'none'
+  kind: 'ollama' | 'openai' | 'openrouter' | 'none'
   model: string
   ready: boolean
   detail: string
