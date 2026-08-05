@@ -521,8 +521,19 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
               /* A widget being dragged clears everything — the other panels,
                  the bubble rail, the snap preview it is being dropped onto.
                  Sliding under the rail mid-drag is disorienting when the rail
-                 is exactly what you are dragging away from. */
-              z={drag?.id === w.id ? 60 : 10 + Math.max(0, order.indexOf(w.id))}
+                 is exactly what you are dragging away from.
+                 
+                 Otherwise: most recently touched on top. This was
+                 `Math.max(0, indexOf)`, which floored an unfocused widget and
+                 the *first* focused one to the same 10 — so clicking the panel
+                 underneath did not actually bring it forward. */
+              z={
+                drag?.id === w.id
+                  ? 60
+                  : order.indexOf(w.id) === -1
+                    ? 10
+                    : 11 + order.indexOf(w.id)
+              }
               onGeom={(next) => api.move(w.id, next)}
               onCollapse={() => api.collapse(w.id)}
               onClose={() => closeWidget(w.id)}

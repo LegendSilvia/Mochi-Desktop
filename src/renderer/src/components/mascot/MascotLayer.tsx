@@ -359,7 +359,29 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
       )
     }
 
-    const onMove = (e: MouseEvent): void => {
+    /*
+     * Coalesced to one test per frame.
+     *
+     * This overlay spans the whole work area, so it sees every mouse move made
+     * anywhere on screen — including over other applications. Running four
+     * getBoundingClientRect() calls on each one forces a layout per event, at
+     * whatever rate the mouse reports, for a question that can only change once
+     * per frame.
+     */
+    let queued: MouseEvent | null = null
+    let frame = 0
+    const onMove = (ev: MouseEvent): void => {
+      queued = ev
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const pending = queued
+        queued = null
+        if (pending) test(pending)
+      })
+    }
+
+    const test = (e: MouseEvent): void => {
       if (!wrapRef.current) return
       const onSprite = over(wrapRef.current, e)
       /*
@@ -377,18 +399,21 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         over(approvalRef.current, e) ||
         over(menuRef.current, e) ||
         over(bubblesRef.current, e)
+      // Hover can change while `inside` does not — moving from the sprite onto
+      // the approval card keeps the window interactive but is no longer a hover.
+      setHovering(onSprite)
       if (inside === interactive.current) return
       interactive.current = inside
       // The same hit-test already decides click-through, so hover comes free
       // here. `pointerenter` cannot do this job in the overlay: the window
       // ignores the mouse until this call turns it back on, so the pointer is
       // already over the sprite by the time DOM events start arriving.
-      setHovering(onSprite)
       void window.mochi?.mascotInteractive(inside)
     }
     window.addEventListener('mousemove', onMove)
     return () => {
       window.removeEventListener('mousemove', onMove)
+      if (frame) cancelAnimationFrame(frame)
       interactive.current = false
       setHovering(false)
       void window.mochi?.mascotInteractive(false)
