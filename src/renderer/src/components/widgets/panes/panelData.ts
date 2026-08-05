@@ -73,20 +73,35 @@ export interface TaskRow {
   activeForm?: string
 }
 
+/**
+ * The agent's plan, from whichever backend produced it.
+ *
+ * Read off the newest write rather than accumulated: all three tools take the
+ * *whole* list every time, so the last call is the current plan by definition
+ * and there is nothing to reconcile.
+ *
+ * Three names because the two backends spell it differently — the Agent SDK's
+ * `TodoWrite` and Mastra's `task_write` describe an identical list. The widget
+ * previously knew only the Mastra name, so on the subscription backend it sat
+ * empty while a plan was plainly running in the transcript beside it. Same set
+ * the transcript's own renderer matches (see ToolPart).
+ */
+const TASK_TOOLS = new Set(['tool-TodoWrite', 'tool-task_write', 'tool-taskWrite'])
+
 export function latestTasks(messages: UIMessage[]): TaskRow[] {
   for (let m = messages.length - 1; m >= 0; m--) {
     const parts = messages[m].parts
     for (let p = parts.length - 1; p >= 0; p--) {
       const part = parts[p] as unknown as {
         type: string
-        input?: { tasks?: TaskRow[] }
-        output?: { tasks?: TaskRow[] }
+        input?: { todos?: TaskRow[]; tasks?: TaskRow[] }
+        output?: { todos?: TaskRow[]; tasks?: TaskRow[] }
       }
-      if (part.type !== 'tool-task_write') continue
-      const rows = part.output?.tasks ?? part.input?.tasks
+      if (!TASK_TOOLS.has(part.type)) continue
+      const rows =
+        part.output?.todos ?? part.output?.tasks ?? part.input?.todos ?? part.input?.tasks
       if (rows?.length) return rows
     }
   }
   return []
 }
-

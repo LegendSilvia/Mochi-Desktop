@@ -22,11 +22,16 @@ export interface PermissionRequest {
 export function PermissionCard({
   request,
   baseUrl,
+  agentName,
   stale = false,
   onAnswered
 }: {
   request: PermissionRequest
   baseUrl: string
+  /** Who is asking. The tool is the mechanism; the agent is the one making the
+   *  request, and with several agents in a session "Write wants to run" does not
+   *  say whose write it is. Matches the wording the mascot's card already uses. */
+  agentName?: string
   /** Told when the user decides, so the enclosing card can stop waiting. */
   onAnswered?: (id: string) => void
   /**
@@ -115,7 +120,8 @@ export function PermissionCard({
       <div className="perm-head">
         <ShieldQuestion size={14} strokeWidth={1.9} />
         <span>
-          <strong>{request.toolName}</strong> wants to run
+          <strong>{agentName ?? 'This agent'}</strong> needs permission to run{' '}
+          <strong>{request.toolName}</strong>
         </span>
       </div>
       {target && <div className="perm-target mono">{target}</div>}

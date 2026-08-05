@@ -1001,6 +1001,7 @@ export function Session(): React.JSX.Element {
                                 key={req?.id ?? ri}
                                 request={req}
                                 baseUrl={server.baseUrl}
+                                agentName={agent.name}
                                 stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
                               />
                             ) : null
