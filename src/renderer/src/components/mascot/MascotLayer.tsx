@@ -684,6 +684,18 @@ export function MascotLayer({ overlay = false }: { overlay?: boolean } = {}): Re
         tabIndex={0}
         aria-label={`Mascot — ${stateLine}. Click to send a sticker.`}
         onKeyDown={(e) => {
+          /*
+           * Only when the sprite itself has focus.
+           *
+           * `role="button"` means Space and Enter activate it, and this handler
+           * calls preventDefault on both. Everything the mascot shows — the
+           * pop-up chat, the approval card — renders *inside* this wrapper, so
+           * a keystroke in any of them bubbled up here first: typing into the
+           * pop-up chat, every space was eaten before the textarea saw it and
+           * fired a sticker instead. You could write to the mascot, but not in
+           * words with gaps between them.
+           */
+          if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             flashClick()

@@ -487,6 +487,16 @@ export function Session(): React.JSX.Element {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
+  /** Sessions whose title has already been asked for, so a re-render cannot
+   *  fire a second request. A ref rather than state precisely because writing
+   *  state here is what broke this — see below. */
+  const titleAsked = useRef<Set<string>>(new Set())
+  /** The live sessions array, for callbacks that resolve after this render. */
+  const sessionsRef = useRef(sessions)
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
+
   // Let the agent name the session once the first exchange lands. Only ever
   // runs once per session, and never touches a title you set yourself.
   useEffect(() => {
@@ -505,9 +515,21 @@ export function Session(): React.JSX.Element {
     const body = `User: ${flatten(firstUser)}\nAssistant: ${flatten(firstReply)}`.trim()
     if (body.length < 12) return
 
-    let cancelled = false
-    // Marked before the request so a re-render mid-flight can't fire a second one.
-    patchSession({ autoTitled: true })
+    /*
+     * The guard is a ref, and the flag is written on arrival rather than before
+     * the request.
+     *
+     * It used to set `autoTitled` first, to stop a re-render firing a second
+     * request. But `autoTitled` is one of this effect's own dependencies, so
+     * that write re-ran the effect, whose cleanup set `cancelled` — and the
+     * title that came back was discarded by the very guard meant to protect it.
+     * Sessions ended up flagged as titled while keeping the first thing you
+     * typed, which is exactly what the sidebar was showing.
+     */
+    const sessionId = activeSession.id
+    if (titleAsked.current.has(sessionId)) return
+    titleAsked.current.add(sessionId)
+
     void fetch(`${server.baseUrl}/agent-sdk/title`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -515,15 +537,23 @@ export function Session(): React.JSX.Element {
     })
       .then((r) => r.json() as Promise<{ title: string | null }>)
       .then(({ title }) => {
-        if (cancelled || !title) return
-        patchSession({ title })
+        if (!title) return
+        // Applied by id against the latest sessions, not the array captured
+        // when the request went out — a reply can land after you have moved on,
+        // and it must rename the session it was about rather than the one you
+        // are looking at.
+        dispatch({
+          type: 'sessions',
+          sessions: sessionsRef.current.map((s) =>
+            s.id === sessionId ? { ...s, title, autoTitled: true } : s
+          )
+        })
       })
       .catch(() => {
-        /* keep the typed title */
+        // Let it be asked again next time rather than leaving the session
+        // permanently stuck with whatever the user typed.
+        titleAsked.current.delete(sessionId)
       })
-    return () => {
-      cancelled = true
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, messages.length, activeSession?.id, activeSession?.autoTitled, server])
 
