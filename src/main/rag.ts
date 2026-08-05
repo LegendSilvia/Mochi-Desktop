@@ -247,6 +247,57 @@ export async function addDocuments(paths: string[]): Promise<{ added: number; sk
   return { added, skipped }
 }
 
+/**
+ * Index text the agent wrote, with no file behind it.
+ *
+ * `addDocuments` takes paths, which is right for "I dragged in a folder" and
+ * useless for "write down what we just worked out" — the agent would have to
+ * put a file somewhere on disk first, which means picking a folder, asking
+ * permission for it, and leaving litter the user never asked for.
+ *
+ * Stored under a `note:` path so it is unique, obviously not a real file, and
+ * still replaceable: writing the same title twice revises the note rather than
+ * stacking a second copy that competes with the first in every later search.
+ */
+export async function addNote(
+  title: string,
+  text: string
+): Promise<{ ok: boolean; chunks: number; reason?: string }> {
+  const clean = text.trim()
+  const name = title.trim() || 'Untitled note'
+  if (clean.length < 24) {
+    return { ok: false, chunks: 0, reason: 'too short to be worth indexing' }
+  }
+
+  await initRag()
+  const c = conn()
+  const chunks = chunkText(clean)
+  if (chunks.length === 0) return { ok: false, chunks: 0, reason: 'nothing to index' }
+
+  const path = `note:/${name.toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '')}`
+  const docId = `note-${Date.now().toString(36)}`
+
+  await c.execute({ sql: 'DELETE FROM rag_docs WHERE path = ?', args: [path] })
+  await c.execute({
+    sql: 'INSERT INTO rag_docs (id, path, title, bytes, added_at) VALUES (?, ?, ?, ?, ?)',
+    args: [docId, path, name, Buffer.byteLength(clean, 'utf-8'), Date.now()]
+  })
+
+  // Embedding is best-effort, exactly as it is for files: keyword search works
+  // the moment the row lands, so a missing embedder costs recall quality rather
+  // than the whole note.
+  const vectors = await embed(chunks)
+  for (let i = 0; i < chunks.length; i++) {
+    await c.execute({
+      sql: 'INSERT INTO rag_chunks (id, doc_id, ord, text, embedding) VALUES (?, ?, ?, ?, ?)',
+      args: [`${docId}-${i}`, docId, i, chunks[i], vectors ? JSON.stringify(vectors[i]) : null]
+    })
+  }
+  await c.execute(`INSERT INTO rag_fts(rag_fts) VALUES('rebuild')`)
+
+  return { ok: true, chunks: chunks.length }
+}
+
 export async function listDocuments(): Promise<RagDoc[]> {
   await initRag()
   const c = conn()

@@ -17,7 +17,7 @@ import { notifyIfAway } from './attention'
 import { bus } from '../mastra/events'
 import { load } from './store'
 import { readLibrary } from './assets'
-import { search } from './rag'
+import { addNote, search } from './rag'
 import { recallContext, rememberTurn } from './recall'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
@@ -486,6 +486,44 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
     }
   )
 
+  /**
+   * Write something into the library, so it can be found later.
+   *
+   * `searchDocs` could only read, which made the library a place the user
+   * stocked by hand and the agent merely walked through. Anything worked out
+   * mid-conversation — a decision, a summary, a spec — had to be re-explained
+   * next time, or written to a file in some folder and imported by hand.
+   *
+   * Deliberately absent from AUTO_APPROVED. The split there is by consequence,
+   * not authorship: this writes to the user's own library, so it stops at a
+   * card like every other write.
+   */
+  const saveDoc = tool(
+    'saveDoc',
+    'Save a note into the user\'s document library so it can be found later with ' +
+      'searchDocs. Use it when something worth keeping was worked out in this ' +
+      'conversation — a decision and its reasoning, a summary, a spec. Write the ' +
+      'note to stand on its own: someone reading it in six months must understand ' +
+      'it without this conversation. Saving the same title again revises that note.',
+    {
+      title: z.string().describe('A short, specific title. Reused titles overwrite.'),
+      text: z.string().describe('The note itself, in markdown. Self-contained.')
+    },
+    async ({ title, text }) => {
+      const res = await addNote(title, text)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: res.ok
+              ? `Saved "${title}" to the library in ${res.chunks} passage${res.chunks === 1 ? '' : 's'}. It is searchable now.`
+              : `Not saved: ${res.reason}.`
+          }
+        ]
+      }
+    }
+  )
+
   const searchDocs = tool(
     'searchDocs',
     'Search the documents the user has added to Mochi. Use this before answering ' +
@@ -566,7 +604,7 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
   return createSdkMcpServer({
     name: 'mochi',
     version: '0.1.0',
-    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs],
+    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs, saveDoc],
     // Load both tools into the turn-1 prompt instead of leaving them behind tool
     // search. Deferred loading made the harness spend a round trip on ToolSearch
     // and then emit a stray extra reply when the "new tools available" reminder
