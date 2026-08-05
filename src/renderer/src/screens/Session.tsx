@@ -22,7 +22,7 @@ import { useStore } from '@renderer/state/context'
 import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
-import { chatFor, forgetChat, onChatFinish } from '@renderer/lib/chatRegistry'
+import { chatFor, flushAllChats, forgetChat, onChatFinish } from '@renderer/lib/chatRegistry'
 import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { WidgetHost } from '@renderer/components/widgets/WidgetHost'
 import { ToolGroup, ToolPart, type WorkPart } from '@renderer/components/chat/ToolPart'
@@ -430,6 +430,10 @@ export function Session(): React.JSX.Element {
     const flush = (): void => {
       const { id, messages: live } = liveRef.current
       if (id) saveMessages(id, live)
+      // And every session still working off screen. `liveRef` only ever holds
+      // the one being rendered, so without this a background turn interrupted
+      // by the window closing was lost with nothing written at all.
+      flushAllChats()
     }
     window.addEventListener('beforeunload', flush)
     window.addEventListener('pagehide', flush)

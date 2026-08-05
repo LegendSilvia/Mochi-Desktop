@@ -69,6 +69,11 @@ export function chatFor(
     transport: built.transport,
     messages: existing ? existing.chat.messages : built.messages,
     onFinish: () => {
+      // Only if this is still the session's chat. A rebuilt session leaves the
+      // old instance holding a closure over the same id, and letting a
+      // superseded chat finish would write its outdated messages over the newer
+      // ones — losing a reply by saving, which is a worse bug than not saving.
+      if (live.get(sessionId)?.chat !== chat) return
       // Written here rather than left to the component's effect, which only
       // ever sees whichever session is on screen.
       saveMessages(sessionId, chat.messages)
@@ -84,6 +89,21 @@ export function chatFor(
 export function forgetChat(sessionId: string): void {
   live.get(sessionId)?.chat.stop()
   live.delete(sessionId)
+}
+
+/**
+ * Write every live chat to disk, including the ones off screen.
+ *
+ * The component's own flush can only save the session it is rendering, and a
+ * background chat is only saved when it *finishes* — so closing the window
+ * while a turn ran in another session lost that reply outright, which is the
+ * same loss as the one this file was written for, arriving by a different door.
+ *
+ * Partial text is worth keeping: the process is about to die and take the turn
+ * with it, so half an answer is strictly better than a question with none.
+ */
+export function flushAllChats(): void {
+  for (const [sessionId, entry] of live) saveMessages(sessionId, entry.chat.messages)
 }
 
 /** True while a session that isn't on screen is still working. */
