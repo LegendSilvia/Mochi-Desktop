@@ -18,7 +18,7 @@ import { bus } from '../mastra/events'
 import { load } from './store'
 import { readLibrary } from './assets'
 import { addNote, search } from './rag'
-import { recallContext, rememberTurn } from './recall'
+import { recallContext, rememberTurn, workingMemoryBlock, writeWorkingMemory } from './recall'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -225,6 +225,7 @@ const AUTO_APPROVED = [
   `${TOOL_PREFIX}askUser`,
   `${TOOL_PREFIX}delegate`,
   `${TOOL_PREFIX}searchDocs`,
+  `${TOOL_PREFIX}updateMemory`,
   'TodoWrite',
   'ToolSearch',
   'Read',
@@ -406,7 +407,25 @@ function describeApprovalTarget(input: unknown, blockedPath?: string | null): st
  */
 let inFlight = 0
 
-function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpServer> {
+/**
+ * Which memory a turn's tools should write to.
+ *
+ * The MCP server used to be built once for the whole app, which is right for
+ * tools that need no session — a sticker is a sticker. Working memory is not:
+ * writing it means knowing whose it is, and a module-level "current session"
+ * would be wrong the moment two sessions run at once, which is exactly what
+ * background turns made ordinary.
+ */
+interface MemoryContext {
+  loadout: AgentLoadout
+  threadId: string
+  resourceId: string
+}
+
+function buildMochiServer(
+  appVersion: string,
+  memory?: MemoryContext | null
+): ReturnType<typeof createSdkMcpServer> {
   /**
    * Hand a subtask to another loadout.
    *
@@ -524,6 +543,49 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
     }
   )
 
+  /**
+   * Revise what the agent knows about the user.
+   *
+   * Auto-approved, unlike every other write, and the reasoning is worth
+   * stating: working memory only works if the agent can keep it current, and a
+   * card for every fact learned would make it unusable within a conversation.
+   * The safeguard is visibility rather than interruption — Settings → Memory
+   * shows exactly what is stored and lets you edit or clear it, which is a
+   * better answer than a prompt you would learn to click through.
+   */
+  const updateMemory = tool(
+    'updateMemory',
+    'Record lasting facts about the user — their name, how they work, decisions ' +
+      'they have made, preferences worth honouring next time. Pass the FULL memory ' +
+      'each time: this replaces what was stored, so include everything still true, ' +
+      'not only what is new. Keep it short and factual. Do not record passwords, ' +
+      'keys, or anything they asked you to forget.',
+    {
+      memory: z
+        .string()
+        .describe('The complete memory, in markdown. Replaces the previous contents.')
+    },
+    async ({ memory: text }) => {
+      if (!memory) {
+        return {
+          content: [
+            { type: 'text' as const, text: 'Working memory is off for this agent.' }
+          ]
+        }
+      }
+      const ok = await writeWorkingMemory(memory.loadout, {
+        threadId: memory.threadId,
+        resourceId: memory.resourceId,
+        text
+      })
+      return {
+        content: [
+          { type: 'text' as const, text: ok ? 'Noted.' : 'Could not save that just now.' }
+        ]
+      }
+    }
+  )
+
   const searchDocs = tool(
     'searchDocs',
     'Search the documents the user has added to Mochi. Use this before answering ' +
@@ -604,7 +666,7 @@ function buildMochiServer(appVersion: string): ReturnType<typeof createSdkMcpSer
   return createSdkMcpServer({
     name: 'mochi',
     version: '0.1.0',
-    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs, saveDoc],
+    tools: [sendSticker, setMascotState, askUser, delegate, searchDocs, saveDoc, updateMemory],
     // Load both tools into the turn-1 prompt instead of leaving them behind tool
     // search. Deferred loading made the harness spend a round trip on ToolSearch
     // and then emit a stray extra reply when the "new tools available" reminder
@@ -873,8 +935,6 @@ interface SdkMessage {
 type MochiHono = Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>
 
 export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void {
-  const mochiServer = buildMochiServer(appVersion)
-
   /**
    * Name a session from what it turned out to be about.
    *
@@ -1129,9 +1189,14 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         const recalled = memoryKeys
           ? await recallContext(agent!, { ...memoryKeys, prompt })
           : null
+        // Working memory rides in front too, and before recall: it is the
+        // standing facts, where recall is the specific reminder. On the Mastra
+        // route Memory puts this in the system message itself; the Agent SDK
+        // has never heard of Mastra, so it comes through the same door.
+        const known = memoryKeys ? await workingMemoryBlock(agent!, memoryKeys) : null
 
         const base = resume ? prompt : replayPrompt(body.messages, prompt)
-        const opening = recalled ? `${recalled}\n\n---\n\n${base}` : base
+        const opening = [known, recalled, base].filter(Boolean).join('\n\n---\n\n')
         /** The reply as the user sees it, kept so the exchange can be filed for
          *  later recall — the Agent SDK keeps its own transcript, and Mastra
          *  would otherwise never hear a word of this conversation. */
@@ -1166,7 +1231,14 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 : undefined,
               model: modelName || undefined,
               ...(workspace.cwd ? { cwd: workspace.cwd } : {}),
-              mcpServers: { mochi: mochiServer, ...userMcpServers() },
+              // Built per turn so its tools know whose memory they write to.
+              mcpServers: {
+                mochi: buildMochiServer(
+                  appVersion,
+                  memoryKeys && agent ? { loadout: agent, ...memoryKeys } : null
+                ),
+                ...userMcpServers()
+              },
               // Skills live on the filesystem, so they stay off until asked for —
               // enabling them silently would widen what the agent can reach.
               ...(settings.skills?.enabled

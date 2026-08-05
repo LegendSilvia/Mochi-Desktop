@@ -45,6 +45,8 @@ const IPC = {
   ragEmbedder: 'mochi:rag-embedder',
   openrouterModels: 'mochi:openrouter-models',
   anthropicModels: 'mochi:anthropic-models',
+  memoryGet: 'mochi:memory-get',
+  memorySet: 'mochi:memory-set',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
@@ -180,6 +182,8 @@ export interface MochiApi {
     Array<{ id: string; label: string; hint: string }>
   >
   anthropicModels: () => Promise<Array<{ id: string; label: string; hint: string }>>
+  memoryGet: (agentId: string) => Promise<string>
+  memorySet: (agentId: string, text: string) => Promise<boolean>
   /** File contents, so a diff can number its lines. Null when unreadable. */
   readText: (path: string) => Promise<string | null>
   /** Set the mascot state for every window at once. Sleep is decided in the
@@ -281,6 +285,8 @@ const api: MochiApi = {
   ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
   openrouterModels: (opts) => ipcRenderer.invoke(IPC.openrouterModels, opts),
   anthropicModels: () => ipcRenderer.invoke(IPC.anthropicModels),
+  memoryGet: (agentId) => ipcRenderer.invoke(IPC.memoryGet, agentId),
+  memorySet: (agentId, text) => ipcRenderer.invoke(IPC.memorySet, agentId, text),
   readText: (path) => ipcRenderer.invoke(IPC.readText, path),
   setMascotState: (state, note) => ipcRenderer.invoke(IPC.setMascotState, state, note),
   focusSession: (sessionId) => ipcRenderer.invoke(IPC.focusSession, sessionId),

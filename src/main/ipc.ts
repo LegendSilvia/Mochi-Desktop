@@ -26,7 +26,7 @@ import {
   setMascotVisible
 } from './mascot-window'
 import { addDocuments, embedderInfo, listDocuments, removeDocument, search } from './rag'
-import { resetRecall } from './recall'
+import { readWorkingMemory, resetRecall, writeWorkingMemory } from './recall'
 import { listOpenRouterModels } from './openrouter'
 import { listSubscriptionModels } from './agent-sdk-route'
 import {
@@ -69,6 +69,8 @@ export const IPC = {
   ragEmbedder: 'mochi:rag-embedder',
   openrouterModels: 'mochi:openrouter-models',
   anthropicModels: 'mochi:anthropic-models',
+  memoryGet: 'mochi:memory-get',
+  memorySet: 'mochi:memory-set',
   readText: 'mochi:read-text',
   setMascotState: 'mochi:set-mascot-state',
   focusSession: 'mochi:focus-session',
@@ -506,6 +508,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // What the Claude subscription itself says it can run.
   ipcMain.handle(IPC.anthropicModels, () => listSubscriptionModels(app.getVersion()))
+
+  /**
+   * The working memory behind Settings -> Memory.
+   *
+   * Working memory is resource-scoped, so the thread is not what identifies it
+   * -- but the API still wants one. A constant stands in: the editor is not a
+   * conversation, and every read and write here names the same agent.
+   */
+  const EDITOR_THREAD = 'mochi-memory-editor'
+  const memoryKeysFor = (agentId: string): { threadId: string; resourceId: string } => ({
+    threadId: EDITOR_THREAD,
+    resourceId: 'mochi-user:' + agentId
+  })
+
+  ipcMain.handle(IPC.memoryGet, async (_e, agentId: string) => {
+    const agent = load().agents.find((a) => a.id === agentId)
+    if (!agent) return ''
+    return readWorkingMemory(agent, memoryKeysFor(agentId))
+  })
+
+  ipcMain.handle(IPC.memorySet, async (_e, agentId: string, text: string) => {
+    const agent = load().agents.find((a) => a.id === agentId)
+    if (!agent) return false
+    return writeWorkingMemory(agent, { ...memoryKeysFor(agentId), text })
+  })
 
   /** Both windows get every event — the overlay is a second view of the same
    *  state, not a separate app, so neither may miss a sticker or a state change. */

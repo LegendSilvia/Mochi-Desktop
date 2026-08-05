@@ -43,42 +43,126 @@ const cache = new Map<string, Memory | null>()
  * subscription" carries the agent's memory across rather than starting it a
  * second, separate history that the other half cannot see.
  */
-function build(loadout: AgentLoadout, embeddingModel: string): Memory | null {
-  const embedder = embedderFor(embeddingModel)
-  if (!embedder) return null
+function build(loadout: AgentLoadout, embeddingModel: string | null): Memory | null {
+  // Only recall needs to embed. Working memory is a block of text keyed by
+  // resource, so it works on a machine that cannot embed at all — treating one
+  // as a prerequisite for the other would switch off the half that still works.
+  const embedder = loadout.semanticRecall && embeddingModel ? embedderFor(embeddingModel) : null
+  if (!embedder && !loadout.workingMemory) return null
 
   return new Memory({
     storage: new LibSQLStore({ id: `mochi-store-${loadout.id}`, url: databaseUrl() }),
-    vector: new LibSQLVector({ id: `mochi-vector-${loadout.id}`, url: databaseUrl() }),
-    embedder,
+    ...(embedder
+      ? {
+          vector: new LibSQLVector({ id: `mochi-vector-${loadout.id}`, url: databaseUrl() }),
+          embedder
+        }
+      : {}),
     options: {
       // History is the Agent SDK's job here — it resumes its own transcript, so
       // asking Memory for recent messages too would feed the model a second
       // copy of what it already has.
       lastMessages: false,
-      workingMemory: { enabled: false },
-      semanticRecall: {
-        topK: Math.min(20, Math.max(1, Math.round(loadout.recallTopK ?? DEFAULT_RECALL_TOP_K))),
-        messageRange: 2,
-        scope: loadout.recallScope === 'resource' ? 'resource' : 'thread'
-      }
+      /**
+       * Resource scope, which is what "remembers me" means: facts follow the
+       * agent across every conversation rather than being forgotten with the
+       * thread they were learned in. The resource is per agent, so what Fraux
+       * knows about you is not what Helper knows.
+       */
+      workingMemory: { enabled: loadout.workingMemory, scope: 'resource' as const },
+      semanticRecall: embedder
+        ? {
+            topK: Math.min(20, Math.max(1, Math.round(loadout.recallTopK ?? DEFAULT_RECALL_TOP_K))),
+            messageRange: 2,
+            scope: loadout.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
+          }
+        : false
     }
   })
 }
 
-/** The agent's memory, or null when recall is off or nothing can embed. */
+/** The agent's memory, or null when it has been given no job to do. */
 async function memoryFor(loadout: AgentLoadout): Promise<Memory | null> {
-  if (!loadout.semanticRecall) return null
+  if (!loadout.semanticRecall && !loadout.workingMemory) return null
   const hit = cache.get(loadout.id)
   if (hit !== undefined) return hit
 
   // The same reachability check the Mastra side uses: an embedder that is
   // configured but not running would throw mid-turn, failing the user's message
-  // rather than the feature.
-  const info = await embedderInfo()
-  const memory = info.ready ? build(loadout, `${info.kind}/${info.model}`) : null
+  // rather than the feature. Only consulted when recall actually wants one.
+  const info = loadout.semanticRecall ? await embedderInfo() : null
+  const memory = build(loadout, info?.ready ? `${info.kind}/${info.model}` : null)
   cache.set(loadout.id, memory)
   return memory
+}
+
+/**
+ * What the agent has written down about the user.
+ *
+ * On the Mastra route this is injected into the system message automatically.
+ * The Agent SDK has never heard of Mastra, so it goes in front of the prompt
+ * here — the same door recall uses.
+ */
+export async function workingMemoryBlock(
+  loadout: AgentLoadout,
+  opts: { threadId: string; resourceId: string }
+): Promise<string | null> {
+  if (!loadout.workingMemory) return null
+  const memory = await memoryFor(loadout)
+  if (!memory) return null
+
+  try {
+    const text = await memory.getWorkingMemory({
+      threadId: opts.threadId,
+      resourceId: opts.resourceId
+    })
+    if (!text?.trim()) return null
+    return [
+      'What you have previously noted about this user. Treat it as true unless',
+      'they correct you, and use updateMemory to revise it when you learn',
+      'something lasting. Do not mention this block itself.',
+      '',
+      text.trim()
+    ].join('\n')
+  } catch (err) {
+    console.error('[mochi] could not read working memory:', err)
+    return null
+  }
+}
+
+/** Replace what the agent knows. Used by its own tool and by the Memory pane,
+ *  which is the same store seen from two ends. */
+export async function writeWorkingMemory(
+  loadout: AgentLoadout,
+  opts: { threadId: string; resourceId: string; text: string }
+): Promise<boolean> {
+  const memory = await memoryFor(loadout)
+  if (!memory) return false
+  try {
+    await memory.updateWorkingMemory({
+      threadId: opts.threadId,
+      resourceId: opts.resourceId,
+      workingMemory: opts.text
+    })
+    return true
+  } catch (err) {
+    console.error('[mochi] could not write working memory:', err)
+    return false
+  }
+}
+
+/** Read it back raw, for the editor rather than for a prompt. */
+export async function readWorkingMemory(
+  loadout: AgentLoadout,
+  opts: { threadId: string; resourceId: string }
+): Promise<string> {
+  const memory = await memoryFor(loadout)
+  if (!memory) return ''
+  try {
+    return (await memory.getWorkingMemory(opts)) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 /** Settings changed under us — rebuild on the next turn rather than serving a
@@ -110,6 +194,9 @@ export async function recallContext(
   loadout: AgentLoadout,
   opts: { threadId: string; resourceId: string; prompt: string }
 ): Promise<string | null> {
+  // `memoryFor` now also answers for working-memory-only loadouts, so recall
+  // has to say for itself whether it was asked for.
+  if (!loadout.semanticRecall) return null
   const memory = await memoryFor(loadout)
   if (!memory || !opts.prompt.trim()) return null
 

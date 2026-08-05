@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import { Row, ScreenHeader, Slider, Toggle } from '@renderer/components/ui/Controls'
 import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
@@ -8,15 +8,33 @@ import type { EmbedderInfo } from '@shared/types'
 /**
  * Memory pane.
  *
- * Working-memory facts are held locally here; wiring them to Mastra's working
- * memory store is M4-03. The toggles below already drive the real Memory config
- * on the agent (see src/mastra/index.ts).
+ * Everything here is the real store now. The toggles drive the Memory config on
+ * the agent (src/mastra/index.ts for the API-key backend, src/main/recall.ts for
+ * the subscription), and the editor below reads and writes the same working
+ * memory the agent does — not a copy, and not a list that lives in this
+ * component the way the old "add a fact…" box did.
  */
 export function MemoryPane(): React.JSX.Element {
   const { agents, settings, dispatch, sessions } = useStore()
   const agent = agents.find((a) => a.id === settings.defaultAgentId) ?? agents[0]
-  const [facts, setFacts] = useState<string[]>([])
+  /** The stored working memory, as text. Keyed reload below so switching the
+   *  default agent shows that agent's memory rather than the last one's. */
   const [draft, setDraft] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const agentId = agent?.id
+  useEffect(() => {
+    if (!agentId) return
+    let cancelled = false
+    void window.mochi?.memoryGet(agentId).then((text) => {
+      if (cancelled) return
+      setDraft(text)
+      setLoaded(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId])
   /** Whether this machine can embed at all — the same check RAG reports. */
   const [embedder, setEmbedder] = useState<EmbedderInfo | null>(null)
 
@@ -62,47 +80,61 @@ export function MemoryPane(): React.JSX.Element {
                 label="Working memory"
               />
             </Row>
-            {facts.map((f, i) => (
-              <div className="fact-card" key={i}>
-                <input
-                  className="field-input"
-                  value={f}
-                  onChange={(e) => setFacts(facts.map((x, xi) => (xi === i ? e.target.value : x)))}
-                />
-                <button
-                  className="tb-icon"
-                  aria-label="Remove fact"
-                  onClick={() => setFacts(facts.filter((_, xi) => xi !== i))}
-                >
-                  <Trash2 size={13} strokeWidth={1.8} />
-                </button>
-              </div>
-            ))}
-            <div className="fact-card">
-              <input
-                className="field-input"
-                placeholder="add a fact…"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && draft.trim()) {
-                    setFacts([...facts, draft.trim()])
-                    setDraft('')
+            {/*
+              What the agent has actually stored, not a list kept here.
+              This used to be local component state with an "add a fact…" box:
+              it invited you to write facts that vanished on navigation and were
+              never shown to any agent. It is the real working memory now — the
+              same text the agent reads before every turn and rewrites through
+              `updateMemory` — so editing it here changes what it knows, and
+              clearing it makes it forget.
+            */}
+            {!agent.workingMemory ? (
+              <span className="meta">
+                Working memory is off for {agent.name}, so nothing is being kept.
+              </span>
+            ) : (
+              <>
+                <textarea
+                  className="field-input mem-editor"
+                  rows={10}
+                  value={draft}
+                  placeholder={
+                    loaded
+                      ? 'Nothing remembered yet. It fills in as you talk, or write it yourself.'
+                      : 'loading…'
                   }
-                }}
-              />
-              <button
-                className="tb-icon"
-                aria-label="Add fact"
-                onClick={() => {
-                  if (!draft.trim()) return
-                  setFacts([...facts, draft.trim()])
-                  setDraft('')
-                }}
-              >
-                <Plus size={13} strokeWidth={2} />
-              </button>
-            </div>
+                  onChange={(e) => {
+                    setDraft(e.target.value)
+                    setSaved(false)
+                  }}
+                />
+                <div className="pills">
+                  <button
+                    className="pill-primary"
+                    onClick={() => {
+                      void window.mochi?.memorySet(agent.id, draft).then((ok) => setSaved(ok))
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="pill-ghost"
+                    onClick={() => {
+                      setDraft('')
+                      void window.mochi?.memorySet(agent.id, '').then((ok) => setSaved(ok))
+                    }}
+                  >
+                    <Trash2 size={13} strokeWidth={1.8} /> Forget everything
+                  </button>
+                  {saved && <span className="meta">saved</span>}
+                </div>
+                <span className="meta">
+                  {agent.name} reads this before every reply and updates it when you say
+                  something worth keeping. Editing here is the same store.
+                </span>
+              </>
+            )}
           </section>
 
           <section className="config-card">
@@ -127,16 +159,10 @@ export function MemoryPane(): React.JSX.Element {
             {/* Recall needs an embedder, and the switch alone cannot tell you
                 whether one is reachable — so say it here rather than let the
                 feature look on while it is quietly doing nothing. */}
-            {/* Said before the embedder line, because it outranks it: an
-                embedding key buys nothing here while chats run on the
-                subscription, and that is worth knowing before buying one. */}
-            {agent.semanticRecall && settings.preferSubscription && (
-              <div className="banner-warn">
-                Chats are running on your Claude subscription, and that backend keeps its own
-                history — recall applies to the API-key backend. Turn off &ldquo;Run on my Claude
-                subscription&rdquo; in Settings → Models to use it.
-              </div>
-            )}
+            {/* This used to warn that recall did nothing on the subscription,
+                which was true until the subscription backend grew its own
+                recall (src/main/recall.ts). Both backends do it now; the only
+                thing that still gates it is whether anything can embed. */}
             {agent.semanticRecall && (
               <span className="meta">
                 {embedder === null

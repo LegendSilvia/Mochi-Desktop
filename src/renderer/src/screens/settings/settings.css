@@ -333,3 +333,14 @@
   color: var(--tx3);
   overflow-wrap: anywhere;
 }
+
+/* The working-memory editor. Monospace because what it holds is a structured
+   note the agent rewrites, not prose — alignment matters when you are scanning
+   for what it got wrong about you. */
+.mem-editor {
+  min-height: 180px;
+  resize: vertical;
+  font-family: var(--mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+  line-height: 1.55;
+}
