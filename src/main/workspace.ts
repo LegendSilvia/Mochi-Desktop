@@ -248,9 +248,15 @@ export async function writeWorkspaceFile(
     return { ok: true, mtime: stat?.modifiedAt?.getTime() ?? null }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    // StaleFileError is the expectedMtime guard firing. Named separately so the
-    // editor can offer "reload" rather than showing a generic failure.
-    const stale = /stale/i.test(message) || err?.constructor?.name === 'StaleFileError'
+    // The expectedMtime guard firing. Flagged separately so the editor can offer
+    // "reload" rather than a generic failure — this is the common case when the
+    // agent and the user are in the same file, not an exceptional one.
+    //
+    // Matched on the message as well as the class because Mastra words it
+    // "File was modified externally", which contains neither "stale" nor the
+    // constructor name once it has crossed the IPC boundary.
+    const stale =
+      /stale|modified externally/i.test(message) || err?.constructor?.name === 'StaleFileError'
     return { ok: false, error: message, stale }
   }
 }
