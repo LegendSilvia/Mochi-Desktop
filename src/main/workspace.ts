@@ -1,5 +1,6 @@
 import { Workspace, LocalFilesystem, LocalSandbox, WORKSPACE_TOOLS } from '@mastra/core/workspace'
-import { isAbsolute, normalize } from 'node:path'
+import { app } from 'electron'
+import { isAbsolute, join, normalize } from 'node:path'
 import type { FileEntry, FileStat, WorkspaceToolsConfig } from '@mastra/core/workspace'
 
 /**
@@ -90,16 +91,46 @@ function rootOf(folder: string): string | null {
 }
 
 /**
- * Reject anything that climbs out of the workspace.
+ * Normalise a path the way `LocalFilesystem` actually wants it.
  *
- * `LocalFilesystem` resolves against its basePath, but the renderer is the one
- * choosing these strings and a widget bug should not be able to hand it
- * `../../../..`. Cheap to check here, and this is the only door in.
+ * It takes paths *relative* to basePath and rejects a leading slash outright —
+ * `/src` is read as "the drive root", which is outside the workspace, so it
+ * fails with a permission error rather than listing the folder you meant. The
+ * workspace root itself is the empty string.
+ *
+ * This also rejects anything that climbs out. The renderer chooses these
+ * strings, and a widget bug should not be able to hand it `../../../..`; this
+ * is the only door in.
  */
 function safePath(path: string): string | null {
-  const clean = normalize(path).replace(/\\/g, '/')
-  if (clean.split('/').includes('..')) return null
-  return clean.startsWith('/') ? clean : `/${clean}`
+  const clean = normalize(path || '.').replace(/\\/g, '/')
+  if (clean.split('/').some((seg) => seg === '..')) return null
+  const rel = clean.replace(/^\/+/, '').replace(/\/+$/, '')
+  return rel === '.' ? '' : rel
+}
+
+/**
+ * Where to look for language server binaries.
+ *
+ * Mochi's own `node_modules/.bin` comes first, because that is where the
+ * bundled `typescript-language-server` lives — the folder the user opens is
+ * usually someone else's project and cannot be relied on to have one installed,
+ * and the whole point is that diagnostics work without them setting anything up.
+ *
+ * The workspace's own bin directory is included too, so a project pinning a
+ * different version gets its own, and the user's PATH is searched last.
+ */
+function lspSearchPaths(root?: string): string[] {
+  const paths = [join(app.getAppPath(), 'node_modules', '.bin')]
+  if (root) paths.push(join(root, 'node_modules', '.bin'))
+  return paths
+}
+
+/** Absolute on-disk path, for the things that need one (the language server
+ *  talks in file URIs, not workspace-relative paths). */
+function absoluteIn(root: string, rel: string): string {
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  return rel ? `${base}/${rel}` : base
 }
 
 /**
@@ -136,9 +167,19 @@ export function workspaceFor(folder: string): Workspace | null {
       } as NodeJS.ProcessEnv
     }),
     bm25: true,
-    // TypeScript, JavaScript, Python, Go and Rust are built in. Anything else
-    // simply returns no diagnostics rather than failing.
-    lsp: true,
+    // TypeScript, JavaScript, Python, Go and Rust are supported, but only if the
+    // matching language server is actually installed — Mastra spawns them, it
+    // does not bundle them. TypeScript ships with Mochi, so that one works in
+    // any folder the user opens; the rest are found on PATH if present and
+    // simply return no diagnostics if not.
+    lsp: {
+      // Without this the project root defaults to `process.cwd()`, which for a
+      // packaged Electron app is wherever it was launched from — so the language
+      // server would resolve tsconfig and node_modules against Mochi's own
+      // directory rather than the folder being edited.
+      root,
+      searchPaths: lspSearchPaths(root)
+    },
     skills: ['.claude/skills', 'skills'],
     tools: AGENT_TOOLS
   })
@@ -162,7 +203,7 @@ export async function readWorkspaceFile(
 ): Promise<ReadResult | { error: string }> {
   const ws = workspaceFor(folder)
   const p = safePath(path)
-  if (!ws?.filesystem || !p) return { error: 'No workspace' }
+  if (!ws?.filesystem || p === null) return { error: 'No workspace' }
   try {
     const stat = await ws.filesystem.stat(p)
     if (stat.type === 'directory') return { error: 'That is a folder' }
@@ -196,7 +237,7 @@ export async function writeWorkspaceFile(
 ): Promise<{ ok: true; mtime: number | null } | { ok: false; error: string; stale?: boolean }> {
   const ws = workspaceFor(folder)
   const p = safePath(path)
-  if (!ws?.filesystem || !p) return { ok: false, error: 'No workspace' }
+  if (!ws?.filesystem || p === null) return { ok: false, error: 'No workspace' }
   try {
     await ws.filesystem.writeFile(p, content, {
       recursive: true,
@@ -219,11 +260,11 @@ export async function writeWorkspaceFile(
  *  view that shows twenty rows. */
 export async function listWorkspaceDir(
   folder: string,
-  path = '/'
+  path = ''
 ): Promise<FileEntry[] | { error: string }> {
   const ws = workspaceFor(folder)
   const p = safePath(path)
-  if (!ws?.filesystem || !p) return { error: 'No workspace' }
+  if (!ws?.filesystem || p === null) return { error: 'No workspace' }
   try {
     const entries = await ws.filesystem.readdir(p)
     return entries
@@ -242,7 +283,7 @@ export async function statWorkspacePath(
 ): Promise<FileStat | { error: string }> {
   const ws = workspaceFor(folder)
   const p = safePath(path)
-  if (!ws?.filesystem || !p) return { error: 'No workspace' }
+  if (!ws?.filesystem || p === null) return { error: 'No workspace' }
   try {
     return await ws.filesystem.stat(p)
   } catch (err) {
@@ -274,7 +315,7 @@ async function ensureIndexed(folder: string, ws: Workspace): Promise<number> {
     }
     for (const entry of entries) {
       if (count >= INDEX_MAX_FILES) return
-      const child = dir === '/' ? `/${entry.name}` : `${dir}/${entry.name}`
+      const child = dir ? `${dir}/${entry.name}` : entry.name
       if (entry.type === 'directory') {
         if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue
         await walk(child, depth + 1)
@@ -292,7 +333,7 @@ async function ensureIndexed(folder: string, ws: Workspace): Promise<number> {
     }
   }
 
-  await walk('/', 0)
+  await walk('', 0)
   return count
 }
 
@@ -337,9 +378,32 @@ export async function searchWorkspace(
 export interface EditorDiagnostic {
   line: number
   character: number
+  /** LSP numbering: 1 error, 2 warning, 3 info, 4 hint. */
   severity: number
   message: string
   source?: string
+}
+
+/**
+ * Mastra reports severity as a word, the protocol numbers it.
+ *
+ * The editor's gutter and diagnostic rows key off the number, so passing the
+ * string through would leave every error styled as though it had no severity at
+ * all — visible in the list, but never coloured.
+ */
+const SEVERITY: Record<string, number> = {
+  error: 1,
+  warning: 2,
+  warn: 2,
+  information: 3,
+  info: 3,
+  hint: 4
+}
+
+function severityOf(value: unknown): number {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') return SEVERITY[value.toLowerCase()] ?? 1
+  return 1
 }
 
 /**
@@ -356,23 +420,23 @@ export async function diagnoseFile(
   const ws = workspaceFor(folder)
   const root = rootOf(folder)
   const p = safePath(path)
-  if (!ws?.lsp || !root || !p) return []
+  if (!ws?.lsp || !root || p === null) return []
   try {
-    const abs = `${root.replace(/\\/g, '/')}${p}`
+    const abs = absoluteIn(root, p)
     const found = await ws.lsp.getDiagnostics(abs, content)
     return (found ?? []).map((d) => {
       const record = d as unknown as {
         line?: number
         character?: number
         range?: { start?: { line?: number; character?: number } }
-        severity?: number
+        severity?: number | string
         message?: string
         source?: string
       }
       return {
         line: record.line ?? record.range?.start?.line ?? 0,
         character: record.character ?? record.range?.start?.character ?? 0,
-        severity: record.severity ?? 1,
+        severity: severityOf(record.severity),
         message: record.message ?? '',
         source: record.source
       }
@@ -399,9 +463,9 @@ export async function hoverAt(
   const ws = workspaceFor(folder)
   const root = rootOf(folder)
   const p = safePath(path)
-  if (!ws?.lsp || !root || !p) return null
+  if (!ws?.lsp || !root || p === null) return null
   try {
-    const abs = `${root.replace(/\\/g, '/')}${p}`
+    const abs = absoluteIn(root, p)
     const prepared = await ws.lsp.prepareQuery(abs)
     if (!prepared) return null
     const hover = (await prepared.client.queryHover(prepared.uri, { line, character })) as {

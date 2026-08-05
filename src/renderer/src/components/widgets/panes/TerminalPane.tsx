@@ -4,6 +4,52 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
 /**
+ * xterm's palette, taken from the app's own tokens.
+ *
+ * Its default theme is a black background and the standard sixteen ANSI
+ * colours, which lands a hard black rectangle in the middle of a soft, low
+ * contrast surface — and the app has no pure black anywhere else. Reading the
+ * live custom properties means the terminal also follows a light/dark switch
+ * instead of being permanently dark.
+ *
+ * The background is the app's own surface rather than `transparent`: xterm only
+ * honours transparency on its DOM renderer, and on the canvas one it falls back
+ * to opaque black — which is both a hard rectangle in a soft layout and the one
+ * colour this design never uses.
+ */
+function readTheme(): Record<string, string> {
+  const css = getComputedStyle(document.documentElement)
+  const token = (name: string, fallback: string): string =>
+    css.getPropertyValue(name).trim() || fallback
+  const tx = token('--tx', '#e9e7e2')
+  return {
+    background: token('--surf', '#1e2227'),
+    foreground: tx,
+    cursor: token('--ac', '#9dc98a'),
+    cursorAccent: token('--bg', '#15171a'),
+    selectionBackground: token('--acs', 'rgba(157, 201, 138, 0.25)'),
+    // Softened to sit with the palette. The stock ANSI set is fully saturated
+    // and reads as neon against these surfaces.
+    black: token('--bg2', '#191c20'),
+    red: token('--rose', '#d99a9a'),
+    green: token('--ac', '#9dc98a'),
+    yellow: token('--warm', '#e0b487'),
+    blue: token('--blue', '#8fb2d8'),
+    magenta: '#c3a5d8',
+    cyan: '#8fcfc8',
+    white: tx,
+    brightBlack: token('--tx3', '#6b6862'),
+    brightRed: token('--rose', '#d99a9a'),
+    brightGreen: token('--ac', '#9dc98a'),
+    brightYellow: token('--warm', '#e0b487'),
+    brightBlue: token('--blue', '#8fb2d8'),
+    brightMagenta: '#d4bce6',
+    brightCyan: '#a6ded8',
+    brightWhite: tx
+  }
+}
+
+/**
  * A shell, in a real terminal emulator.
  *
  * xterm.js because the PTY speaks ANSI: cursor moves, colours, alternate screen,
@@ -48,9 +94,7 @@ export function TerminalPane({
       fontSize: 12,
       lineHeight: 1.25,
       cursorBlink: true,
-      // Transparent so the widget's own surface shows through and the terminal
-      // sits in the theme rather than punching a black hole in it.
-      theme: { background: '#00000000' },
+      theme: readTheme(),
       allowTransparency: true,
       scrollback: 5000
     })

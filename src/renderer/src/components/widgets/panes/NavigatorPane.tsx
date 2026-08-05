@@ -26,7 +26,7 @@ export function NavigatorPane({
   onOpenFile: (path: string) => void
 }): React.JSX.Element {
   const [children, setChildren] = useState<Record<string, WsEntry[]>>({})
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['/']))
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['']))
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -59,14 +59,14 @@ export function NavigatorPane({
    * than clearing four pieces of state by hand. */
   useEffect(() => {
     let alive = true
-    void window.mochi?.wsList(folder, '/').then((result) => {
+    void window.mochi?.wsList(folder, '').then((result) => {
       if (!alive || !result) return
       if ('error' in result) {
         setError(result.error)
         return
       }
       setError(null)
-      setChildren((c) => ({ ...c, '/': sortEntries(result) }))
+      setChildren((c) => ({ ...c, '': sortEntries(result) }))
     })
     return () => {
       alive = false
@@ -89,7 +89,7 @@ export function NavigatorPane({
     const entries = children[path]
     if (!entries) return []
     return entries.flatMap((entry) => {
-      const child = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`
+      const child = path ? `${path}/${entry.name}` : entry.name
       const isDir = entry.type === 'directory'
       const isOpen = expanded.has(child)
       const row = (
@@ -132,17 +132,17 @@ export function NavigatorPane({
   return (
     <div className="wg-tree">
       {error && <div className="wg-empty meta">{error}</div>}
-      {!error && !children['/'] && <div className="wg-empty meta">Reading the folder…</div>}
-      {rows('/', 0)}
-      {children['/'] && children['/'].length === 0 && (
+      {!error && !children[''] && <div className="wg-empty meta">Reading the folder…</div>}
+      {rows('', 0)}
+      {children[''] && children[''].length === 0 && (
         <div className="wg-empty meta">This folder is empty.</div>
       )}
       <button
         className="wg-tree-refresh"
         onClick={() => {
           setChildren({})
-          void load('/')
-          for (const path of expanded) if (path !== '/') void load(path)
+          void load('')
+          for (const path of expanded) if (path) void load(path)
         }}
       >
         <RefreshCw size={11} strokeWidth={2} /> Refresh

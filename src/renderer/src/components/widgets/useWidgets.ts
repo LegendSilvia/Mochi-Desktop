@@ -18,7 +18,9 @@ export interface WidgetApi {
   widgets: WidgetInstance[]
   /** The instance for a single-instance kind, if the user has touched it. */
   find: (kind: WidgetKind) => WidgetInstance | undefined
-  open: (kind: WidgetKind, opts?: { path?: string; title?: string }) => void
+  /** Creates the widget. `show` opens it straight away; without it the widget
+   *  is born as a bubble, which is what the add menu wants. */
+  open: (kind: WidgetKind, opts?: { path?: string; title?: string; show?: boolean }) => void
   close: (id: string) => void
   /** Collapse back to a bubble, keeping geometry and contents. */
   collapse: (id: string) => void
@@ -48,7 +50,7 @@ export function useWidgets(
   )
 
   const open = useCallback(
-    (kind: WidgetKind, opts?: { path?: string; title?: string }) => {
+    (kind: WidgetKind, opts?: { path?: string; title?: string; show?: boolean }) => {
       const rect = hostRect()
       if (!rect) return
       const meta = WIDGETS[kind]
@@ -68,11 +70,11 @@ export function useWidgets(
         {
           id: `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
           kind,
-          // Every other entry point creates a widget already open, because the
-          // user just asked for it. Only the "add" menu makes them collapsed,
-          // and it passes through here too — so this is `true` and the menu
-          // collapses it immediately after. See WidgetHost.
-          open: true,
+          // A widget is born as a bubble unless whoever created it is showing
+          // it to you right now. Clicking a rail bubble or opening a file are
+          // "show me this"; the add menu is "have one of these", and stacking a
+          // panel over the chat for that is the app deciding what you meant.
+          open: opts?.show === true,
           geom: defaultGeom(kind, openCount, rect),
           path: opts?.path,
           title: opts?.title
@@ -120,7 +122,7 @@ export function useWidgets(
         write(widgets.map((w) => (w.id === editor.id ? { ...w, path, open: true } : w)))
         return
       }
-      open('editor', { path })
+      open('editor', { path, show: true })
     },
     [widgets, write, open]
   )

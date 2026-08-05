@@ -284,7 +284,7 @@
 }
 
 .composer-wrap {
-  padding: 12px 18px 18px;
+  padding: 12px 38px 20px;
   position: relative;
   flex-shrink: 0;
 }
@@ -325,7 +325,7 @@
   top: 10px;
   left: 14px;
   /* Stops short of the widget rail in the opposite corner. */
-  right: 62px;
+  right: 74px;
   z-index: 30;
   height: 46px;
   display: flex;
@@ -486,7 +486,7 @@
   /* Clears the floating header. The transcript starts below it rather than
      behind it, so nothing is permanently obscured — only what you scroll up
      passes underneath. */
-  padding: 68px 22px 8px;
+  padding: 68px 76px 8px 42px;
   /* …and what passes underneath fades out rather than sliding behind an opaque
      edge. Masked rather than covered by a gradient overlay because the chat
      background is not a flat colour the overlay could match. */

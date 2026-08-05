@@ -107,20 +107,32 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
     }
   }, [ctx.messages, ctx.subagents, ctx.rules, folder])
 
-  /** A bubble for every widget that could be opened, and every one that is
-   *  collapsed. Panel widgets get an implicit entry so they need no record until
-   *  the user actually touches one. */
+  /**
+   * The rail.
+   *
+   * A bubble appears when the widget has something to show *or* is ready to be
+   * used — a folder being set is what makes the navigator and search worth
+   * offering, and requiring a trip through the add menu to discover that would
+   * hide them behind a plus sign.
+   *
+   * The editor is the exception: it is only ever opened by something else
+   * handing it a file, so it earns a bubble by having one rather than by the
+   * folder existing.
+   *
+   * Widgets that already exist take their kind's place in the order, so a
+   * collapsed terminal reopens where it collapsed from rather than jumping to
+   * the end of the rail.
+   */
   const bubbles = useMemo(() => {
     const out: Array<{ key: string; kind: WidgetKind; instance?: WidgetInstance }> = []
-    for (const kind of PANEL_KINDS) {
-      const instance = api.widgets.find((w) => w.kind === kind)
-      if (instance?.open) continue
-      if (!hasData[kind]) continue
-      out.push({ key: instance?.id ?? kind, kind, instance })
-    }
-    for (const w of api.widgets) {
-      if (w.open || PANEL_KINDS.includes(w.kind)) continue
-      out.push({ key: w.id, kind: w.kind, instance: w })
+    for (const kind of [...TOOL_KINDS, ...PANEL_KINDS]) {
+      const mine = api.widgets.filter((w) => w.kind === kind)
+      for (const w of mine) if (!w.open) out.push({ key: w.id, kind, instance: w })
+      // A kind with no instance at all still gets one bubble, so long as it is
+      // usable. Clicking it is what creates the widget.
+      if (mine.length === 0 && hasData[kind] && kind !== 'editor') {
+        out.push({ key: kind, kind })
+      }
     }
     return out
   }, [api.widgets, hasData])
@@ -226,7 +238,7 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
               aria-label={`Open ${meta.label}`}
               onClick={() => {
                 if (instance) api.expand(instance.id)
-                else api.open(kind)
+                else api.open(kind, { show: true })
               }}
             >
               <Icon size={15} strokeWidth={1.9} />
