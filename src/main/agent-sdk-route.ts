@@ -233,12 +233,19 @@ const ASK_USER_NOTE =
  * `canUseTool` fires for everything not named here, so this list is the
  * difference between a coding assistant and a machine that asks permission to
  * look at a file. The split is by consequence, not by who wrote the tool:
- * reading, searching and the agent's own bookkeeping are reversible and happen
- * constantly, so they run; anything that writes, executes or reaches the network
- * still stops at a card.
+ * reading and the agent's own bookkeeping are reversible and happen constantly,
+ * so they run; anything that writes or executes still stops at a card.
  *
  * `ToolSearch` is harness plumbing for loading our own deferred tools — asking
  * the user to approve that is asking them to approve Mochi's own wiring.
+ *
+ * `WebSearch` and `WebFetch` are reads that happen to go over the network, and
+ * research is where that distinction stopped paying. A single question can fan
+ * out across several subagents, each running a handful of searches, and every
+ * one of them arrived as its own card — a wall of approvals for fetching public
+ * pages, which trains you to click through the wall rather than read it. They
+ * write nothing and reach nothing private. Anything that *acts* on what they
+ * find still asks.
  */
 const AUTO_APPROVED = [
   `${TOOL_PREFIX}sendSticker`,
@@ -253,7 +260,9 @@ const AUTO_APPROVED = [
   'Read',
   'Glob',
   'Grep',
-  'BashOutput'
+  'BashOutput',
+  'WebSearch',
+  'WebFetch'
 ]
 
 /**
