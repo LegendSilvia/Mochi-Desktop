@@ -1,121 +1,98 @@
-# Handoff — agent teams
+# Agent teams — what is built, and what is not
 
-Branch `feat/run-control` (PR #3). Everything described as landed is committed
-and pushed. This file is the spec for what is **not** built yet.
+Branch `feat/run-control` (PR #3). This replaces the spec written before any of
+it existed; that version's two named suspects for the memory bug both turned out
+to be wrong, which is a good reason not to trust a plan over a log.
 
-## Answering the question that prompted this
+## Built
 
-**Do all agents share one memory right now? No.** Since `2141ba4` the memory
-resource is per agent — `mochi-user:<agentId>` — so Fraux and Helper keep
-separate working memory and separate recall.
+**Speaker names** (`283a1dd`). Assistant messages carry `metadata.agentId`,
+written by the subscription route before the first token. The name prints when
+it changes, not over every reply. Anything without metadata — every message
+written before this, and everything from the Mastra route, whose `chatRoute` has
+no hook for stamping any — falls back to the tag on the question it answered.
 
-Two things make it *look* shared, and both are real gaps:
+**Shared thread** (`3b77ef9`). Resources stay per agent. Giving a session its own
+resource is the bug `2141ba4` fixed wearing a different hat: it merges two
+agents' private notes and files each one's replies under the other's name. What
+they share is the *thread*, and Mastra filters thread-scoped recall on
+`thread_id` alone, so `recallContext` runs a second query with the scope
+overridden. Excerpts from another agent are labelled as such, never as "You".
 
-1. **The Memory pane has no agent picker.** It always shows
-   `settings.defaultAgentId`, with the heading "What Fraux keeps between
-   sessions". There is no way to see Helper's memory at all.
-2. **OPEN BUG — the pane showed empty when it should not have.** Earlier the
-   same session read 492 characters back for `fraux` through the very same IPC
-   (`memoryGet('fraux')`), and a later screenshot showed the editor blank.
-   Not diagnosed. Suspects, in order: `readWorkingMemory` passes the constant
-   `EDITOR_THREAD` while the agent writes under the session's thread, and
-   `getWorkingMemory` may not resolve resource-scoped memory from an unknown
-   thread id; or `resetRecall()` on every settings save rebuilt the Memory with
-   `workingMemory` disabled. **Reproduce before building on top of this** — the
-   team feature assumes memory reads are trustworthy.
+**Tag routing** (`f9d8709`). `@name` hands that agent the turn; it answers as
+itself. Position decides address from mention: leading or trailing is an
+address, mid-sentence is a reference. Each agent keeps its own backend, so
+tagging one on an OpenRouter model routes to the API key while the rest stay on
+the subscription. The tag is stripped before the model sees it — left in, an
+agent read its own tag as an instruction about someone else and delegated to
+itself.
 
-## What Mastra gives, and what it does not
+**Peer tagging** (`a9827cb`). An agent ending a reply with a tag hands over the
+turn, carrying what it said. The handoff rides as a user-role message with
+`metadata.handoff`, because that is the only role the backends read a prompt
+from; it renders as nothing.
 
-Researched against the installed docs, not from memory.
+**Per-role subagents** (`7777bd8`). `researcher` and `reviewer` are read-only and
+sit wholly inside `AUTO_APPROVED`; `builder` adds Write/Edit/Bash and still asks.
+Capability rather than permission: a researcher cannot be talked into writing by
+a confused plan or by text injected into a page it fetched.
 
-- **Agent networks are deprecated.** `docs-agents-networks.md` says so outright
-  and links a migration guide. Do not build on them.
-- **Supervisor agents are the current pattern** — `agents: {}` on an Agent, then
-  `.stream()`. Crucially: *"By default, subagents receive the full conversation
-  context from the supervisor"* (`docs-agents-supervisor-agents.md:150`). Shared
-  context is the Mastra default. Mochi's "memory isolated" delegation is Mochi's
-  own choice, not a framework limit.
-- Also available there: `delegation.messageFilter` to trim what is shared,
-  `onDelegationStart` / `onDelegationComplete` hooks with `context.bail()` and
-  feedback injection, and `maxSteps`.
-- **A2A is not it.** It is for remote agents across vendor boundaries and keeps
-  each agent's memory deliberately private.
-- **No round-table primitive exists.** Supervisor is hierarchical: one router
-  delegates down, replies return as tool results. Peer-to-peer tagging is
-  orchestration Mochi has to own.
+## KNOWN GAP — the chain cap has never been seen to fire
 
-**The backend matters more than the framework.** The user runs
-`preferSubscription: true`, so none of the supervisor machinery is in play.
-Delegation today is Mochi's own `delegate` tool in `agent-sdk-route.ts`, which
-opens a separate Agent SDK session — that is where "memory isolated" comes from.
-Build the team there.
+`TAG_CHAIN_LIMIT` is 4 passes per user message, and hitting it appends a
+`chainStopped` message that renders as "Stopped here…". **That branch has never
+executed.** Verified up to depth 4 — handoffs alternate correctly, depths count
+1,2,3,4, each reply carries the right `agentId` — and then both agents stop on
+their own, every time, including when explicitly told not to. Fraux, asked to
+keep going: *"last round I stopped at four myself, so your guard never actually
+fired."*
 
-## The feature, as asked for
+So the safety property of the whole feature rests on one untested comparison.
+Two ways to close it, neither done:
 
-1. Both the user and any agent can tag another agent into the chat.
-2. Agents can tag each other and pass information or instructions.
-3. Every agent sees every other agent's messages — shared memory.
-4. **Only a user message or an agent tag may trigger a turn.** Nothing else.
-5. Tagging can also reference an old session, not just an agent.
-6. Tools in the loadout for inspecting an agent's memory.
-7. The transcript must show who is speaking, now that it is not always one agent.
+1. A test harness. There is none in the repo, which is why this is open. The
+   unit under test is small: seed messages whose last handoff has `depth: 4`,
+   run the finish handler, assert a `chainStopped` message appears and no
+   `sendMessage` fires.
+2. Drive it from the app by seeding a transcript ending in a `handoff.depth: 4`
+   user message and re-running that turn, so `messages[len-2]` carries the
+   depth. Needs a way to trigger a turn without appending a message —
+   `regenerate` is the candidate.
 
-## Suggested build order
+Until then, treat "two agents cannot loop forever" as **believed, not shown**.
 
-**7 first.** Speaker names are a prerequisite for everything else being legible,
-and they are self-contained. Assistant messages currently render an avatar and
-no name (`.msg-group[data-role=assistant]` in `Session.tsx`). Carry the agent id
-on the message — `metadata.agentId` survives JSON, which is how `mochiError`
-already works — and render name plus that agent's own art.
+## Not built
 
-**3 next: the shared thread.** No new primitive needed. Mastra `Memory` is keyed
-by `threadId` + `resourceId`; agents sharing a thread share history by
-construction. Today `memoryResource(agentId)` deliberately separates them, so a
-team needs a *session-scoped* resource — something like
-`mochi-team:<sessionId>` — used by every agent in that session, while solo
-sessions keep the per-agent resource. Do not simply revert to one global
-resource: that is the bug `2141ba4` fixed, where asking one agent surfaced
-another's unrelated work.
+**Tagging old sessions.** Different mechanism from tagging an agent — closer to
+recall than to a turn. A tagged session id should inject that thread's context,
+so route it through `recallContext` against that thread rather than starting
+anything.
 
-**4 with it: the turn policy.** This is the safety property and the whole risk.
-A tag enqueues exactly one turn for the tagged agent. Requirements:
+**Memory-inspection tools.** Still ambiguous between two readings. The concrete
+gap is that Settings → Memory has no agent picker: it always shows
+`settings.defaultAgentId`, so Helper's memory is not reachable at all. The other
+reading — a tool letting an agent read its own memory — is weak now that working
+memory is injected every turn and `appendMemory` dedupes.
 
-- A hard depth cap per user message (Mastra's `maxSteps` is the analogue). Two
-  agents tagging each other will otherwise loop until the five-hour subscription
-  window is gone.
-- The cap must be *visible* in the transcript when hit — a silent stop looks
-  identical to an agent that had nothing to say.
-- An agent may not tag itself, and a tag already satisfied in this chain must
-  not re-fire.
-- Reuse the existing `inFlight` semaphore idea from `delegate` (`capped` mode).
+**Editable agent id.** The id is a foreign key: `Session.agentId`,
+`settings.defaultAgentId`, `subagentIds`, and the memory resource
+`mochi-user:<id>`, which is stored on `mastra_resources.id`,
+`mastra_threads.resourceId` and `mastra_messages.resourceId`. The LibSQL store
+and vector `id`s are only instance labels — the tables are shared — so they do
+*not* need migrating. Renaming without rewriting the rest orphans the agent's
+memory and every session pointing at it.
 
-**5: tagging old sessions.** Different mechanism — closer to recall than
-delegation. A tagged session id should inject that thread's context, so route it
-through `recallContext`/`Memory.recall` against that thread rather than starting
-a session.
+## Ground rules learned the hard way
 
-**6: memory-inspection tools.** Ambiguous in the original request — it could mean
-tools *for the agent* to read memory, or UI in the loadout screen. Ask before
-building. If it is tools, the read path already exists in
-`src/main/recall.ts` (`readWorkingMemory`), and it needs a per-turn
-`MemoryContext` exactly like `updateMemory` already receives.
-
-## Also asked for, not started
-
-**Editable agent id** (screenshot: the "Agent id" field is read-only). This is
-not a text-field change. The id is a foreign key in at least four places:
-`Session.agentId`, the memory resource `mochi-user:<id>`, the LibSQL store and
-vector ids `mochi-store-<id>` / `mochi-vector-<id>`, and the recall cache key.
-Renaming without migrating those silently orphans an agent's memory and every
-session pointing at it. Either migrate all references in one transaction, or
-keep the id immutable and let the *name* be editable — which it already is.
-
-## Ground rules learned the hard way today
-
-- **Drive the app; do not reason about it.** Every bug found today was invisible
+- **Drive the app; do not reason about it.** Every bug found here was invisible
   to typecheck, lint and build.
+- **Read the log after a run.** Two separate recall failures were swallowed by a
+  `catch` and appeared nowhere on screen: the feature was simply off.
+- A `catch` around two operations loses both. Fail them independently and name
+  which one it was.
 - Real key events reach the composer. **Synthetic React events do not** — and
-  `input.value` + dispatch fails even on untouched controls.
+  React drops characters typed back-to-back with no frame between, so the CDP
+  helper types with a delay.
 - The loadout editor holds edits in a **draft until Save**. Twice this made
   working controls look broken.
 - Controls in the loadout must read `edited`, never `selected` — see `7125866`.
@@ -123,4 +100,4 @@ keep the id immutable and let the *name* be editable — which it already is.
   emits a BOM and `JSON.parse` refuses it. Use Node.
 - Never `pkill -f electron`; filter on `CommandLine -like '*electron.exe .*'`.
 - Baseline lint is **2 errors** (both `set-state-in-effect` in
-  `CommandPalette.tsx`). It was 3 until `109672f`.
+  `CommandPalette.tsx`).

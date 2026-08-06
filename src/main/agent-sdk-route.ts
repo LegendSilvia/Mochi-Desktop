@@ -23,6 +23,7 @@ import {
   readWorkingMemory,
   recallContext,
   rememberTurn,
+  threadContext,
   workingMemoryBlock,
   writeWorkingMemory
 } from './recall'
@@ -1430,6 +1431,9 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
        *  its `AgentMemoryOption` and not ours. Here it is what lets recall find
        *  this conversation. */
       memory?: { thread?: string; resource?: string }
+      /** Past conversations the user tagged in this message. Resolved to their
+       *  threads by the renderer, which is the side that knows the sidebar. */
+      refs?: Array<{ threadId?: string; title?: string }>
     }
     const chatId = body.id ?? agentId
     const prompt = stripSelfTag(latestUserText(body.messages), agentId)
@@ -1514,8 +1518,34 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         // has never heard of Mastra, so it comes through the same door.
         const known = memoryKeys ? await workingMemoryBlock(agent!, memoryKeys) : null
 
+        /*
+         * Conversations the user tagged in this message.
+         *
+         * After recall and before the prompt: recall is what the agent happened
+         * to remember, this is what it was *told* to look at, and the more
+         * specific instruction should sit closest to the question. Capped
+         * because each one is a block in front of every prompt in the turn, and
+         * a message tagging six sessions would be mostly preamble.
+         */
+        const refs = (body.refs ?? [])
+          .filter((r): r is { threadId: string; title: string } => Boolean(r?.threadId))
+          .slice(0, 3)
+        const referenced = agent
+          ? (
+              await Promise.all(
+                refs.map((r) =>
+                  threadContext(agent, {
+                    threadId: r.threadId,
+                    title: r.title || 'an earlier conversation',
+                    prompt
+                  })
+                )
+              )
+            ).filter(Boolean)
+          : []
+
         const base = resume ? prompt : replayPrompt(body.messages, prompt)
-        const opening = [known, recalled, base].filter(Boolean).join('\n\n---\n\n')
+        const opening = [known, recalled, ...referenced, base].filter(Boolean).join('\n\n---\n\n')
         /** The reply as the user sees it, kept so the exchange can be filed for
          *  later recall — the Agent SDK keeps its own transcript, and Mastra
          *  would otherwise never hear a word of this conversation. */

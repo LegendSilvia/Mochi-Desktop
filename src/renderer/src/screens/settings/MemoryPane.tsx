@@ -16,7 +16,18 @@ import type { EmbedderInfo } from '@shared/types'
  */
 export function MemoryPane(): React.JSX.Element {
   const { agents, settings, dispatch } = useStore()
-  const agent = agents.find((a) => a.id === settings.defaultAgentId) ?? agents[0]
+  /**
+   * Whose memory is on screen.
+   *
+   * This pane always showed `settings.defaultAgentId`, which meant every other
+   * agent's memory was unreachable — you could not see what Helper knew about
+   * you, let alone edit it, and the heading said "What Fraux keeps" while the
+   * switches below it edited Fraux's loadout. Now that a conversation can hold
+   * more than one agent, "the default one" stopped being a sensible answer to
+   * "which memory".
+   */
+  const [viewing, setViewing] = useState(settings.defaultAgentId)
+  const agent = agents.find((a) => a.id === viewing) ?? agents[0]
   /** The stored working memory, as text. Keyed reload below so switching the
    *  default agent shows that agent's memory rather than the last one's. */
   const [draft, setDraft] = useState('')
@@ -70,6 +81,27 @@ export function MemoryPane(): React.JSX.Element {
       <ScreenHeader title="Memory" subtitle={`What ${agent.name} keeps between sessions.`} />
       <div className="screen-body pane-cols">
         <div className="pane-col">
+          {/* Only worth showing once there is a choice to make. */}
+          {agents.length > 1 && (
+            <section className="config-card">
+              <span className="section-label">Whose memory</span>
+              <Row label="Agent" hint="each one remembers you separately">
+                <select
+                  className="cell-select field-grow"
+                  value={agent.id}
+                  onChange={(e) => setViewing(e.target.value)}
+                >
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                      {a.isDefault ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+            </section>
+          )}
+
           <section className="config-card">
             <span className="section-label">Working memory</span>
             <Row label="Enabled" hint="facts that persist across every thread">

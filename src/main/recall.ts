@@ -186,6 +186,76 @@ function textOf(message: { content?: { parts?: unknown[] } }): string {
 }
 
 /**
+ * What a conversation the user pointed at has to say about this prompt.
+ *
+ * Tagging an old session is not the same act as tagging an agent, and it must
+ * not be built like one: there is nobody to take a turn. It is a reference —
+ * "look at that conversation while you answer this" — so it reads, the way
+ * recall reads, and rides in front of the prompt.
+ *
+ * Thread-scoped and with no `resourceId`, deliberately. The tagged thread is
+ * usually somebody else's: a session run by another agent, under another
+ * resource. Naming a resource here would either find nothing or throw when it
+ * found something — see `recallContext` for why that guard exists.
+ *
+ * Whether it may be read at all is not decided here. A referenced thread is one
+ * the user chose from their own sidebar, which is the same permission they have
+ * to open it.
+ */
+export async function threadContext(
+  loadout: AgentLoadout,
+  opts: { threadId: string; title: string; prompt: string }
+): Promise<string | null> {
+  const memory = await memoryFor(loadout)
+  if (!memory || !opts.prompt.trim()) return null
+
+  const topK = Math.min(20, Math.max(1, Math.round(loadout.recallTopK ?? DEFAULT_RECALL_TOP_K)))
+  try {
+    /*
+     * A page of the conversation, not only the semantic hits.
+     *
+     * `perPage: 0` — right for recall, which rides in front of every turn — was
+     * wrong here, and silently so: a thread is only searchable if the agent that
+     * ran it had semantic recall switched on when it did, because that is what
+     * decides whether anything was embedded. Tagging a conversation held by an
+     * agent with recall off found nothing, said nothing, and looked exactly like
+     * the feature not working.
+     *
+     * The tail is also the better answer to "look at that conversation". The
+     * user picked this thread deliberately; they want what is in it, not the
+     * fragments a similarity search would have surfaced on its own. Semantic
+     * hits still ride along when there are any.
+     */
+    const { messages } = await memory.recall({
+      threadId: opts.threadId,
+      vectorSearchString: opts.prompt,
+      perPage: 12,
+      page: 0,
+      threadConfig: { semanticRecall: { topK, messageRange: 2, scope: 'thread' } }
+    })
+    const lines = (messages ?? [])
+      .map((m) => ({ who: m.role === 'user' ? 'User' : 'Agent', text: textOf(m) }))
+      .filter((m) => m.text)
+      // Shorter than a recall excerpt: this is a dozen messages rather than a
+      // handful, and it is one of up to three such blocks.
+      .map((m) => `${m.who}: ${m.text.slice(0, 400)}`)
+    if (!lines.length) return null
+
+    return [
+      `From the conversation the user pointed you at, "${opts.title}" — the parts`,
+      'that bear on what they just asked. Say nothing about this block itself.',
+      '',
+      ...lines
+    ].join('\n')
+  } catch (err) {
+    // A reference that cannot be resolved is worth a log line and nothing more.
+    // The user still asked a question, and it should still be answered.
+    console.error('[mochi] could not read the tagged conversation:', err)
+    return null
+  }
+}
+
+/**
  * What the agent should be reminded of before answering this turn.
  *
  * Returns a block to put in front of the prompt, or null when there is nothing

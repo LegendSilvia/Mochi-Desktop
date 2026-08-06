@@ -250,6 +250,47 @@ export function Session(): React.JSX.Element {
   const threadId = activeSession?.threadId
   const preferSubscription = settings.preferSubscription
   const subagentIds = activeSession?.subagentIds
+
+  /** The live sessions and agents, for callbacks that resolve after this render.
+   *  Declared here because the transport below is one of them. */
+  const sessionsRef = useRef(sessions)
+  const agentsRef = useRef(agents)
+  useEffect(() => {
+    sessionsRef.current = sessions
+    agentsRef.current = agents
+  }, [sessions, agents])
+
+  /*
+   * Past conversations tagged in this message.
+   *
+   * Tagging a session is a reference, not an address — there is nobody in an old
+   * thread to take a turn — so it is collected separately from `addressee`, and
+   * every tag counts wherever it sits in the sentence. Resolved on this side
+   * because the sidebar is the renderer's; main is handed ids and titles and can
+   * look up nothing else about them.
+   *
+   * A callback rather than part of the transport memo: it has to read the
+   * sessions as they are *now*, and the transport is rebuilt only when the
+   * route changes — so a session created a minute ago would otherwise not be
+   * taggable until something unrelated forced a rebuild.
+   */
+  const referencedSessions = useCallback(
+    (list: UIMessage[]): Array<{ threadId: string; title: string }> => {
+      const last = [...list].reverse().find((m) => m.role === 'user')
+      if (!last) return []
+      const out: Array<{ threadId: string; title: string }> = []
+      for (const [, tag] of flattenText(last).matchAll(/@([\w-]+)/g)) {
+        const found = sessionsRef.current.find((s) => s.id === tag && s.threadId)
+        // Not the one you are in: it is already the conversation.
+        if (found?.threadId && found.id !== activeSession?.id) {
+          out.push({ threadId: found.threadId, title: found.title })
+        }
+      }
+      return out
+    },
+    [activeSession?.id]
+  )
+
   const transport = useMemo(() => {
     if (!server || !agent) return undefined
 
@@ -286,6 +327,12 @@ export function Session(): React.JSX.Element {
       return inSession.find((a) => a.id === id) ?? agent
     }
 
+    // `referencedSessions` reads a ref, and the compiler cannot see that the
+    // callback holding it runs at send time rather than during this render —
+    // the transport is an object we hand to the SDK, not something rendered.
+    // The ref is the point: a session created after the transport was built
+    // still has to be taggable.
+    // eslint-disable-next-line react-hooks/refs
     return new DefaultChatTransport({
       api: `${server.baseUrl}/${routeFor(agent)}/${agent.id}`,
       /**
@@ -314,6 +361,10 @@ export function Session(): React.JSX.Element {
             id,
             messages,
             ...(folder ? { requestContext: { workspacePath: folder } } : {}),
+            ...(() => {
+              const refs = referencedSessions(messages)
+              return refs.length ? { refs } : {}
+            })(),
             // The thread is the session's; every agent in it shares that one.
             // The resource is the agent's own, so their memories stay separate —
             // main decides it from the URL rather than trusting this, but the
@@ -332,7 +383,16 @@ export function Session(): React.JSX.Element {
         }
       }
     })
-  }, [server, agent, agents, subagentIds, preferSubscription, folder, threadId])
+  }, [
+    server,
+    agent,
+    agents,
+    subagentIds,
+    preferSubscription,
+    folder,
+    threadId,
+    referencedSessions
+  ])
 
   // Seeded once per session id — useChat only reads `messages` when it builds a
   // new Chat, which is exactly when the id changes.
@@ -423,14 +483,6 @@ export function Session(): React.JSX.Element {
    * turn into whatever just broke. The chips stay put and go out after the next
    * reply.
    */
-  /** The live sessions array, for callbacks that resolve after this render. */
-  const sessionsRef = useRef(sessions)
-  const agentsRef = useRef(agents)
-  useEffect(() => {
-    sessionsRef.current = sessions
-    agentsRef.current = agents
-  }, [sessions, agents])
-
   /** Assistant messages already acted on, so a re-render or a second finish
    *  event cannot fire the same tag twice. */
   const passedRef = useRef<Set<string>>(new Set())
@@ -941,7 +993,11 @@ export function Session(): React.JSX.Element {
   }
 
   const addMention = (id: string): void => {
-    if (!activeSession.subagentIds.includes(id)) {
+    // Only an agent joins the session. A tagged conversation is something to
+    // read, not a participant — adding its id here would put a session in the
+    // roster and let the router try to hand it a turn.
+    const isAgent = agents.some((a) => a.id === id)
+    if (isAgent && !activeSession.subagentIds.includes(id)) {
       dispatch({
         type: 'sessions',
         sessions: sessions.map((s) =>
@@ -958,14 +1014,51 @@ export function Session(): React.JSX.Element {
     inputRef.current?.focus()
   }
 
-  const mentionable = agents.filter(
-    (a) =>
-      a.id !== agent.id &&
-      (mentionQuery
-        ? a.id.toLowerCase().includes(mentionQuery.toLowerCase()) ||
-          a.name.toLowerCase().includes(mentionQuery.toLowerCase())
-        : true)
-  )
+  /*
+   * What `@` can reach: the other agents, and your past conversations.
+   *
+   * Two different acts behind one gesture, and the rows say which is which.
+   * Tagging an agent gives it the turn. Tagging a session gives the agent that
+   * conversation to read — there is nobody in an old thread to answer, so it is
+   * a reference, and the row is labelled "read" rather than looking like
+   * another participant.
+   *
+   * Sessions come after agents and are capped: the sidebar can hold hundreds,
+   * and a picker you have to scroll is one you stop using. Typing narrows them,
+   * which is how you reach the older ones.
+   */
+  const matches = (...fields: string[]): boolean =>
+    !mentionQuery || fields.some((f) => f.toLowerCase().includes(mentionQuery.toLowerCase()))
+
+  const mentionable: Array<{
+    kind: 'agent' | 'session'
+    id: string
+    label: string
+    hint: string
+    initial: string
+  }> = [
+    ...agents
+      .filter((a) => a.id !== agent.id && matches(a.id, a.name))
+      .map((a) => ({
+        kind: 'agent' as const,
+        id: a.id,
+        label: `@${a.id}`,
+        hint: a.description,
+        initial: a.name[0]
+      })),
+    ...sessions
+      .filter(
+        (s) => s.id !== activeSession.id && s.threadId && !s.archived && matches(s.title, s.id)
+      )
+      .slice(0, mentionQuery ? 6 : 4)
+      .map((s) => ({
+        kind: 'session' as const,
+        id: s.id,
+        label: s.title,
+        hint: `earlier conversation with ${agentById(s.agentId)?.name ?? s.agentId}`,
+        initial: '⏱'
+      }))
+  ]
 
   /**
    * The highlighted row, clamped rather than reset.
@@ -1444,35 +1537,37 @@ export function Session(): React.JSX.Element {
         {mentionOpen && (
           <div className="mention-pop">
             <div className="mention-head">
-              Bring an agent in as a subagent
+              Tag an agent, or a past conversation
               {mentionQuery ? <span className="mono"> · @{mentionQuery}</span> : null}
             </div>
             {mentionable.length === 0 && (
-              <div className="mention-empty meta">No agent matches that name.</div>
+              <div className="mention-empty meta">Nothing matches that.</div>
             )}
-            {mentionable.map((a, i) => {
-              const inSession = activeSession.subagentIds.includes(a.id)
+            {mentionable.map((row, i) => {
+              const inSession =
+                row.kind === 'agent' && activeSession.subagentIds.includes(row.id)
               return (
                 <button
-                  key={a.id}
+                  key={`${row.kind}-${row.id}`}
                   className="mention-row"
                   data-in={inSession}
                   data-active={i === activeMention}
                   onMouseEnter={() => setMentionIndex(i)}
-                  onClick={() => addMention(a.id)}
+                  onClick={() => addMention(row.id)}
                 >
-                  <span className="mention-avatar">{a.name[0]}</span>
+                  <span className="mention-avatar">{row.initial}</span>
                   <span className="mention-text">
-                    <span className="mention-name">@{a.id}</span>
-                    <span className="meta">{a.description}</span>
+                    <span className="mention-name">{row.label}</span>
+                    <span className="meta">{row.hint}</span>
                   </span>
                   {inSession && <span className="chip">in session</span>}
+                  {row.kind === 'session' && <span className="chip">read</span>}
                 </button>
               )
             })}
             <div className="mention-foot">
-              {agent.name} stays the supervisor. It decides when to hand off, using each
-              agent&apos;s description.
+              Tagging an agent hands it the next turn. Tagging a conversation gives{' '}
+              {agent.name} the relevant parts of it to read.
             </div>
           </div>
         )}
