@@ -1,4 +1,5 @@
 import { Memory } from '@mastra/memory'
+import type { MastraDBMessage } from '@mastra/core/agent'
 import { LibSQLStore, LibSQLVector } from '@mastra/libsql'
 import { randomUUID } from 'node:crypto'
 import { embedderFor } from '../mastra/index'
@@ -210,81 +211,129 @@ export async function recallContext(
 
   const topK = Math.min(20, Math.max(1, Math.round(loadout.recallTopK ?? DEFAULT_RECALL_TOP_K)))
 
-  try {
-    // `perPage: 0` because semantic hits are the entire point here — without
-    // it recall also returns a page of recent messages, which the Agent SDK
-    // already has and would only duplicate.
-    const own = await memory.recall({
+  /*
+   * Two queries, and a failure in either must not cost the other.
+   *
+   * They used to share one `try`, so an error in the shared half threw away the
+   * agent's own results too — recall returned nothing at all for the turn, and
+   * the only sign was a line in the log.
+   */
+  const attempt = async (
+    what: string,
+    run: () => Promise<{ messages?: MastraDBMessage[] }>
+  ): Promise<MastraDBMessage[]> => {
+    try {
+      return (await run()).messages ?? []
+    } catch (err) {
+      // Recall is an enhancement. A vector store that will not answer must not
+      // take the turn down with it.
+      console.error(`[mochi] ${what} recall failed:`, err)
+      return []
+    }
+  }
+
+  // `perPage: 0` because semantic hits are the entire point here — without it
+  // recall also returns a page of recent messages, which the Agent SDK already
+  // has and would only duplicate.
+  const own = await attempt('own', () =>
+    memory.recall({
       threadId: opts.threadId,
       resourceId: opts.resourceId,
       vectorSearchString: opts.prompt,
-      perPage: 0
+      perPage: 0,
+      /*
+       * No surrounding messages in a shared conversation.
+       *
+       * `messageRange` widens each hit to its neighbours, and in a thread with
+       * more than one agent in it a neighbour is very often somebody else's
+       * reply. This query names a resource — resource scope requires one — and
+       * `recall` turns that into an expectation its MessageList enforces, so a
+       * hit that happened to sit next to another agent's line threw
+       * "Received input message with wrong resourceId" and cost the whole
+       * query. The context is not lost: the shared query below covers this
+       * thread with its full window and no expectation to violate.
+       */
+      ...(opts.shared
+        ? {
+            threadConfig: {
+              semanticRecall: {
+                topK,
+                messageRange: 0,
+                scope:
+                  loadout.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
+              }
+            }
+          }
+        : {})
     })
+  )
 
-    /*
-     * The shared half of a conversation with more than one agent in it.
-     *
-     * Resources stay per agent — that is what keeps each one's notes and past
-     * conversations its own — so the query above finds only what *this* agent
-     * said. What the agents genuinely have in common is the thread, and Mastra
-     * filters thread-scoped recall on `thread_id` alone (`resource_id` is not
-     * consulted), so asking a second time with the scope overridden reaches
-     * every agent's messages in this conversation regardless of whose resource
-     * they were filed under.
-     *
-     * Only for shared sessions: in a solo one this is the same rows a second
-     * time, at the cost of a second embedding round-trip.
-     */
-    const sharedHits = opts.shared
-      ? await memory.recall({
+  /*
+   * The shared half of a conversation with more than one agent in it.
+   *
+   * Resources stay per agent — that is what keeps each one's notes and past
+   * conversations its own — so the query above finds only what *this* agent
+   * said. What the agents have in common is the thread, and Mastra filters
+   * thread-scoped recall on `thread_id` alone, so asking again with the scope
+   * overridden reaches every agent's messages here whoever they were filed
+   * under.
+   *
+   * `resourceId` is deliberately omitted. Thread scope does not filter on it,
+   * but `recall` still builds its MessageList with it as an expectation, and
+   * that list *rejects* any message belonging to someone else — so a query that
+   * did its job and found another agent's reply threw
+   * "Received input message with wrong resourceId" and returned nothing. With
+   * no resource named there is no expectation to violate; the guard only fires
+   * when one is set.
+   *
+   * Only for shared sessions: in a solo one this is the same rows a second
+   * time, at the cost of an extra embedding round-trip.
+   */
+  const sharedHits = opts.shared
+    ? await attempt('shared-thread', () =>
+        memory.recall({
           threadId: opts.threadId,
-          resourceId: opts.resourceId,
           vectorSearchString: opts.prompt,
           perPage: 0,
           threadConfig: { semanticRecall: { topK, messageRange: 2, scope: 'thread' } }
         })
-      : null
+      )
+    : []
 
-    // The two queries overlap on this agent's own messages in this thread.
-    const seen = new Set<string>()
-    const hits = [...(own.messages ?? []), ...(sharedHits?.messages ?? [])].filter((m) => {
-      if (!m.id) return true
-      if (seen.has(m.id)) return false
-      seen.add(m.id)
-      return true
-    })
+  // The two queries overlap on this agent's own messages in this thread.
+  const seen = new Set<string>()
+  const hits = [...own, ...sharedHits].filter((m) => {
+    if (!m.id) return true
+    if (seen.has(m.id)) return false
+    seen.add(m.id)
+    return true
+  })
 
-    const lines = hits
-      .map((m) => ({
-        // "You" is only true of this agent's own rows. An excerpt from another
-        // agent in a shared thread, labelled as something this one said, is
-        // worse than not recalling it at all — it would answer as if it had.
-        who:
-          m.role === 'user'
-            ? 'User'
-            : m.resourceId && m.resourceId !== opts.resourceId
-              ? 'Another agent'
-              : 'You',
-        text: textOf(m)
-      }))
-      .filter((m) => m.text)
-      // Long matches are trimmed rather than dropped: a truncated reminder is
-      // still a reminder, and the whole block rides in front of every prompt.
-      .map((m) => `${m.who}: ${m.text.slice(0, 600)}`)
-    if (!lines.length) return null
+  const lines = hits
+    .map((m) => ({
+      // "You" is only true of this agent's own rows. An excerpt from another
+      // agent in a shared thread, labelled as something this one said, is
+      // worse than not recalling it at all — it would answer as if it had.
+      who:
+        m.role === 'user'
+          ? 'User'
+          : m.resourceId && m.resourceId !== opts.resourceId
+            ? 'Another agent'
+            : 'You',
+      text: textOf(m)
+    }))
+    .filter((m) => m.text)
+    // Long matches are trimmed rather than dropped: a truncated reminder is
+    // still a reminder, and the whole block rides in front of every prompt.
+    .map((m) => `${m.who}: ${m.text.slice(0, 600)}`)
+  if (!lines.length) return null
 
-    return [
-      'Relevant excerpts from earlier conversations, recalled by meaning rather',
-      'than recency. Use them if they help; say nothing about this block itself.',
-      '',
-      ...lines
-    ].join('\n')
-  } catch (err) {
-    // Recall is an enhancement. A vector store that will not answer must not
-    // take the turn down with it.
-    console.error('[mochi] semantic recall failed:', err)
-    return null
-  }
+  return [
+    'Relevant excerpts from earlier conversations, recalled by meaning rather',
+    'than recency. Use them if they help; say nothing about this block itself.',
+    '',
+    ...lines
+  ].join('\n')
 }
 
 /**
