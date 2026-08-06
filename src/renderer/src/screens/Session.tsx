@@ -20,7 +20,7 @@ import {
   X
 } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
-import { DEFAULT_RECALL_TOP_K } from '@shared/defaults'
+import { DEFAULT_RECALL_TOP_K, DEFAULT_SETTINGS } from '@shared/defaults'
 import { personalResource } from '@shared/memory'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages, loadMessages, saveMessages } from '@renderer/lib/history'
@@ -83,17 +83,6 @@ function speakerId(message: UIMessage): string | undefined {
   return (message.metadata as { agentId?: string } | undefined)?.agentId
 }
 
-/**
- * How many times one user message may be passed between agents.
- *
- * The whole safety property of peer tagging lives in this number. Two agents
- * that each end a reply by tagging the other will otherwise talk until the
- * five-hour window is gone, in a chat nobody is reading, and each pass costs a
- * full turn. Four is enough for a genuine round trip and a follow-up; anything
- * longer is a loop, not a conversation.
- */
-const TAG_CHAIN_LIMIT = 4
-
 /** A turn one agent handed to another, rather than one the user asked for. */
 interface Handoff {
   from: string
@@ -106,8 +95,9 @@ function handoffOf(message: UIMessage | undefined): Handoff | undefined {
   return (message?.metadata as { handoff?: Handoff } | undefined)?.handoff
 }
 
-/** The chain hit its limit here. Rendered so the stop is visible — see
- *  `TAG_CHAIN_LIMIT`. */
+/** The chain hit its limit here. Rendered so the stop is visible: a chain that
+ *  simply ends looks exactly like an agent with nothing more to say, and one of
+ *  those is finished while the other was cut off. */
 function chainStopOf(
   message: UIMessage
 ): { from: string; to: string; limit: number } | undefined {
@@ -500,6 +490,12 @@ export function Session(): React.JSX.Element {
    * Read through refs: this is registered once and would otherwise close over
    * the roster as it stood when the session mounted.
    */
+  /** Settings saved before this existed have no value at all — the store merges
+   *  shallowly — so the default is applied on read rather than assumed present. */
+  const chainLimit = Math.max(
+    1,
+    Math.round(settings.tagChainLimit ?? DEFAULT_SETTINGS.tagChainLimit)
+  )
   const passTheTag = useCallback((sessionId: string) => {
     const chat = chatOf(sessionId)
     const session = sessionsRef.current.find((s) => s.id === sessionId)
@@ -520,13 +516,13 @@ export function Session(): React.JSX.Element {
     // The cap is announced, not silent. A chain that simply stops looks exactly
     // like an agent that had nothing more to say, and the difference matters:
     // one is finished, the other was cut off mid-thought.
-    if (depth > TAG_CHAIN_LIMIT) {
+    if (depth > chainLimit) {
       chat.messages = [
         ...chat.messages,
         {
           id: `mochi-chain-${last.id}`,
           role: 'assistant',
-          metadata: { chainStopped: { from, to, limit: TAG_CHAIN_LIMIT } },
+          metadata: { chainStopped: { from, to, limit: chainLimit } },
           parts: []
         }
       ]
@@ -555,7 +551,7 @@ export function Session(): React.JSX.Element {
       ],
       metadata: { handoff: { from, to, depth } }
     })
-  }, [])
+  }, [chainLimit])
 
   useEffect(() => {
     onChatFinish((sessionId) => {
@@ -1326,8 +1322,8 @@ export function Session(): React.JSX.Element {
 
           {messages.map((message, mi) => {
             /* Where a chain of agents tagging each other was stopped. Shown as
-               a line in the transcript rather than nothing at all — see
-               `TAG_CHAIN_LIMIT` for why a silent stop is the wrong answer. */
+               a line in the transcript rather than nothing at all: a silent stop
+               is indistinguishable from an agent with nothing more to say. */
             const stopped = chainStopOf(message)
             if (stopped) {
               return (
@@ -1335,8 +1331,9 @@ export function Session(): React.JSX.Element {
                   <Users size={13} strokeWidth={1.9} />
                   <span>
                     Stopped here. {agentById(stopped.from)?.name ?? stopped.from} tagged{' '}
-                    {agentById(stopped.to)?.name ?? stopped.to} after {stopped.limit} passes between
-                    agents. Say something to carry on.
+                    {agentById(stopped.to)?.name ?? stopped.to} after {stopped.limit}{' '}
+                    {stopped.limit === 1 ? 'pass' : 'passes'} between agents. Say something to
+                    carry on.
                   </span>
                 </div>
               )

@@ -422,6 +422,17 @@ export interface AppSettings {
   delegationMode: 'capped' | 'uncapped' | 'simulated'
   /** Concurrent subagents allowed under `capped`. */
   delegationLimit: number
+  /**
+   * How many times one message may be passed between agents by tagging.
+   *
+   * The safety property of peer tagging. Two agents that each end a reply by
+   * tagging the other will otherwise talk until the subscription window is
+   * gone, in a chat nobody is reading, at a full turn per pass. Adjustable
+   * because the right number depends on what you use them for — a pair that
+   * genuinely trades work needs more room than a pair that answers once each —
+   * and because setting it to 1 is how you can watch the guard work.
+   */
+  tagChainLimit: number
   fallbackToOllamaOffline: boolean
   storageProvider: 'libsql' | 'postgres' | 'upstash'
   /** Agent may call sendSticker() on its own, beyond the armed rules. */

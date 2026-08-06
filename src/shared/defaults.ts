@@ -80,6 +80,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // quota is worse than being a little slower.
   delegationMode: 'capped',
   delegationLimit: 2,
+  // Enough for a genuine round trip and a follow-up. Longer than that is a
+  // loop rather than a conversation — see `tagChainLimit`.
+  tagChainLimit: 4,
   fallbackToOllamaOffline: false,
   storageProvider: 'libsql',
   agentMayPickStickers: true,
