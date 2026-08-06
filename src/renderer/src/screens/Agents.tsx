@@ -45,7 +45,7 @@ function makeId(name: string, taken: string[]): string {
 
 /** Agents & loadouts. A loadout *is* an agent — there is no separate mascot entity. */
 export function Agents(): React.JSX.Element {
-  const { agents, settings, dispatch, library, reloadLibrary, server } = useStore()
+  const { agents, sessions, settings, dispatch, library, reloadLibrary, server } = useStore()
   const [selectedId, setSelectedId] = useState(agents[0]?.id ?? '')
   const [filter, setFilter] = useState('')
   const [presets, setPresets] = useState<string[]>([])
@@ -90,6 +90,38 @@ export function Agents(): React.JSX.Element {
   const edited = liveDraft ?? selected
   const dirty = Boolean(liveDraft && selected && !sameLoadout(liveDraft, selected))
 
+  /**
+   * Whether the id may still follow the name.
+   *
+   * A loadout's id is its name slugged — but only at the moment it is created,
+   * so an agent made with the button and named afterwards kept `new-agent`
+   * forever, and `@new-agent` is what you then had to type at it in chat.
+   *
+   * It keeps following for as long as nothing points at the agent. Once a
+   * session does, the id is a foreign key: sessions carry it, and everything the
+   * agent knows hangs off `mochi-user:<id>` across three tables. Moving it then
+   * without migrating all of that would orphan its memory and strand every
+   * session on an agent that no longer exists. So it stops moving instead, which
+   * is the honest version of "the id is not editable".
+   */
+  const idIsFree = Boolean(
+    selected &&
+      !sessions.some(
+        (s) => s.agentId === selected.id || s.subagentIds.includes(selected.id)
+      )
+  )
+
+  /** Rename, carrying the id along when it is still free to move. */
+  const rename = (name: string): void => {
+    if (!selected) return
+    if (!idIsFree) {
+      patch({ name })
+      return
+    }
+    const taken = agents.filter((a) => a.id !== selected.id).map((a) => a.id)
+    patch({ name, id: makeId(name, taken) })
+  }
+
   const patch = (p: Partial<AgentLoadout>): void => {
     if (!selected) return
     setDraft((d) => ({
@@ -106,8 +138,22 @@ export function Agents(): React.JSX.Element {
       liveDraft.description !== selected.description ||
       liveDraft.instructions !== selected.instructions
 
+    // Where the entry currently sits, which is not where `next.id` says it will:
+    // renaming an unused agent moves its id, and matching on the new one found
+    // nothing and dropped the whole edit.
+    const wasId = selected?.id ?? liveDraft.id
+
     const commit = (next: AgentLoadout): void => {
-      dispatch({ type: 'agents', agents: agents.map((a) => (a.id === next.id ? next : a)) })
+      dispatch({ type: 'agents', agents: agents.map((a) => (a.id === wasId ? next : a)) })
+      if (next.id !== wasId) {
+        // Nothing else refers to this agent — that is the condition for the id
+        // being allowed to move at all — except the two places that name it by
+        // hand.
+        if (settings.defaultAgentId === wasId) {
+          dispatch({ type: 'settings', patch: { defaultAgentId: next.id } })
+        }
+        setSelectedId(next.id)
+      }
       // The live mascot reads the default agent's folder, so committing a change
       // to that agent has to re-read the library.
       if (next.id === settings.defaultAgentId) reloadLibrary()
@@ -490,12 +536,20 @@ export function Agents(): React.JSX.Element {
                 <input
                   className="field-input"
                   value={edited.name}
-                  onChange={(e) => patch({ name: e.target.value })}
+                  onChange={(e) => rename(e.target.value)}
                 />
               </label>
               <label className="field">
                 <span className="field-label">Agent id</span>
+                {/* Derived, never typed. It is what you tag in chat, so it has to
+                    be a slug — and it is a foreign key, so it has to stop moving
+                    the moment anything points at it. See `idIsFree`. */}
                 <input className="field-input mono" value={edited.id} readOnly />
+                <span className="meta">
+                  {idIsFree
+                    ? 'Follows the name. Fixed once a session uses this agent.'
+                    : 'Fixed — sessions and this agent’s memory are filed under it.'}
+                </span>
               </label>
               <label className="field">
                 <span className="field-label">Instructions</span>
