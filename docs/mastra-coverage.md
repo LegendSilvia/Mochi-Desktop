@@ -6,6 +6,19 @@ doesn't. Taxonomy taken from `mastra.ai/llms.txt`.
 Read this alongside `TASKS.md`: that file is the *intended* surface, this one is the
 *implemented* surface. Where they disagree, this file is right.
 
+> **See also `docs/mastra-docs-inventory.md`** (2026-08-04) — a map of the 474
+> embedded reference docs under `node_modules/@mastra/*/dist/docs/`, with each
+> backlog item pointed at the primitive that answers it.
+>
+> **It supersedes this file on one point.** The "Not used at all" list below sends
+> the question/askUser UX to **Workflows** (suspend/resume, human-in-the-loop).
+> That is not the smallest path. Agent-level suspension — a tool calling
+> `suspend()`, resumed with `agent.resumeStream(data, { runId })` — covers it
+> without introducing Workflows at all, and `askUserTool` is that, already built
+> and exported from `@mastra/core/tools`. The inventory also identifies
+> `AgentController` (`@mastra/core/agent-controller`, beta) as covering tool
+> approvals, follow-up queueing and thread persistence as one primitive.
+
 ---
 
 ## In use
@@ -110,3 +123,13 @@ Being explicit so this file isn't read as a completeness claim:
   `preferSubscription` sends traffic to the Agent SDK route instead.
 - Storage retention/pruning is unimplemented, so threads and RAG chunks grow without
   bound.
+- **WIP — `MODEL_CATALOG` carries ids the model router will not resolve.**
+  `src/shared/models.ts` is hand-typed against a registry that lists 162 providers.
+  The `anthropic`, `openai` and `google` entries were checked against the live
+  registry on 2026-08-04 and are all valid, but there is **no `ollama` provider** —
+  the registry has `ollama-cloud` and `lmstudio`, and neither lists `llama3.2` or
+  `qwen2.5-coder`. `ModelPicker.tsx` never validates an id, so those two entries
+  fail as a silent 404 at request time. Left in place deliberately: confirm first
+  whether a locally-running Ollama is reached by some path other than the router,
+  since this file's own header claims the router takes any `provider/model` string.
+  See `docs/mastra-docs-inventory.md` §5 and `scripts/provider-registry.mjs`.

@@ -83,14 +83,42 @@ function chunkText(text: string): string[] {
 
 /** Which embedder we can actually use right now. Checked rather than assumed —
  *  Ollama being installed and Ollama being *running* are different things. */
+/**
+ * Hosted embedders that speak OpenAI's `/embeddings` shape.
+ *
+ * OpenRouter is here rather than special-cased because it is the same request
+ * with a different base URL and key. Its model ids keep the upstream provider
+ * in them (`openai/text-embedding-3-small`), so `model` is everything after the
+ * first slash rather than a single segment — which is why the split above keeps
+ * the remainder intact instead of taking `rest[0]`.
+ */
+const HOSTED: Record<string, { url: string; envVar: string; detail: string }> = {
+  openai: {
+    url: 'https://api.openai.com/v1/embeddings',
+    envVar: 'OPENAI_API_KEY',
+    detail: 'hosted, billed to your OpenAI key'
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/embeddings',
+    envVar: 'OPENROUTER_API_KEY',
+    detail: 'hosted, billed to your OpenRouter key'
+  }
+}
+
 export async function embedderInfo(): Promise<EmbedderInfo> {
   const { settings } = load()
   const configured = settings.modelRoles?.embeddings ?? ''
   const [provider, ...rest] = configured.split('/')
   const model = rest.join('/')
 
-  if (provider === 'openai' && process.env.OPENAI_API_KEY) {
-    return { kind: 'openai', model, ready: true, detail: 'hosted, billed to your OpenAI key' }
+  const hosted = HOSTED[provider]
+  if (hosted && model && process.env[hosted.envVar]) {
+    return {
+      kind: provider as 'openai' | 'openrouter',
+      model,
+      ready: true,
+      detail: hosted.detail
+    }
   }
 
   const ollamaModel = provider === 'ollama' && model ? model : 'nomic-embed-text'
@@ -123,12 +151,13 @@ async function embed(texts: string[]): Promise<number[][] | null> {
   const info = await embedderInfo()
   if (!info.ready) return null
 
-  if (info.kind === 'openai') {
-    const res = await fetch('https://api.openai.com/v1/embeddings', {
+  const hosted = HOSTED[info.kind]
+  if (hosted) {
+    const res = await fetch(hosted.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        Authorization: `Bearer ${process.env[hosted.envVar]}`
       },
       body: JSON.stringify({ model: info.model || 'text-embedding-3-small', input: texts })
     })
@@ -216,6 +245,57 @@ export async function addDocuments(paths: string[]): Promise<{ added: number; sk
   }
 
   return { added, skipped }
+}
+
+/**
+ * Index text the agent wrote, with no file behind it.
+ *
+ * `addDocuments` takes paths, which is right for "I dragged in a folder" and
+ * useless for "write down what we just worked out" — the agent would have to
+ * put a file somewhere on disk first, which means picking a folder, asking
+ * permission for it, and leaving litter the user never asked for.
+ *
+ * Stored under a `note:` path so it is unique, obviously not a real file, and
+ * still replaceable: writing the same title twice revises the note rather than
+ * stacking a second copy that competes with the first in every later search.
+ */
+export async function addNote(
+  title: string,
+  text: string
+): Promise<{ ok: boolean; chunks: number; reason?: string }> {
+  const clean = text.trim()
+  const name = title.trim() || 'Untitled note'
+  if (clean.length < 24) {
+    return { ok: false, chunks: 0, reason: 'too short to be worth indexing' }
+  }
+
+  await initRag()
+  const c = conn()
+  const chunks = chunkText(clean)
+  if (chunks.length === 0) return { ok: false, chunks: 0, reason: 'nothing to index' }
+
+  const path = `note:/${name.toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '')}`
+  const docId = `note-${Date.now().toString(36)}`
+
+  await c.execute({ sql: 'DELETE FROM rag_docs WHERE path = ?', args: [path] })
+  await c.execute({
+    sql: 'INSERT INTO rag_docs (id, path, title, bytes, added_at) VALUES (?, ?, ?, ?, ?)',
+    args: [docId, path, name, Buffer.byteLength(clean, 'utf-8'), Date.now()]
+  })
+
+  // Embedding is best-effort, exactly as it is for files: keyword search works
+  // the moment the row lands, so a missing embedder costs recall quality rather
+  // than the whole note.
+  const vectors = await embed(chunks)
+  for (let i = 0; i < chunks.length; i++) {
+    await c.execute({
+      sql: 'INSERT INTO rag_chunks (id, doc_id, ord, text, embedding) VALUES (?, ?, ?, ?, ?)',
+      args: [`${docId}-${i}`, docId, i, chunks[i], vectors ? JSON.stringify(vectors[i]) : null]
+    })
+  }
+  await c.execute(`INSERT INTO rag_fts(rag_fts) VALUES('rebuild')`)
+
+  return { ok: true, chunks: chunks.length }
 }
 
 export async function listDocuments(): Promise<RagDoc[]> {

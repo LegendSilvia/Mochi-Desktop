@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Check, Search } from 'lucide-react'
-import { MODEL_CATALOG, findModel } from '@shared/models'
+import { MODEL_CATALOG, findModel, type ModelOption, type ProviderGroup } from '@shared/models'
 import './modelpicker.css'
 
 /**
@@ -14,10 +14,19 @@ import './modelpicker.css'
  */
 export function ModelPicker({
   value,
-  onChange
+  onChange,
+  catalog = MODEL_CATALOG,
+  modality = 'text'
 }: {
   value: string
   onChange: (next: string) => void
+  /** Narrows what is on offer. The embeddings role passes the embedding-only
+   *  catalogue, because offering chat models for a job they cannot do is how
+   *  you end up with a setting that saves cleanly and never works. */
+  catalog?: ProviderGroup[]
+  /** Which OpenRouter models to ask for — their `output_modalities` filter.
+   *  The static catalogue cannot express this; the live one can. */
+  modality?: 'text' | 'embeddings'
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -26,8 +35,6 @@ export function ModelPicker({
   const [connected, setConnected] = useState<string[] | null>(null)
   const [showAll, setShowAll] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
-
-  const known = findModel(value)
 
   // Which providers are actually usable right now: one with a stored key, a
   // local runtime, or Anthropic when the Claude subscription is on. Listing
@@ -65,25 +72,99 @@ export function ModelPicker({
   const usable = (p: string): boolean =>
     showAll || connected === null || connected.includes(p) || p === 'anthropic'
 
-  const hiddenCount = MODEL_CATALOG.filter((g) => !usable(g.provider)).length
+  const hiddenCount = catalog.filter((g) => !usable(g.provider)).length
+
+  /*
+   * OpenRouter's list, asked for rather than remembered.
+   *
+   * It fronts hundreds of models and changes them weekly, so a hand-written
+   * entry is stale on arrival and can be worse than stale: the one embedding id
+   * written from their docs answered 404 and silently embedded nothing. The
+   * search term goes to the API too, which is what reaches past the first
+   * hundred most-popular without paging.
+   */
+  const [live, setLive] = useState<ModelOption[] | null>(null)
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    // Debounced: this fires on every keystroke in the search box.
+    const timer = setTimeout(() => {
+      void window.mochi
+        ?.openrouterModels({ modality, q: q.trim() || undefined })
+        .then((rows) => {
+          if (!cancelled) setLive(rows)
+        })
+    }, 220)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [open, q, modality])
+
+  /*
+   * Anthropic's list, asked of the subscription rather than written down.
+   *
+   * The account decides what it can run — plan, entitlements, and whatever
+   * shipped this week. A hand-written list made models the account cannot reach
+   * selectable, and the only feedback was an error after sending a message.
+   *
+   * Not searched server-side like OpenRouter: this is a dozen rows, so the
+   * client filter handles it and one fetch per open is enough.
+   */
+  const [liveAnthropic, setLiveAnthropic] = useState<ModelOption[] | null>(null)
+  useEffect(() => {
+    if (!open || modality !== 'text') return
+    let cancelled = false
+    void window.mochi?.anthropicModels().then((rows) => {
+      if (!cancelled) setLiveAnthropic(rows)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, modality])
+
+  // The live rows are searched too, so a model picked from OpenRouter shows its
+  // name rather than falling back to the bare id it has no catalogue entry for.
+  const known =
+    findModel(value, catalog) ??
+    live?.find((m) => m.id === value) ??
+    liveAnthropic?.find((m) => m.id === value)
 
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    const base = MODEL_CATALOG.filter((g) => usable(g.provider))
-    if (!needle) return base
-    return base.map((g) => ({
-      ...g,
-      models: g.models.filter(
-        (m) =>
-          m.id.toLowerCase().includes(needle) ||
-          m.label.toLowerCase().includes(needle) ||
-          m.hint.toLowerCase().includes(needle)
+    const base = catalog
+      .filter((g) => usable(g.provider))
+      // A live list replaces the written-down one entirely when it arrives.
+      // Merging them would reintroduce exactly the ids that do not resolve.
+      .map((g) => (g.provider === 'openrouter' && live?.length ? { ...g, models: live } : g))
+      .map((g) =>
+        g.provider === 'anthropic' && liveAnthropic?.length
+          ? { ...g, models: liveAnthropic }
+          : g
       )
-    })).filter((g) => g.models.length > 0)
+    if (!needle) return base
+    return base
+      .map((g) =>
+        // OpenRouter's rows came back already matching `q` — the API did the
+        // searching. Filtering them again on the raw string would throw away
+        // every result whose relevance is not spelled out in its own name.
+        g.provider === 'openrouter' && live?.length
+          ? g
+          : {
+              ...g,
+              models: g.models.filter(
+                (m) =>
+                  m.id.toLowerCase().includes(needle) ||
+                  m.label.toLowerCase().includes(needle) ||
+                  m.hint.toLowerCase().includes(needle)
+              )
+            }
+      )
+      .filter((g) => g.models.length > 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, connected, showAll])
+  }, [q, connected, showAll, catalog, live, liveAnthropic])
 
-  const custom = q.trim().includes('/') && !findModel(q.trim())
+  const custom = q.trim().includes('/') && !findModel(q.trim(), catalog)
 
   return (
     <div className="mp" ref={boxRef}>

@@ -3,7 +3,8 @@ import { useStore } from '@renderer/state/context'
 import { KEYS } from '@renderer/lib/platform'
 
 export function AccountPopover({ sessionCount }: { sessionCount: number }): React.JSX.Element {
-  const { menuOpen, dispatch } = useStore()
+  const { menuOpen, dispatch, settings } = useStore()
+  const name = settings.userName.trim()
 
   const row = (label: string, onClick: () => void, kbd?: string): React.JSX.Element => (
     <button className="pop-row" onClick={onClick}>
@@ -16,7 +17,7 @@ export function AccountPopover({ sessionCount }: { sessionCount: number }): Reac
     <div className="rail-footer">
       {menuOpen && (
         <div className="rail-pop" role="menu">
-          <div className="pop-label mono">tan@localhost</div>
+          <div className="pop-label mono">{(name || 'you').toLowerCase()}@localhost</div>
           {row('Settings', () => dispatch({ type: 'screen', screen: 'memory' }), KEYS.settings())}
           {row('Appearance', () => dispatch({ type: 'screen', screen: 'defaults' }))}
           {row('Sound', () => dispatch({ type: 'screen', screen: 'voice' }))}
@@ -32,7 +33,7 @@ export function AccountPopover({ sessionCount }: { sessionCount: number }): Reac
       >
         <span className="rail-account-avatar" aria-hidden />
         <span className="rail-account-text">
-          <span className="rail-account-name">Tan</span>
+          <span className="rail-account-name">{name || 'You'}</span>
           <span className="meta">local · {sessionCount} sessions</span>
         </span>
         <ChevronUp size={13} strokeWidth={1.8} data-open={menuOpen} className="rail-caret-up" />

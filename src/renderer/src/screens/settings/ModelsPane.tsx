@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '@renderer/state/context'
-import { Row, ScreenHeader, Toggle } from '@renderer/components/ui/Controls'
+import { Row, ScreenHeader, Slider, Toggle } from '@renderer/components/ui/Controls'
 import { ModelPicker } from '@renderer/components/ui/ModelPicker'
+import { DEFAULT_SETTINGS } from '@shared/defaults'
+import { EMBEDDING_CATALOG, findModel } from '@shared/models'
 import type { AppSettings, ProviderAccount } from '@shared/types'
 
 export function ModelsPane(): React.JSX.Element {
   const { settings, dispatch } = useStore()
+  // Absent in settings saved before this existed; the store merges shallowly.
+  const chainLimit = settings.tagChainLimit ?? DEFAULT_SETTINGS.tagChainLimit
   const [providers, setProviders] = useState<ProviderAccount[]>([])
   const [adding, setAdding] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState('')
@@ -129,6 +133,8 @@ export function ModelsPane(): React.JSX.Element {
                 <span className="field-label">{label}</span>
                 <ModelPicker
                   value={settings.modelRoles[key]}
+                  catalog={key === 'embeddings' ? EMBEDDING_CATALOG : undefined}
+                  modality={key === 'embeddings' ? 'embeddings' : 'text'}
                   onChange={(model) =>
                     dispatch({
                       type: 'settings',
@@ -136,6 +142,19 @@ export function ModelsPane(): React.JSX.Element {
                     })
                   }
                 />
+                {/* The picker still takes free text, so a chat model can land
+                    here anyway — and it fails by embedding nothing rather than
+                    by erroring, which is the kind of failure you only notice
+                    weeks later when recall has never once worked. */}
+                {key === 'embeddings' &&
+                  !findModel(settings.modelRoles.embeddings, EMBEDDING_CATALOG) && (
+                    <div className="banner-warn">
+                      <span className="mono">{settings.modelRoles.embeddings || 'nothing'}</span> is
+                      not an embedding model, so semantic recall and vector search stay off. Anthropic
+                      publishes no embeddings API for any model — pick Ollama above to embed locally
+                      with no key.
+                    </div>
+                  )}
               </div>
             ))}
             <Row label="Run on my Claude subscription">
@@ -180,6 +199,25 @@ export function ModelsPane(): React.JSX.Element {
                 <option value="uncapped">real, uncapped</option>
                 <option value="simulated">simulated</option>
               </select>
+            </Row>
+
+            {/*
+              The other kind of hand-off, and the one that can run away.
+              Delegation above returns to the agent that asked; tagging passes
+              the turn on, so two agents that tag each other keep going without
+              anyone typing. This is where that stops.
+            */}
+            <Row
+              label="Passes before a tag chain stops"
+              hint={`${chainLimit} — then the transcript says so and waits for you`}
+            >
+              <Slider
+                value={chainLimit}
+                min={1}
+                max={10}
+                onChange={(v) => dispatch({ type: 'settings', patch: { tagChainLimit: v } })}
+                label="Tag chain limit"
+              />
             </Row>
 
             <Row label="Fall back to Ollama when offline">

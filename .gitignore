@@ -19,3 +19,6 @@ out
 .mastra/
 *.db
 *.db-journal
+
+# SDD/debug scratch — durable copies live in docs/
+.superpowers/

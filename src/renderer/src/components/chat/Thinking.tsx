@@ -11,10 +11,14 @@ import './chat.css'
  */
 export function Thinking({
   messages,
-  status
+  status,
+  who
 }: {
   messages: UIMessage[]
   status: string
+  /** Name of the agent taking this turn. Once a session can hold more than one,
+   *  a bare "thinking…" leaves you waiting without knowing who on. */
+  who?: string
 }): React.JSX.Element | null {
   if (status !== 'submitted' && status !== 'streaming') return null
 
@@ -25,7 +29,10 @@ export function Thinking({
         <i />
         <i />
       </span>
-      <span className="thinking-text">{describe(messages, status)}</span>
+      <span className="thinking-text">
+        {who && <span className="thinking-who">{who}</span>}
+        {describe(messages, status)}
+      </span>
     </div>
   )
 }

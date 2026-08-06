@@ -1,0 +1,890 @@
+/* ===================== widgets =====================
+   Floating panels over the chat, and the rail of bubbles they collapse to.
+
+   The layer covers the whole chat but is transparent to the pointer — only the
+   panels and the rail take clicks, so the chat underneath scrolls and selects
+   exactly as it would with nothing over it. */
+
+.wg-host {
+  position: absolute;
+  top: 0;
+  /* left / right / bottom are set inline from the docked edge sizes. */
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5;
+}
+/* A drag has to be able to cross a docked column — that is where it is going.
+   `clampGeom` still keeps a released widget inside the chat, so dropping the
+   clip here costs nothing once the pointer is up. */
+.wg-host[data-dragging='true'] {
+  overflow: visible;
+  z-index: 70;
+}
+
+/* --- the bubble rail ------------------------------------------------------ */
+
+.wg-rail {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  /* Loose enough that each bubble reads as its own target. At 8px they ran
+     together into one grey column and the icons stopped being distinguishable
+     at a glance. */
+  gap: 12px;
+  pointer-events: auto;
+  z-index: 40;
+}
+
+.wg-bubble {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surf) 88%, transparent);
+  border: 1px solid var(--line);
+  color: var(--tx2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+.wg-bubble:hover {
+  background: var(--surf2);
+  color: var(--tx);
+  transform: translateY(-1px);
+}
+.wg-bubble-add {
+  color: var(--tx3);
+}
+.wg-bubble-add[aria-expanded='true'] {
+  background: var(--acs);
+  color: var(--ac);
+}
+
+.wg-add-wrap {
+  position: relative;
+}
+.wg-add-menu {
+  position: absolute;
+  top: 0;
+  right: 44px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surf);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+.wg-add-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: var(--r-md);
+  background: none;
+  border: none;
+  color: var(--tx2);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.wg-add-item:hover:not(:disabled) {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-add-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.wg-add-item .meta {
+  margin-left: auto;
+  font-size: 10px;
+}
+
+/* --- the panel ------------------------------------------------------------ */
+
+.wg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--surf) 96%, transparent);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+}
+
+.wg-head {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 11px;
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+  user-select: none;
+}
+.wg-head:active {
+  cursor: grabbing;
+}
+.wg-head-icon {
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.wg-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tx2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* The path in an editor title. Its meaningful end is the right-hand side, so
+   clip the front — same treatment the old repo strip used. */
+.wg-sub {
+  font-size: 10.5px;
+  color: var(--tx3);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.wg-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+.wg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.wg-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: none;
+  border: none;
+  color: var(--tx3);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.wg-btn:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
+
+.wg-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* An inactive tab's pane stays mounted but must not draw. The `display: flex`
+   above is a class rule and outranks the browser's own `[hidden]`, so without
+   this every tab in a group renders stacked on top of each other. */
+.wg-body[hidden] {
+  display: none;
+}
+
+.wg-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+}
+.wg-empty {
+  padding: 14px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* --- resize grips --------------------------------------------------------- */
+
+/* Entirely *inside* the box. They used to sit at -2px, which `overflow: hidden`
+   on .wg then clipped away — leaving a sliver two or three pixels wide that was
+   almost impossible to hit, which is why resizing felt broken. */
+.wg-grip {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.wg-grip-n,
+.wg-grip-s {
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.wg-grip-e,
+.wg-grip-w {
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.wg-grip-n {
+  top: 0;
+}
+.wg-grip-s {
+  bottom: 0;
+}
+.wg-grip-e {
+  right: 0;
+}
+.wg-grip-w {
+  left: 0;
+}
+.wg-grip-ne,
+.wg-grip-nw,
+.wg-grip-se,
+.wg-grip-sw {
+  width: 16px;
+  height: 16px;
+}
+.wg-grip-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.wg-grip-se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+.wg-grip-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.wg-grip-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+/* While a drag is running the cursor is pinned on <body>, and nothing else is
+   allowed to answer for it. Without this the pointer crosses the header, the
+   body and the grips as the box moves, and each one re-asserts its own cursor —
+   which reads as flicker. */
+body.wg-dragging,
+body.wg-dragging * {
+  cursor: var(--wg-drag-cursor, default) !important;
+  user-select: none !important;
+}
+
+/* --- file tree ------------------------------------------------------------ */
+
+.wg-tree {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 4px 10px;
+  gap: 1px;
+}
+.wg-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  border: none;
+  background: none;
+  border-radius: var(--r-sm);
+  color: var(--tx2);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.wg-tree-row:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-tree-row[data-on='true'] {
+  background: var(--acs);
+  color: var(--tx);
+}
+.wg-tree-caret {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--tx3);
+}
+.wg-tree-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wg-tree-refresh {
+  margin: 8px 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--tx3);
+  font-size: 11px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.wg-tree-refresh:hover {
+  color: var(--tx);
+  background: var(--surf2);
+}
+
+/* --- editor --------------------------------------------------------------- */
+
+.wg-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wg-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.wg-editor-path {
+  font-size: 10.5px;
+  color: var(--tx3);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.wg-editor-count {
+  font-size: 10.5px;
+}
+/* Unsaved marker. A dot rather than an asterisk in the title: the title is
+   already a path, and a path with punctuation appended reads as part of it. */
+.wg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--warm);
+  flex-shrink: 0;
+}
+.wg-btn-text {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--tx2);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wg-btn-text:hover:not(:disabled) {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-btn-text:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.wg-btn-text.primary {
+  background: var(--acs);
+  border-color: transparent;
+  color: var(--ac);
+}
+.wg-editor-err {
+  padding: 9px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 10%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+
+.wg-editor-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.wg-gutter {
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 10px 0;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--tx3);
+  user-select: none;
+}
+.wg-gutter-line {
+  padding: 0 8px 0 12px;
+}
+/* A line the language server complained about. Severity 1 is an error, 2 a
+   warning; anything lower is not worth colouring a gutter for. */
+.wg-gutter-line[data-bad='1'] {
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 13%, transparent);
+}
+.wg-gutter-line[data-bad='2'] {
+  color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 11%, transparent);
+}
+.wg-code {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--tx);
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.wg-editor-foot {
+  flex-shrink: 0;
+  max-height: 116px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  background: var(--bg2);
+}
+.wg-diags {
+  display: flex;
+  flex-direction: column;
+}
+.wg-diag {
+  display: flex;
+  gap: 8px;
+  padding: 5px 12px;
+  border: none;
+  background: none;
+  color: var(--tx2);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.45;
+}
+.wg-diag:hover {
+  background: var(--surf2);
+}
+.wg-diag[data-sev='1'] .mono {
+  color: var(--rose);
+}
+.wg-diag[data-sev='2'] .mono {
+  color: var(--warm);
+}
+.wg-hover {
+  padding: 8px 12px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--tx2);
+  white-space: pre-wrap;
+}
+
+/* --- terminal ------------------------------------------------------------- */
+
+.wg-term {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 4px 4px 10px;
+}
+.wg-term-host {
+  flex: 1;
+  min-height: 0;
+}
+.wg-term-restart {
+  margin: 8px;
+  align-self: flex-start;
+}
+
+/* --- search --------------------------------------------------------------- */
+
+.wg-search {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wg-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.wg-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--tx);
+  font-size: 12px;
+  font-family: inherit;
+}
+.wg-hits {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.wg-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.wg-hit-path {
+  font-size: 10.5px;
+  color: var(--ac);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.wg-hit-text {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* --- tasks, skills, files ------------------------------------------------- */
+
+.wg-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--tx2);
+}
+.wg-task[data-status='completed'] .wg-task-text {
+  color: var(--tx3);
+  text-decoration: line-through;
+}
+.wg-task[data-status='in_progress'] .wg-task-text {
+  color: var(--tx);
+  font-weight: 600;
+}
+.wg-task-now {
+  color: var(--ac);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.wg-task-todo {
+  color: var(--tx3);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.wg-task-text {
+  min-width: 0;
+}
+
+.wg-skill {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.wg-skill-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wg-skill-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tx);
+}
+
+.wg-file-row {
+  border: none;
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.wg-file-row:hover {
+  background: var(--surf2);
+}
+.wg-add-agent {
+  align-self: flex-start;
+}
+.wg-perm-path {
+  font-size: 10.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+
+/* --- docked edges ---------------------------------------------------------
+   A docked widget is a real sibling of the chat, not an overlay on it: the
+   chat column shrinks to make room. That is the whole difference between
+   snapping and simply parking a panel near the edge. */
+
+.session-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wg-dock {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  /* Padding and a gap so the panels inside stay rounded objects rather than
+     becoming flush rectangles the moment they are docked. Nothing in this app
+     is square-cornered, docked or not. */
+  padding: 8px;
+  gap: 8px;
+}
+.wg-dock[data-side='left'] {
+  order: -1;
+  flex-direction: column;
+  padding-right: 0;
+}
+.wg-dock[data-side='right'] {
+  order: 1;
+  flex-direction: column;
+  padding-left: 0;
+}
+/* The bottom strip splits across rather than down: two short stacked panes in a
+   260px strip would each be unusable. */
+.wg-dock[data-side='bottom'] {
+  flex-direction: row;
+  padding-top: 0;
+}
+
+/* A docked slot keeps the same shape it had floating — only the shadow goes,
+   since it is no longer hovering above anything. */
+.wg-docked {
+  position: static;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surf);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* --- tabs, past two on one edge ------------------------------------------- */
+
+.wg-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 6px 0;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wg-tabs::-webkit-scrollbar {
+  display: none;
+}
+.wg-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 6px 10px;
+  max-width: 160px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--tx3);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  /* Rounded on top and joined to the pane below, the way a tab reads. */
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+.wg-tab:hover {
+  color: var(--tx2);
+  background: color-mix(in srgb, var(--surf2) 60%, transparent);
+}
+.wg-tab[aria-selected='true'] {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.wg-tab-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wg-tab-x {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.wg-tab-x:hover {
+  background: var(--line2);
+  color: var(--tx);
+}
+
+/* The seam you drag to resize. Sits over the border, a little wider than it
+   looks so it can be grabbed without precision. */
+.wg-dock-grip {
+  position: absolute;
+  z-index: 3;
+}
+.wg-dock-grip[data-side='left'] {
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.wg-dock-grip[data-side='right'] {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.wg-dock-grip[data-side='bottom'] {
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 7px;
+  cursor: ns-resize;
+}
+.wg-dock-grip:hover {
+  background: var(--acs);
+}
+
+/* --- the snap preview -----------------------------------------------------
+   Shown only while a drag is actually over an edge, so the chat is not
+   permanently decorated with drop targets. */
+
+.wg-snap {
+  position: absolute;
+  z-index: 44;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--ac) 15%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--ac) 55%, transparent);
+  border-radius: var(--r-lg);
+  animation: wg-snap-in 0.14s ease-out;
+  /* The tag sits in the bottom-right corner of the target, out of the way of
+     whatever is being dragged over it. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 12px;
+}
+.wg-snap-tag {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--ac);
+  color: var(--on-ac);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@keyframes wg-snap-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.wg-bubble[data-dragging='true'] {
+  opacity: 0.5;
+}
+
+/* --- a file the editor will not show -------------------------------------- */
+
+.wg-refuse {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 26px 20px;
+  text-align: center;
+  color: var(--tx3);
+}
+.wg-refuse-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx2);
+}
+.wg-refuse-body {
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-width: 34ch;
+}
+.wg-refuse-path {
+  font-size: 10.5px;
+  color: var(--tx3);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.wg-editor-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--warm);
+  background: color-mix(in srgb, var(--warm) 9%, transparent);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}

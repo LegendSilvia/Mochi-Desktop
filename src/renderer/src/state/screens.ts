@@ -24,11 +24,13 @@ export type Screen =
   | 'browser'
   | 'ops'
   | 'notes'
+  | 'overlay'
 
 /** Screens that render inside the Settings modal rather than as destinations. */
 export const SETTINGS_SCREENS: Screen[] = [
   'models',
   'defaults',
+  'overlay',
   'memory',
   'rag',
   'tools',
@@ -48,6 +50,16 @@ export const WIP_SCREENS: Screen[] = ['workflows', 'browser', 'ops']
 
 /** Session types drafted on the start screen but not wired. */
 export const WIP_SESSION_TYPES = ['supervised', 'standing'] as const
+
+/** Said when poked while idle, as opposed to after finishing something. The
+ *  fallback for a loadout with no generated poke lines of its own. */
+export const POKE_LINES = [
+  'hi hi!',
+  'still here!',
+  'poke received',
+  'yes? yes?',
+  'at your service'
+]
 
 export const BUBBLE_LINES = [
   'tests are green!',

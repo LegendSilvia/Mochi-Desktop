@@ -14,6 +14,7 @@ const EVENTS: StickerEvent[] = [
   'thanked',
   'tool-error',
   'idle-20min',
+  'needs-approval',
   'manual'
 ]
 

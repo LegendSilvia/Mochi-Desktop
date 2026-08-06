@@ -29,15 +29,23 @@
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/plus-jakarta-sans": "^5.3.0",
     "@hono/node-server": "^2.0.12",
+    "@libsql/client": "^0.17.4",
+    "@lydell/node-pty": "^1.2.0-beta.14",
     "@mastra/ai-sdk": "^1.7.0",
     "@mastra/core": "^1.55.0",
     "@mastra/hono": "^1.5.12",
     "@mastra/libsql": "^1.18.0",
     "@mastra/memory": "^1.24.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "ai": "^7.0.48",
     "chokidar": "^5.0.0",
     "hono": "^4.12.34",
     "lucide-react": "^1.28.0",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "^5.3.0",
+    "vscode-jsonrpc": "^9.0.1",
+    "vscode-languageserver-protocol": "^3.18.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -58,7 +66,6 @@
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "typescript": "^5.9.3",
     "vite": "^7.2.6"
   }
 }

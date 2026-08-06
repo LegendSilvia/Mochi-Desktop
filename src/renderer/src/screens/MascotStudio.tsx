@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { FolderOpen } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { FolderOpen, FolderPlus, Import, Pencil, Trash2, X } from 'lucide-react'
 import { useStore } from '@renderer/state/context'
 import {
   ArtPlaceholder,
@@ -9,9 +9,13 @@ import {
   Slider,
   Toggle
 } from '@renderer/components/ui/Controls'
-import { MASCOT_STATES, MASCOT_STATE_LABELS } from '@shared/types'
-import type { IdleMotion, MascotShell, MascotState } from '@shared/types'
+import { MASCOT_STATES, MASCOT_STATE_LABELS, SPRITE_SLOTS } from '@shared/types'
+import type { AssetLibrary, IdleMotion, MascotShell, MascotState, SpriteSlot } from '@shared/types'
 import './screens.css'
+
+/** Matches the extensions main will accept, so a dropped `.txt` is rejected here
+ *  rather than silently ignored after a round trip. */
+const IMAGE_RE = /\.(png|svg|jpe?g|webp|gif)$/i
 
 const MOTIONS = [
   { value: 'breathe' as IdleMotion, label: 'breathe' },
@@ -31,34 +35,151 @@ const STATE_DOT: Record<MascotState, string> = {
   idle: 'var(--ac)',
   thinking: 'var(--blue)',
   'tool-running': 'var(--warm)',
+  asking: 'var(--warm)',
   error: 'var(--rose)',
   done: 'var(--ac)',
   sleeping: 'var(--tx3)'
 }
 
 export function MascotStudio(): React.JSX.Element {
-  const { settings, dispatch, library, spriteSrc, mascotState, agents, reloadLibrary } = useStore()
+  const { settings, dispatch, mascotState, agents, reloadLibrary } = useStore()
   const cfg = settings.mascot
-  const preset = agents.find((a) => a.id === settings.defaultAgentId)?.spritePreset ?? 'sprout'
-  const stage = spriteSrc(mascotState) ?? spriteSrc('idle')
-  const [presets, setPresets] = useState<string[]>([])
+  const defaultPreset = agents.find((a) => a.id === settings.defaultAgentId)?.spritePreset ?? 'sprout'
 
-  // Swapping the whole sprite set was the one thing the studio couldn't do: the
-  // folder was read off the default agent and there was no way to change it.
+  /*
+   * The studio edits a folder, it does not pick an agent's folder.
+   *
+   * Previously the two were the same thing — the dropdown wrote straight to the
+   * default agent's `spritePreset` — so you could not look at one mascot set
+   * while an agent used another, and there was no way to build a set before
+   * committing an agent to it. Which folder each agent *uses* now lives in the
+   * loadout editor. This screen keeps its own selection and reads that folder's
+   * library directly rather than going through the global one.
+   */
+  const [folder, setFolder] = useState<string>(defaultPreset)
+  const [folders, setFolders] = useState<string[]>([])
+  const [lib, setLib] = useState<AssetLibrary | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [dragging, setDragging] = useState(false)
+
+  /** Bumped by anything that changes the folder on disk, to force a re-read. */
+  const [revision, setRevision] = useState(0)
+  const refresh = useCallback(() => setRevision((n) => n + 1), [])
+
   useEffect(() => {
-    void window.mochi?.listPresets().then(setPresets)
-  }, [library])
+    let cancelled = false
+    void (async () => {
+      if (!window.mochi) return
+      const [list, library] = await Promise.all([
+        window.mochi.listPresets(),
+        window.mochi.library(folder)
+      ])
+      // Switching folders quickly can land an older read last, which would show
+      // one folder's art under another folder's name.
+      if (cancelled) return
+      setFolders(list)
+      setLib(library)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [folder, revision])
 
-  const usePreset = (next: string): void => {
-    dispatch({
-      type: 'agents',
-      agents: agents.map((a) =>
-        a.id === settings.defaultAgentId ? { ...a, spritePreset: next } : a
-      )
-    })
-    // The library is loaded per preset, so it has to be re-read for the new art
-    // to reach the stage and the mascot layer.
-    reloadLibrary()
+  // Art dropped into the folder from Explorer should show up too, not only the
+  // drops made through this screen.
+  useEffect(() => window.mochi?.onLibraryChanged(refresh), [refresh])
+
+  const spriteFor = (state: SpriteSlot): string | null =>
+    lib?.sprites.find((s) => s.state === state)?.src ?? null
+  const stage = spriteFor(mascotState) ?? spriteFor('idle')
+  const usedBy = agents.filter((a) => a.spritePreset === folder)
+
+  /** Anything that touched disk invalidates both this screen and, when the
+   *  folder is in use by an agent, the live mascot. */
+  const after = async (result: { ok: boolean; error?: string }): Promise<void> => {
+    if (!result.ok) {
+      setNote(result.error ?? 'That did not work')
+      return
+    }
+    setNote(null)
+    await refresh()
+    if (usedBy.length > 0) reloadLibrary()
+  }
+
+  const importFiles = async (files: File[]): Promise<void> => {
+    const images = files.filter((f) => IMAGE_RE.test(f.name))
+    if (images.length === 0) {
+      setNote('Those were not images — png, svg, jpg, webp or gif.')
+      return
+    }
+    const payload = await Promise.all(
+      images.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))
+    )
+    await after(await window.mochi!.spriteImport(folder, payload))
+  }
+
+  /**
+   * Re-point a state, or clear one.
+   *
+   * Assignment lives in the folder's manifest, so moving a file from one state
+   * to another is two writes: claim the new state, release the old one. Doing
+   * only the first would leave the image mapped twice.
+   */
+  const assign = async (file: string, from: SpriteSlot | null, to: SpriteSlot | ''): Promise<void> => {
+    if (to === '') {
+      if (from) await after(await window.mochi!.spriteAssign(folder, from, null))
+      return
+    }
+    await window.mochi!.spriteAssign(folder, to, file)
+    if (from && from !== to) await window.mochi!.spriteAssign(folder, from, null)
+    await after({ ok: true })
+  }
+
+  const newFolder = async (): Promise<void> => {
+    const name = window.prompt('Name the new mascot folder')
+    if (!name?.trim()) return
+    const res = await window.mochi!.presetCreate(name.trim())
+    if (res.ok) setFolder(res.value)
+    await after(res)
+  }
+
+  const importFolder = async (): Promise<void> => {
+    const res = await window.mochi!.presetImport()
+    // Cancelling the dialog is not a failure worth reporting back.
+    if (!res.ok && res.error === 'cancelled') return
+    if (res.ok) setFolder(res.value)
+    await after(res)
+  }
+
+  const commitRename = async (): Promise<void> => {
+    const next = draftName.trim()
+    setRenaming(false)
+    if (!next || next === folder) return
+    const res = await window.mochi!.presetRename(folder, next)
+    if (res.ok) {
+      // Any loadout pointing at the old name would break, so move them with it.
+      dispatch({
+        type: 'agents',
+        agents: agents.map((a) =>
+          a.spritePreset === folder ? { ...a, spritePreset: res.value } : a
+        )
+      })
+      setFolder(res.value)
+    }
+    await after(res)
+  }
+
+  const removeFolder = async (): Promise<void> => {
+    if (usedBy.length > 0) {
+      setNote(`${usedBy.map((a) => a.name).join(', ')} still use this folder.`)
+      return
+    }
+    if (!window.confirm(`Delete the "${folder}" mascot folder and its art?`)) return
+    const res = await window.mochi!.presetDelete(folder)
+    if (res.ok) setFolder('sprout')
+    await after(res)
   }
 
   return (
@@ -71,39 +192,87 @@ export function MascotStudio(): React.JSX.Element {
         {/* Left — sprite set */}
         <div className="studio-left">
           <div className="preset-row">
-            <button
-              className="folder-chip mono"
-              onClick={() => window.mochi?.openFolder('sprites')}
-              title="Open the folder"
-            >
-              <FolderOpen size={12} strokeWidth={1.8} />
-              mascots/{preset}/
-            </button>
-            {presets.length > 1 && (
+            {renaming ? (
+              <input
+                className="rail-rename preset-rename"
+                autoFocus
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                onBlur={() => void commitRename()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void commitRename()
+                  if (e.key === 'Escape') setRenaming(false)
+                }}
+              />
+            ) : (
               <select
                 className="cell-select preset-select"
-                value={preset}
-                aria-label="Sprite set"
-                onChange={(e) => usePreset(e.target.value)}
+                value={folder}
+                aria-label="Mascot folder"
+                onChange={(e) => setFolder(e.target.value)}
               >
-                {presets.map((p) => (
+                {folders.map((p) => (
                   <option key={p} value={p}>
                     {p}
                   </option>
                 ))}
               </select>
             )}
+            <button
+              className="folder-chip"
+              title="New folder"
+              aria-label="New mascot folder"
+              onClick={() => void newFolder()}
+            >
+              <FolderPlus size={12} strokeWidth={1.8} />
+            </button>
+            <button
+              className="folder-chip"
+              title="Import a folder of art"
+              aria-label="Import a folder of art"
+              onClick={() => void importFolder()}
+            >
+              <Import size={12} strokeWidth={1.8} />
+            </button>
+            <button
+              className="folder-chip"
+              title="Rename"
+              aria-label="Rename this folder"
+              onClick={() => {
+                setDraftName(folder)
+                setRenaming(true)
+              }}
+            >
+              <Pencil size={12} strokeWidth={1.8} />
+            </button>
+            <button
+              className="folder-chip"
+              title="Delete this folder"
+              aria-label="Delete this folder"
+              onClick={() => void removeFolder()}
+            >
+              <Trash2 size={12} strokeWidth={1.8} />
+            </button>
+            <button
+              className="folder-chip mono"
+              title="Reveal in Explorer"
+              aria-label="Reveal in Explorer"
+              onClick={() => window.mochi?.presetOpen(folder)}
+            >
+              <FolderOpen size={12} strokeWidth={1.8} />
+            </button>
           </div>
-          {presets.length <= 1 && (
-            <span className="meta">
-              Drop another folder into <span className="mono">mascots/</span> to swap the whole
-              sprite set.
-            </span>
-          )}
+
+          <span className="meta">
+            {usedBy.length > 0
+              ? `Used by ${usedBy.map((a) => a.name).join(', ')}.`
+              : 'Not used by any loadout yet — pick it in Agents & loadouts.'}
+          </span>
+          {note && <div className="banner-warn">{note}</div>}
 
           <div className="sprite-grid">
-            {MASCOT_STATES.map((s) => {
-              const src = spriteSrc(s)
+            {SPRITE_SLOTS.map((s) => {
+              const src = spriteFor(s)
               return (
                 <div key={s} className="sprite-tile" data-selected={s === mascotState}>
                   {src ? <img src={src} alt="" /> : <span className="sprite-empty">?</span>}
@@ -113,10 +282,73 @@ export function MascotStudio(): React.JSX.Element {
             })}
           </div>
 
-          <button className="drop-target" onClick={() => window.mochi?.openFolder('sprites')}>
+          {/* A real drop target. This used to be a button that opened Explorer,
+              which meant the label "drop png / svg / jpg here" described
+              something the app could not actually do. */}
+          <div
+            className="drop-target"
+            data-hot={dragging}
+            role="button"
+            tabIndex={0}
+            onClick={() => window.mochi?.presetOpen(folder)}
+            onKeyDown={(e) => e.key === 'Enter' && window.mochi?.presetOpen(folder)}
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+              setDragging(true)
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDragging(false)
+              void importFiles(Array.from(e.dataTransfer.files))
+            }}
+          >
             <span>drop png / svg / jpg here</span>
-            <span className="meta">file name becomes the state</span>
-          </button>
+            <span className="meta">
+              a file named after a state is assigned for you — otherwise pick it below
+            </span>
+          </div>
+
+          {/* Everything in the folder, assigned or not. Unassigned art used to be
+              invisible: it sat in the folder doing nothing with no way to tell. */}
+          {(lib?.spriteFiles.length ?? 0) > 0 && (
+            <div className="sprite-files">
+              {lib!.spriteFiles.map((f) => (
+                <div className="sprite-file" key={f.file}>
+                  <img src={f.src} alt="" />
+                  <span className="sprite-file-name mono" title={f.file}>
+                    {f.file}
+                  </span>
+                  <select
+                    className="cell-select"
+                    aria-label={`State for ${f.file}`}
+                    value={f.state ?? ''}
+                    onChange={(e) =>
+                      void assign(f.file, f.state, e.target.value as SpriteSlot | '')
+                    }
+                  >
+                    <option value="">unassigned</option>
+                    {SPRITE_SLOTS.map((s) => (
+                      <option key={s} value={s}>
+                        {MASCOT_STATE_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="sprite-file-drop"
+                    aria-label={`Delete ${f.file}`}
+                    title="Delete this image"
+                    onClick={() =>
+                      void window.mochi!.spriteRemove(folder, f.file).then((r) => after(r))
+                    }
+                  >
+                    <X size={12} strokeWidth={2.2} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* These were inert. They set the app accent, which is what actually
               recolours the mascot's shell, glow and highlights. */}
@@ -247,8 +479,8 @@ export function MascotStudio(): React.JSX.Element {
               <div className="map-row" key={s}>
                 <span className="map-dot" style={{ background: STATE_DOT[s] }} />
                 <span className="map-state">{MASCOT_STATE_LABELS[s]}</span>
-                <span className="mono map-meta" title={spriteSrc(s) ? 'sprite found' : 'no sprite'}>
-                  {spriteSrc(s) ? 'sprite' : 'no art'}
+                <span className="mono map-meta" title={spriteFor(s) ? 'sprite found' : 'no sprite'}>
+                  {spriteFor(s) ? 'sprite' : 'no art'}
                 </span>
                 <select
                   className="cell-select map-sound"
@@ -264,7 +496,7 @@ export function MascotStudio(): React.JSX.Element {
                   }
                 >
                   <option value="">silent</option>
-                  {(library?.sounds ?? []).map((snd) => (
+                  {(lib?.sounds ?? []).map((snd) => (
                     <option key={snd.id} value={snd.id}>
                       {snd.name}
                     </option>

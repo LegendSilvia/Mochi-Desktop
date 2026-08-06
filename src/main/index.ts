@@ -108,7 +108,40 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'mochi-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ])
 
+/**
+ * One Mochi at a time.
+ *
+ * Every instance writes the same `settings.json`, `sdk-sessions.json` and mascot
+ * folders under `%APPDATA%\Mochi`, and nothing coordinates between them: each
+ * holds the whole state in memory and writes it wholesale, so the last one to
+ * save silently erases the other's agents, sessions and sprite assignments.
+ *
+ * This has now destroyed loadouts twice during development. The fix is a lock
+ * rather than file-level merging, because merging two divergent copies of "all
+ * the state" has no correct answer — you cannot tell a deleted agent from one
+ * the other instance never saw.
+ *
+ * Must be requested before `whenReady`. The instance that loses quits, and the
+ * guard inside the ready handler stops it building windows on the way out.
+ */
+const isPrimary = app.requestSingleInstanceLock()
+
+if (!isPrimary) {
+  app.quit()
+} else {
+  // Launching Mochi again should feel like clicking its taskbar icon.
+  app.on('second-instance', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+}
+
 app.whenReady().then(async () => {
+  // `app.quit()` above does not stop this callback from running.
+  if (!isPrimary) return
+
   // Toasts are attributed to Mochi rather than "electron.app.…" (M1-17).
   electronApp.setAppUserModelId('com.legendsilvia.mochi')
 

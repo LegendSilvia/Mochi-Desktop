@@ -5,9 +5,12 @@ import { HonoBindings, HonoVariables, MastraServer } from '@mastra/hono'
 import { createReadStream } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createMastra } from '../mastra/index'
+import { provideDocs } from '../mastra/tools/mochi-tools'
 import { registerAgentSdkRoute } from './agent-sdk-route'
 import { databaseUrl } from './paths'
 import { load } from './store'
+import { addNote, embedderInfo, search } from './rag'
+import { workspaceFor } from './workspace'
 import type { ServerInfo } from '../shared/types'
 
 /**
@@ -29,11 +32,37 @@ let handle: { close: () => void } | null = null
 export async function startMastraServer(appVersion: string): Promise<ServerInfo> {
   if (info) return info
 
-  const { agents, settings } = load()
+  // Hand the Mastra tools the document library. Injected rather than imported
+  // so src/mastra stays free of main-process dependencies.
+  provideDocs({ search, addNote })
+
+  const { agents } = load()
+
+  /*
+   * Semantic recall runs on the same embedder RAG uses, resolved the same way —
+   * one answer to "can this machine embed right now", not two that can disagree.
+   *
+   * Reachability is checked rather than assumed because the local option is a
+   * server: Ollama being installed and Ollama being *running* are different
+   * things, and an embedder that isn't there throws mid-turn. That would fail
+   * the user's message rather than the feature, which is the wrong end to fail
+   * at — better to come up with recall off and plain history working.
+   *
+   * The empty string is deliberate: it builds no embedder, so recall stays off
+   * for every loadout no matter what their toggles say.
+   */
+  const embedder = await embedderInfo()
   const mastra = createMastra({
     databaseUrl: databaseUrl(),
     loadouts: agents,
-    embeddingModel: settings.modelRoles.embeddings
+    embeddingModel: embedder.ready ? `${embedder.kind}/${embedder.model}` : '',
+    // Hands the agent the same folder-keyed Workspace the widgets use, so
+    // "what the agent can reach" and "what you can browse" are one thing.
+    workspaceFor,
+    // Read per turn, not captured here: `agents` above is a snapshot taken at
+    // launch, and the loadout screen writes to disk. Without this, editing an
+    // agent's model kept answering on the model it had when the app started.
+    loadoutFor: (id) => load().agents.find((a) => a.id === id)
   })
 
   const app = new Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>()

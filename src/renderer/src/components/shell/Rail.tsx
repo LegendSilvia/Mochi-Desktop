@@ -21,8 +21,47 @@ import { useStore } from '@renderer/state/context'
 import type { Screen } from '@renderer/state/screens'
 import { KEYS } from '@renderer/lib/platform'
 import { forgetMessages } from '@renderer/lib/history'
+import { forgetChat } from '@renderer/lib/chatRegistry'
 import { AccountPopover } from './AccountPopover'
 import type { Session } from '@shared/types'
+
+/**
+ * The sidebar width, kept locally rather than in settings.
+ *
+ * It is a property of this screen, not of the profile: the width that suits a
+ * laptop is wrong on a monitor, and settings.json is rewritten on every
+ * preference change — which a drag would do sixty times a second. Losing it
+ * costs one drag.
+ */
+const RAIL_KEY = 'mochi:rail-width'
+const RAIL_DEFAULT = 248
+/** Narrow enough to be mostly icons, wide enough to read a long title. Below
+ *  the minimum the rows stop being legible; above the maximum the chat is the
+ *  thing being squeezed. */
+const RAIL_MIN = 180
+const RAIL_MAX = 480
+
+function setRailWidth(px: number): void {
+  document.documentElement.style.setProperty('--rail-w', `${Math.round(px)}px`)
+}
+
+/**
+ * Applied at import, before React first renders.
+ *
+ * In an effect it would paint at the default width and then jump, which reads
+ * as the app resizing itself every time you open it.
+ */
+function applySavedRailWidth(): void {
+  try {
+    const saved = Number(localStorage.getItem(RAIL_KEY))
+    if (Number.isFinite(saved) && saved > 0) {
+      setRailWidth(Math.min(RAIL_MAX, Math.max(RAIL_MIN, saved)))
+    }
+  } catch {
+    // No storage, or it is full. The token default already applies.
+  }
+}
+applySavedRailWidth()
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -54,13 +93,19 @@ export function Rail(): React.JSX.Element {
   } = useStore()
   const [dragId, setDragId] = useState<string | null>(null)
   const [hovering, setHovering] = useState<'pinned' | 'recents' | null>(null)
+  const [dropOn, setDropOn] = useState<string | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
   const renameRef = useRef<HTMLInputElement>(null)
 
   const live = sessions.filter((s) => !s.archived)
-  const pinned = live.filter((s) => s.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
+  // Pinned respects a hand-chosen order once one exists. Anything never dragged
+  // sorts by recency behind those that were, so pinning something new puts it
+  // where you'd expect rather than silently at position zero.
+  const pinned = live
+    .filter((s) => s.pinned)
+    .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || b.updatedAt - a.updatedAt)
   const recents = live.filter((s) => !s.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
   const archived = sessions.filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt)
 
@@ -76,6 +121,52 @@ export function Rail(): React.JSX.Element {
     if (renamingId) renameRef.current?.select()
   }, [renamingId])
 
+  /**
+   * Drag the rail wider or narrower.
+   *
+   * Written straight to the CSS variable rather than through state: `--rail-w`
+   * is what the rail and the tour spotlight both read, so moving it moves
+   * everything at once, and a state update per pointer move would re-render the
+   * whole session list sixty times a second for a number no component needs.
+   *
+   * The width is saved on release, not during — see `applySavedRailWidth`.
+   */
+  const startResize = (e: React.PointerEvent): void => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const startX = e.clientX
+    // Read from the variable rather than the element: the rail's own box is
+    // what we are about to change, and starting from a rounded layout width
+    // would make every drag drift by a fraction of a pixel.
+    const startW =
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--rail-w')) ||
+      RAIL_DEFAULT
+    let latest = startW
+
+    document.body.classList.add('rail-resizing')
+
+    const onMove = (ev: PointerEvent): void => {
+      latest = Math.min(RAIL_MAX, Math.max(RAIL_MIN, startW + (ev.clientX - startX)))
+      setRailWidth(latest)
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.body.classList.remove('rail-resizing')
+      try {
+        localStorage.setItem(RAIL_KEY, String(Math.round(latest)))
+      } catch {
+        // A width that fails to save is a width you set again next time.
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    // Losing the pointer must not leave the whole app stuck in a resize cursor.
+    window.addEventListener('pointercancel', onUp)
+  }
+
   const patch = (id: string, next: Partial<Session>): void => {
     dispatch({
       type: 'sessions',
@@ -83,10 +174,41 @@ export function Rail(): React.JSX.Element {
     })
   }
 
+  /**
+   * Move `draggedId` to sit where `targetId` currently is, inside Pinned.
+   *
+   * Rewrites `order` across the whole group rather than nudging one value, so
+   * repeated drags can't converge on equal numbers and leave the sort to break
+   * ties by recency. Dragging an unpinned session onto a pinned row pins it into
+   * that slot, which is the obvious reading of the gesture.
+   */
+  const reorderPinned = (draggedId: string, targetId: string): void => {
+    if (draggedId === targetId) return
+    const ids = pinned.map((s) => s.id).filter((id) => id !== draggedId)
+    const at = ids.indexOf(targetId)
+    if (at === -1) return
+    ids.splice(at, 0, draggedId)
+    const rank = new Map(ids.map((id, i) => [id, i]))
+    dispatch({
+      type: 'sessions',
+      sessions: sessions.map((s) =>
+        rank.has(s.id) ? { ...s, pinned: true, archived: false, order: rank.get(s.id) } : s
+      )
+    })
+  }
+
+  const endDrag = (): void => {
+    setDragId(null)
+    setHovering(null)
+    setDropOn(null)
+  }
+
   const remove = (id: string): void => {
     // Drop the transcript too — otherwise a deleted session leaves its whole
     // conversation behind in storage forever.
     forgetMessages(id)
+    // The chat outlives the component now, so deleting a session has to say so.
+    forgetChat(id)
     const rest = sessions.filter((s) => s.id !== id)
     dispatch({ type: 'sessions', sessions: rest })
     // Deleting the open session would leave the chat pointing at nothing.
@@ -182,12 +304,37 @@ export function Rail(): React.JSX.Element {
       className="rail-session"
       data-active={s.id === activeSessionId}
       data-menu={menuFor === s.id}
+      data-dragging={dragId === s.id}
+      data-drop={dropOn === s.id}
       draggable={renamingId !== s.id}
-      onDragStart={() => setDragId(s.id)}
-      onDragEnd={() => {
-        setDragId(null)
-        setHovering(null)
+      onDragStart={(e) => {
+        // Chromium refuses to begin a drag unless the event carries data, so
+        // without this the row never lifted at all — the reported "session
+        // can't be drag". The id is the payload the drop handlers read back.
+        e.dataTransfer.setData('text/plain', s.id)
+        e.dataTransfer.effectAllowed = 'move'
+        setDragId(s.id)
       }}
+      onDragOver={(e) => {
+        // Only pinned rows are reorder targets; Recents is ordered by recency,
+        // so a hand-chosen position there would be undone by the next reply.
+        if (!dragId || dragId === s.id || !s.pinned) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'move'
+        setDropOn(s.id)
+      }}
+      onDragLeave={() => setDropOn((d) => (d === s.id ? null : d))}
+      onDrop={(e) => {
+        if (!dragId || !s.pinned) return
+        e.preventDefault()
+        // Stop the surrounding zone from also handling this and turning a
+        // reorder into a plain re-pin.
+        e.stopPropagation()
+        reorderPinned(dragId, s.id)
+        endDrag()
+      }}
+      onDragEnd={endDrag}
       onClick={() => renamingId !== s.id && openSession(s.id)}
       role="button"
       tabIndex={0}
@@ -240,14 +387,24 @@ export function Rail(): React.JSX.Element {
       data-over={hovering === which}
       onDragOver={(e) => {
         e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
         setHovering(which)
       }}
       onDragLeave={() => setHovering((h) => (h === which ? null : h))}
       onDrop={(e) => {
         e.preventDefault()
-        if (dragId) patch(dragId, { pinned: which === 'pinned', archived: false })
-        setDragId(null)
-        setHovering(null)
+        // Dropping on the zone itself (not on a row) still just pins or unpins.
+        // Unpinning clears `order` so the session rejoins Recents by recency
+        // rather than carrying a stale rank back if it is ever pinned again.
+        if (dragId) {
+          patch(
+            dragId,
+            which === 'pinned'
+              ? { pinned: true, archived: false }
+              : { pinned: false, archived: false, order: undefined }
+          )
+        }
+        endDrag()
       }}
     >
       {children}
@@ -331,6 +488,18 @@ export function Rail(): React.JSX.Element {
       </div>
 
       <AccountPopover sessionCount={live.length} />
+
+      {/* Sits inside the rail rather than between panes: the rail is a flex
+          item with a border, and a separate splitter element between it and the
+          content would need its own column and would shift everything by its
+          own width. */}
+      <div
+        className="rail-grip"
+        role="separator"
+        aria-label="Resize the sidebar"
+        aria-orientation="vertical"
+        onPointerDown={startResize}
+      />
     </aside>
   )
 }

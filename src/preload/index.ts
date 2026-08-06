@@ -3,8 +3,11 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AgentLoadout,
   AppSettings,
+  ApprovalRequest,
+  ApprovalSettled,
   AssetLibrary,
   MascotState,
+  PersistedState,
   ProviderAccount,
   ServerInfo,
   Session,
@@ -13,8 +16,21 @@ import type {
   Theme,
   RagDoc,
   RagHit,
-  EmbedderInfo
+  EmbedderInfo,
+  SpriteFile,
+  SpriteSlot,
+  DisplayInfo,
+  WsEntry,
+  WsFile,
+  WsFileRefusal,
+  WsHit,
+  WsDiagnostic,
+  WsSkill
 } from '../shared/types'
+
+/** Main answers with this instead of rejecting, so a bad folder name surfaces as
+ *  a message in the studio rather than an unhandled rejection. */
+export type MochiResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const IPC = {
   getBootstrap: 'mochi:bootstrap',
@@ -27,6 +43,15 @@ const IPC = {
   ragRemove: 'mochi:rag-remove',
   ragSearch: 'mochi:rag-search',
   ragEmbedder: 'mochi:rag-embedder',
+  openrouterModels: 'mochi:openrouter-models',
+  anthropicModels: 'mochi:anthropic-models',
+  memoryGet: 'mochi:memory-get',
+  memorySet: 'mochi:memory-set',
+  readText: 'mochi:read-text',
+  setMascotState: 'mochi:set-mascot-state',
+  focusSession: 'mochi:focus-session',
+  mascotFocusable: 'mochi:mascot-focusable',
+  sendToSession: 'mochi:send-to-session',
   saveState: 'mochi:save-state',
   setTitleBarTheme: 'mochi:titlebar-theme',
   openFolder: 'mochi:open-folder',
@@ -35,9 +60,39 @@ const IPC = {
   providersList: 'mochi:providers',
   providerSetKey: 'mochi:provider-set-key',
   providerDeleteKey: 'mochi:provider-delete-key',
+  presetCreate: 'mochi:preset-create',
+  presetRename: 'mochi:preset-rename',
+  presetDelete: 'mochi:preset-delete',
+  presetImport: 'mochi:preset-import',
+  presetOpen: 'mochi:preset-open',
+  spriteImport: 'mochi:sprite-import',
+  spriteAssign: 'mochi:sprite-assign',
+  spriteRemove: 'mochi:sprite-remove',
+  listDisplays: 'mochi:list-displays',
+  agentFinished: 'mochi:agent-finished',
+  agentExport: 'mochi:agent-export',
+  agentImport: 'mochi:agent-import',
+  wsList: 'mochi:ws-list',
+  wsRead: 'mochi:ws-read',
+  wsWrite: 'mochi:ws-write',
+  wsStat: 'mochi:ws-stat',
+  wsSearch: 'mochi:ws-search',
+  wsDiagnose: 'mochi:ws-diagnose',
+  wsSkills: 'mochi:ws-skills',
+  wsHover: 'mochi:ws-hover',
+  ptyStart: 'mochi:pty-start',
+  ptyWrite: 'mochi:pty-write',
+  ptyResize: 'mochi:pty-resize',
+  ptyKill: 'mochi:pty-kill',
+  ptyBacklog: 'mochi:pty-backlog',
+  ptyAvailable: 'mochi:pty-available',
   libraryChanged: 'mochi:library-changed',
   stickerFired: 'mochi:sticker-fired',
-  mascotState: 'mochi:mascot-state'
+  mascotState: 'mochi:mascot-state',
+  approval: 'mochi:approval',
+  stateChanged: 'mochi:state-changed',
+  ptyData: 'mochi:pty-data',
+  ptyExit: 'mochi:pty-exit'
 } as const
 
 export interface Bootstrap {
@@ -73,8 +128,48 @@ export interface MochiApi {
   library: (spritePreset?: string) => Promise<AssetLibrary>
   /** Mascot folders available under `mascots/` — the sprite sets to swap between. */
   listPresets: () => Promise<string[]>
-  /** Overlay window only: let clicks through, or capture them over the sprite. */
-  mascotInteractive: (interactive: boolean) => Promise<void>
+  /** Create / rename / delete / import a mascot folder. Each answers with a
+   *  result rather than rejecting, so the studio can show why something failed. */
+  presetCreate: (name: string) => Promise<MochiResult<string>>
+  presetRename: (from: string, to: string) => Promise<MochiResult<string>>
+  presetDelete: (name: string) => Promise<MochiResult<void>>
+  /** Native folder dialog, then copy the art in as a new mascot folder. */
+  presetImport: () => Promise<MochiResult<string>>
+  presetOpen: (preset: string) => Promise<string>
+  /** Copy dropped images in. Bytes, not paths — the renderer reads the File
+   *  itself, so main never takes an arbitrary path from it. */
+  spriteImport: (
+    preset: string,
+    files: Array<{ name: string; bytes: Uint8Array }>
+  ) => Promise<MochiResult<SpriteFile[]>>
+  spriteAssign: (
+    preset: string,
+    state: SpriteSlot,
+    file: string | null
+  ) => Promise<MochiResult<void>>
+  spriteRemove: (preset: string, file: string) => Promise<MochiResult<void>>
+  /** Monitors the overlay can be pinned to. */
+  listDisplays: () => Promise<DisplayInfo[]>
+  /** A turn finished. Main decides whether the user is actually looking, and
+   *  answers `true` when it surfaced the notification. */
+  agentFinished: (caption?: string) => Promise<boolean>
+  /** Write a loadout plus its mascot art out as one shareable file. */
+  agentExport: (
+    agent: AgentLoadout,
+    preset: string,
+    suggestedName: string
+  ) => Promise<MochiResult<string>>
+  /** Read one back. The art is unpacked into a new mascot folder; the returned
+   *  loadout still needs a unique id, which the renderer assigns. */
+  agentImport: () => Promise<MochiResult<{ agent: AgentLoadout; preset: string }>>
+  /** Overlay window only: the boxes that should catch the mouse, in window
+   *  coordinates, plus a lock held during a drag or while a menu is open. Main
+   *  polls the cursor against these — it cannot use forwarded mouse events,
+   *  which is what made the cursor flicker desktop-wide. */
+  mascotInteractive: (
+    rects: Array<{ x: number; y: number; w: number; h: number }>,
+    locked: boolean
+  ) => Promise<void>
   /** Native open dialog for the composer's attach and workspace buttons. */
   pickPaths: (kind: 'file' | 'folder') => Promise<string[]>
   /** Document library backing the searchDocs tool. */
@@ -83,7 +178,25 @@ export interface MochiApi {
   ragRemove: (id: string) => Promise<void>
   ragSearch: (q: string) => Promise<RagHit[]>
   ragEmbedder: () => Promise<EmbedderInfo>
-  saveState: (patch: StatePatch) => Promise<void>
+  openrouterModels: (opts: { modality?: 'text' | 'embeddings'; q?: string }) => Promise<
+    Array<{ id: string; label: string; hint: string }>
+  >
+  anthropicModels: () => Promise<Array<{ id: string; label: string; hint: string }>>
+  memoryGet: (agentId: string) => Promise<string>
+  memorySet: (agentId: string, text: string) => Promise<boolean>
+  /** File contents, so a diff can number its lines. Null when unreadable. */
+  readText: (path: string) => Promise<string | null>
+  /** Set the mascot state for every window at once. Sleep is decided in the
+   *  renderer but must not differ between the app and the overlay. */
+  setMascotState: (state: MascotState, note?: string) => Promise<void>
+  /** Bring the app forward on a given session. The overlay's escape hatch for a
+   *  command too long to read there. */
+  focusSession: (sessionId: string) => Promise<void>
+  /** Overlay only: take the keyboard while its menu is open, hand it back after. */
+  mascotFocusable: (focusable: boolean) => Promise<void>
+  /** Send a message typed on the desktop through the window that owns the chat. */
+  sendToSession: (sessionId: string, text: string) => Promise<void>
+  saveState: (patch: StatePatch) => Promise<PersistedState>
   setTitleBarTheme: (theme: Theme, bg: string, symbol: string) => Promise<void>
   openFolder: (which: 'sprites' | 'stickers' | 'sounds') => Promise<string>
   notify: (title: string, body: string, icon?: string) => Promise<void>
@@ -94,6 +207,60 @@ export interface MochiApi {
   onLibraryChanged: (cb: () => void) => () => void
   onStickerFired: (cb: (p: StickerFiredPayload) => void) => () => void
   onMascotState: (cb: (p: MascotStatePayload) => void) => () => void
+  /** A tool parked waiting on the user, or the id of one just answered. */
+  onApproval: (cb: (p: ApprovalRequest | ApprovalSettled) => void) => () => void
+  /** The app was asked to show a particular session. */
+  onFocusSession: (cb: (sessionId: string) => void) => () => void
+  /** A message written on the desktop, for this window to actually send. */
+  onSendToSession: (cb: (p: { sessionId: string; text: string }) => void) => () => void
+  /** Another window persisted state; merge it so the two never drift. */
+  onStateChanged: (cb: (s: PersistedState) => void) => () => void
+
+  /* -------------------------------------------------------- workspace */
+  /** The session folder, through the same Mastra Workspace the agent uses. Each
+   *  answers with a value or `{ error }` — a session with no folder set is an
+   *  ordinary state, not a fault. */
+  wsList: (folder: string, path?: string) => Promise<WsEntry[] | { error: string }>
+  wsRead: (folder: string, path: string) => Promise<WsFile | WsFileRefusal>
+  /** `expectedMtime` makes the write refuse when the agent edited the file
+   *  first; the result then carries `stale` so the editor can offer a reload. */
+  wsWrite: (
+    folder: string,
+    path: string,
+    content: string,
+    expectedMtime?: number | null
+  ) => Promise<{ ok: true; mtime: number | null } | { ok: false; error: string; stale?: boolean }>
+  wsStat: (folder: string, path: string) => Promise<{ error: string } | Record<string, unknown>>
+  wsSearch: (
+    folder: string,
+    query: string
+  ) => Promise<{ hits: WsHit[]; indexedNow: number } | { error: string }>
+  /** Diagnostics for the editor's current buffer, not the file on disk. */
+  wsDiagnose: (folder: string, path: string, content: string) => Promise<WsDiagnostic[]>
+  wsSkills: (folder: string) => Promise<WsSkill[]>
+  /** Type information for the symbol under the caret, or null when no language
+   *  server handles this file. */
+  wsHover: (
+    folder: string,
+    path: string,
+    line: number,
+    character: number
+  ) => Promise<string | null>
+
+  /* --------------------------------------------------------- terminal */
+  ptyAvailable: () => Promise<{ ok: boolean; error?: string }>
+  ptyStart: (
+    cwd: string,
+    cols?: number,
+    rows?: number
+  ) => Promise<{ ok: true; id: string; pid: number } | { ok: false; error: string }>
+  ptyWrite: (id: string, data: string) => Promise<void>
+  ptyResize: (id: string, cols: number, rows: number) => Promise<void>
+  ptyKill: (id: string) => Promise<void>
+  /** Everything printed so far, replayed when a collapsed terminal reopens. */
+  ptyBacklog: (id: string) => Promise<string>
+  onPtyData: (cb: (p: { id: string; data: string }) => void) => () => void
+  onPtyExit: (cb: (p: { id: string; exitCode: number }) => void) => () => void
 }
 
 /** Subscribe helper that hands back its own unsubscribe, so effects can clean up. */
@@ -109,13 +276,22 @@ const api: MochiApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.getBootstrap),
   library: (spritePreset) => ipcRenderer.invoke(IPC.getLibrary, spritePreset),
   listPresets: () => ipcRenderer.invoke(IPC.listPresets),
-  mascotInteractive: (interactive) => ipcRenderer.invoke(IPC.mascotInteractive, interactive),
+  mascotInteractive: (rects, locked) => ipcRenderer.invoke(IPC.mascotInteractive, rects, locked),
   pickPaths: (kind) => ipcRenderer.invoke(IPC.pickPaths, kind),
   ragAdd: (paths) => ipcRenderer.invoke(IPC.ragAdd, paths),
   ragList: () => ipcRenderer.invoke(IPC.ragList),
   ragRemove: (id) => ipcRenderer.invoke(IPC.ragRemove, id),
   ragSearch: (q) => ipcRenderer.invoke(IPC.ragSearch, q),
   ragEmbedder: () => ipcRenderer.invoke(IPC.ragEmbedder),
+  openrouterModels: (opts) => ipcRenderer.invoke(IPC.openrouterModels, opts),
+  anthropicModels: () => ipcRenderer.invoke(IPC.anthropicModels),
+  memoryGet: (agentId) => ipcRenderer.invoke(IPC.memoryGet, agentId),
+  memorySet: (agentId, text) => ipcRenderer.invoke(IPC.memorySet, agentId, text),
+  readText: (path) => ipcRenderer.invoke(IPC.readText, path),
+  setMascotState: (state, note) => ipcRenderer.invoke(IPC.setMascotState, state, note),
+  focusSession: (sessionId) => ipcRenderer.invoke(IPC.focusSession, sessionId),
+  mascotFocusable: (focusable) => ipcRenderer.invoke(IPC.mascotFocusable, focusable),
+  sendToSession: (sessionId, text) => ipcRenderer.invoke(IPC.sendToSession, sessionId, text),
   saveState: (patch) => ipcRenderer.invoke(IPC.saveState, patch),
   setTitleBarTheme: (theme, bg, symbol) =>
     ipcRenderer.invoke(IPC.setTitleBarTheme, theme, bg, symbol),
@@ -125,9 +301,45 @@ const api: MochiApi = {
   providers: () => ipcRenderer.invoke(IPC.providersList),
   setProviderKey: (id, key) => ipcRenderer.invoke(IPC.providerSetKey, id, key),
   deleteProviderKey: (id) => ipcRenderer.invoke(IPC.providerDeleteKey, id),
+  presetCreate: (name) => ipcRenderer.invoke(IPC.presetCreate, name),
+  presetRename: (from, to) => ipcRenderer.invoke(IPC.presetRename, from, to),
+  presetDelete: (name) => ipcRenderer.invoke(IPC.presetDelete, name),
+  presetImport: () => ipcRenderer.invoke(IPC.presetImport),
+  presetOpen: (preset) => ipcRenderer.invoke(IPC.presetOpen, preset),
+  spriteImport: (preset, files) => ipcRenderer.invoke(IPC.spriteImport, preset, files),
+  spriteAssign: (preset, state, file) => ipcRenderer.invoke(IPC.spriteAssign, preset, state, file),
+  spriteRemove: (preset, file) => ipcRenderer.invoke(IPC.spriteRemove, preset, file),
+  listDisplays: () => ipcRenderer.invoke(IPC.listDisplays),
+  agentFinished: (caption) => ipcRenderer.invoke(IPC.agentFinished, caption),
+  agentExport: (agent, preset, suggestedName) =>
+    ipcRenderer.invoke(IPC.agentExport, agent, preset, suggestedName),
+  agentImport: () => ipcRenderer.invoke(IPC.agentImport),
   onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
   onStickerFired: (cb) => on<StickerFiredPayload>(IPC.stickerFired, cb),
-  onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb)
+  onMascotState: (cb) => on<MascotStatePayload>(IPC.mascotState, cb),
+  onApproval: (cb) => on<ApprovalRequest | ApprovalSettled>(IPC.approval, cb),
+  onFocusSession: (cb) => on<string>(IPC.focusSession, cb),
+  onSendToSession: (cb) => on<{ sessionId: string; text: string }>(IPC.sendToSession, cb),
+  onStateChanged: (cb) => on<PersistedState>(IPC.stateChanged, cb),
+  wsList: (folder, path) => ipcRenderer.invoke(IPC.wsList, folder, path),
+  wsRead: (folder, path) => ipcRenderer.invoke(IPC.wsRead, folder, path),
+  wsWrite: (folder, path, content, expectedMtime) =>
+    ipcRenderer.invoke(IPC.wsWrite, folder, path, content, expectedMtime),
+  wsStat: (folder, path) => ipcRenderer.invoke(IPC.wsStat, folder, path),
+  wsSearch: (folder, query) => ipcRenderer.invoke(IPC.wsSearch, folder, query),
+  wsDiagnose: (folder, path, content) =>
+    ipcRenderer.invoke(IPC.wsDiagnose, folder, path, content),
+  wsSkills: (folder) => ipcRenderer.invoke(IPC.wsSkills, folder),
+  wsHover: (folder, path, line, character) =>
+    ipcRenderer.invoke(IPC.wsHover, folder, path, line, character),
+  ptyAvailable: () => ipcRenderer.invoke(IPC.ptyAvailable),
+  ptyStart: (cwd, cols, rows) => ipcRenderer.invoke(IPC.ptyStart, cwd, cols, rows),
+  ptyWrite: (id, data) => ipcRenderer.invoke(IPC.ptyWrite, id, data),
+  ptyResize: (id, cols, rows) => ipcRenderer.invoke(IPC.ptyResize, id, cols, rows),
+  ptyKill: (id) => ipcRenderer.invoke(IPC.ptyKill, id),
+  ptyBacklog: (id) => ipcRenderer.invoke(IPC.ptyBacklog, id),
+  onPtyData: (cb) => on<{ id: string; data: string }>(IPC.ptyData, cb),
+  onPtyExit: (cb) => on<{ id: string; exitCode: number }>(IPC.ptyExit, cb)
 }
 
 if (process.contextIsolated) {

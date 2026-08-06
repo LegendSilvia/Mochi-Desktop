@@ -17,6 +17,18 @@ import './styles/overlay.css'
  * Reuses the same store as the app window, so the mascot reads the same
  * settings and receives the same sticker and state events over IPC — the two
  * windows stay in step without a second source of truth.
+ *
+ * Sync here is one-directional by assumption, not by construction: nothing this
+ * window renders dispatches an action that touches the persisted slice
+ * (settings/agents/sessions/rules), so `sync` only ever flows main → overlay and
+ * the two windows never write at once. The store's guard is built for the
+ * general case, but the concurrent-write half of it has never actually run. The
+ * first feature that lets the overlay persist anything — remembering a dragged
+ * position is the obvious candidate; note it currently goes to localStorage, not
+ * the store — makes both windows writers, and needs that path reviewed before it
+ * ships: last write wins on a whole-slice save, so a save from here would carry
+ * whatever this window last received and quietly undo an unrelated change made
+ * in the app window in between.
  */
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>

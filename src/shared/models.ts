@@ -61,12 +61,139 @@ export const MODEL_CATALOG: ProviderGroup[] = [
       { id: 'ollama/llama3.2', label: 'Llama 3.2', hint: 'runs on your machine, no key needed' },
       { id: 'ollama/qwen2.5-coder', label: 'Qwen 2.5 Coder', hint: 'local coding model' }
     ]
+  },
+  {
+    /**
+     * One key, most providers.
+     *
+     * These ids carry the upstream provider inside the model — `openrouter` +
+     * `anthropic/claude-opus-5`, three segments rather than two. Every id below
+     * is checked against the router's own bundled provider list; OpenRouter's
+     * catalogue is far larger than this, so type any of theirs directly.
+     */
+    provider: 'openrouter',
+    label: 'OpenRouter',
+    billing: 'api key',
+    models: [
+      {
+        id: 'openrouter/anthropic/claude-opus-5',
+        label: 'Claude Opus 5',
+        hint: 'via OpenRouter, billed per token rather than to a subscription'
+      },
+      {
+        id: 'openrouter/anthropic/claude-sonnet-5',
+        label: 'Claude Sonnet 5',
+        hint: 'via OpenRouter, cheaper and quicker than Opus'
+      },
+      { id: 'openrouter/openai/gpt-5', label: 'GPT-5', hint: 'via OpenRouter' },
+      { id: 'openrouter/openai/gpt-5-mini', label: 'GPT-5 mini', hint: 'via OpenRouter, cheap' },
+      {
+        id: 'openrouter/google/gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        hint: 'via OpenRouter, fast and long context'
+      },
+      {
+        id: 'openrouter/deepseek/deepseek-v3.2',
+        label: 'DeepSeek V3.2',
+        hint: 'via OpenRouter, strong for the price'
+      },
+      { id: 'openrouter/qwen/qwen3-max', label: 'Qwen3 Max', hint: 'via OpenRouter' }
+    ]
+  }
+]
+
+/**
+ * Models that can actually embed.
+ *
+ * A separate list because embedding is not a thing every model does, and the
+ * chat catalogue offered next to it is a trap: picking a chat model for the
+ * embeddings role looks like it worked, saves without complaint, and then
+ * quietly never embeds anything.
+ *
+ * Anthropic is absent on purpose, and it is the reason this list exists. It
+ * publishes no embeddings endpoint at all — not for Haiku, not for any model —
+ * so the Claude subscription is the one job it cannot cover. Ollama is the way
+ * out: local, no key, nothing leaves the machine.
+ */
+export const EMBEDDING_CATALOG: ProviderGroup[] = [
+  {
+    provider: 'ollama',
+    label: 'Ollama',
+    billing: 'local',
+    models: [
+      {
+        id: 'ollama/nomic-embed-text',
+        label: 'nomic-embed-text',
+        hint: 'local, no key — run: ollama pull nomic-embed-text'
+      },
+      {
+        id: 'ollama/mxbai-embed-large',
+        label: 'mxbai-embed-large',
+        hint: 'local, larger and slower, better recall'
+      }
+    ]
+  },
+  {
+    provider: 'openai',
+    label: 'OpenAI',
+    billing: 'api key',
+    models: [
+      {
+        id: 'openai/text-embedding-3-small',
+        label: 'text-embedding-3-small',
+        hint: 'cheap and good enough for recall'
+      },
+      {
+        id: 'openai/text-embedding-3-large',
+        label: 'text-embedding-3-large',
+        hint: 'more accurate, costs more per token'
+      }
+    ]
+  },
+  {
+    provider: 'google',
+    label: 'Google',
+    billing: 'api key',
+    models: [
+      {
+        id: 'google/gemini-embedding-001',
+        label: 'gemini-embedding-001',
+        hint: 'Google’s embedding model'
+      }
+    ]
+  },
+  {
+    /** Ids from OpenRouter's own embeddings reference. Three segments, same as
+     *  their chat ids — the upstream provider lives in the model. */
+    provider: 'openrouter',
+    label: 'OpenRouter',
+    billing: 'api key',
+    models: [
+      {
+        id: 'openrouter/openai/text-embedding-3-small',
+        label: 'text-embedding-3-small',
+        hint: 'via OpenRouter — one key for chat and embeddings'
+      },
+      {
+        id: 'openrouter/openai/text-embedding-3-large',
+        label: 'text-embedding-3-large',
+        hint: 'via OpenRouter, more accurate and dearer'
+      },
+      // `qwen/qwen3-embedding-0.6b` was here, from OpenRouter's own reference.
+      // It answers 404 "No endpoints found" — their docs list it as an example
+      // without it being served. Only ids that have actually returned a vector
+      // belong in this list; a model that embeds nothing looks exactly like
+      // recall being broken.
+    ]
   }
 ]
 
 /** Flat lookup for showing a friendly label next to a stored id. */
-export function findModel(id: string): ModelOption | undefined {
-  for (const group of MODEL_CATALOG) {
+export function findModel(
+  id: string,
+  catalog: ProviderGroup[] = MODEL_CATALOG
+): ModelOption | undefined {
+  for (const group of catalog) {
     const hit = group.models.find((m) => m.id === id)
     if (hit) return hit
   }

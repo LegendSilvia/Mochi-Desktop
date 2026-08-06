@@ -284,7 +284,7 @@
 }
 
 .composer-wrap {
-  padding: 12px 18px 18px;
+  padding: 12px 38px 20px;
   position: relative;
   flex-shrink: 0;
 }
@@ -300,22 +300,45 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  /* The floating widget layer positions against this. */
+  position: relative;
 }
 .session-main {
   flex: 1;
   min-width: 0;
+  /* Load-bearing. Without it this column keeps `min-height: auto`, so it refuses
+     to shrink below its content and grows past the viewport instead of letting
+     `.msg-list` scroll — and since `.content` is `overflow: hidden`, what gets
+     clipped is the composer at the bottom. Invisible at the 888px design height,
+     fatal on any shorter screen: an 816px work area (a 1536×864 display with a
+     taskbar) loses the input entirely. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The widget layer positions against this. */
+  position: relative;
 }
 
+/* The agent's identity, floating over the transcript rather than sitting in a
+   bar above it. The chat now runs the full height of the column and scrolls
+   underneath, which is what the fade at the top of `.msg-list` is for. */
 .session-head {
-  height: 58px;
-  flex-shrink: 0;
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  /* Stops short of the widget rail in the opposite corner. */
+  right: 74px;
+  z-index: 30;
+  height: 46px;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--line);
+  gap: 9px;
+  padding: 0 8px 0 12px;
+  background: color-mix(in srgb, var(--surf) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
 }
 .session-avatar {
   width: 30px;
@@ -366,15 +389,113 @@
   margin-left: 0;
 }
 
-.repo-strip {
+/* A workspace path is long and its meaningful end is the right-hand side, so
+   clip the front rather than the tail. `direction: rtl` moves the ellipsis to
+   the start; the isolate keeps the path's own characters in logical order. */
+.repo-path {
+  min-width: 0;
+  max-width: 46ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+
+/* --- a turn that failed --------------------------------------------------- */
+
+/* One agent handing the turn to another, and where a chain was stopped.
+   Centred and quiet: it is punctuation between two replies, not a reply — the
+   thing to read is what the agents said either side of it. */
+.msg-note {
+  align-self: center;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 18px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--line);
+  gap: 7px;
+  max-width: 560px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surf2);
+  color: var(--tx3);
   font-size: 11.5px;
+  text-align: center;
+}
+.msg-note > svg {
+  flex-shrink: 0;
+}
+
+.msg-failure {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--rose) 28%, transparent);
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+  border-radius: var(--r-card);
+  font-size: 12.5px;
+}
+.msg-failure > svg {
+  color: var(--rose);
+  flex-shrink: 0;
+}
+.msg-failure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.msg-failure-body strong {
+  font-weight: 600;
+  color: var(--tx);
+}
+.msg-failure-body .meta {
+  overflow-wrap: anywhere;
+}
+
+/* --- queued messages ------------------------------------------------------ */
+
+.queue-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.queue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 4px 5px 4px 11px;
+  border: 1px dashed var(--line2);
+  border-radius: var(--r-pill);
   color: var(--tx2);
+  font-size: 11.5px;
+}
+.queue-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.queue-drop {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.queue-drop:hover {
+  background: var(--surf2);
+  color: var(--tx);
 }
 
 .msg-list {
@@ -384,7 +505,14 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 24px 22px 8px;
+  /* Clears the floating header. The transcript starts below it rather than
+     behind it, so nothing is permanently obscured — only what you scroll up
+     passes underneath. */
+  padding: 68px 76px 8px 42px;
+  /* …and what passes underneath fades out rather than sliding behind an opaque
+     edge. Masked rather than covered by a gradient overlay because the chat
+     background is not a flat colour the overlay could match. */
+  mask-image: linear-gradient(to bottom, transparent 6px, #000 58px, #000 100%);
 }
 
 .thread-divider {
@@ -404,7 +532,19 @@
 .msg-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* 12px read as cramped once tool and permission cards started appearing
+     between replies: two bordered blocks 12px apart look like one control with a
+     seam, rather than two separate things that happened. */
+  gap: 16px;
+}
+
+/* A card carries its own border, so it needs more air than plain text does —
+   especially where an approval sits directly above the reply about it. */
+.msg-group > .tool-card + .msg-agent,
+.msg-group > .perm-card + .msg-agent,
+.msg-group > .task-card + .msg-agent,
+.msg-group > .sticker-card + .msg-agent {
+  margin-top: 6px;
 }
 
 .msg-user {
@@ -432,6 +572,16 @@
   display: grid;
   place-items: center;
 }
+/* Mascot art standing in for the initial. `contain`, not `cover`: a sprite is
+   drawn to its own silhouette and cropping one to a square would cut its head
+   off. */
+.avatar-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
 .msg-body {
   font-size: 13.5px;
   line-height: 1.65;
@@ -439,10 +589,30 @@
   white-space: pre-wrap;
 }
 
+/* Who is speaking, printed above their first line and only when it changes.
+   `block` because `.msg-body` is `pre-wrap`: inline, the newline separating it
+   from the reply would be rendered as a blank line. */
+.msg-who {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--tx2);
+}
+
+/*
+ * Borderless.
+ *
+ * A turn's work is a quiet aside next to what the agent actually says, and a
+ * boxed card per call gave each one the same visual weight as a reply. Only the
+ * hairline rule above it separates the two now — the content does the rest.
+ */
 .tool-card {
-  background: var(--surf);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
   overflow: hidden;
   max-width: 660px;
 }
@@ -478,6 +648,160 @@
 .tool-dur {
   font-size: 11px;
   color: var(--tx3);
+}
+
+/* --- a tool call you can open -------------------------------------------- */
+
+/* The whole row is the hit target, so the marker goes and the chevron in the
+   row does the disclosing. */
+.tool-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.tool-summary::-webkit-details-marker {
+  display: none;
+}
+.tool-summary:hover {
+  background: var(--surf2);
+}
+.tool-summary .tool-row {
+  flex: 1;
+  min-width: 0;
+}
+.tool-chevron {
+  flex-shrink: 0;
+  margin-left: 12px;
+  color: var(--tx3);
+  transition: transform 140ms ease;
+}
+.tool-card-open[open] .tool-chevron {
+  transform: rotate(90deg);
+}
+
+/* Counts sit next to the path, so the size of a change reads without opening. */
+.tool-stat {
+  display: flex;
+  gap: 7px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.tool-plus {
+  color: var(--ac);
+}
+.tool-minus {
+  color: var(--rose);
+}
+
+.tool-diff {
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  line-height: 1.65;
+  padding: 8px 0;
+  /* A long line scrolls inside the card rather than stretching the transcript. */
+  overflow-x: auto;
+}
+.diff-line {
+  display: flex;
+  gap: 10px;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff-sign {
+  flex-shrink: 0;
+  width: 8px;
+  color: var(--tx3);
+}
+/* Right-aligned and fixed width so the signs and code stay in one column
+   however many digits the line numbers run to. Empty when the hunk could not be
+   located, which keeps the gutter rather than reflowing the whole diff. */
+.diff-num {
+  flex-shrink: 0;
+  width: 3.2em;
+  text-align: right;
+  color: var(--tx3);
+  opacity: 0.7;
+  user-select: none;
+}
+.diff-add {
+  background: color-mix(in srgb, var(--ac) 12%, transparent);
+}
+.diff-add .diff-sign {
+  color: var(--ac);
+}
+.diff-del {
+  background: color-mix(in srgb, var(--rose) 12%, transparent);
+}
+.diff-del .diff-sign {
+  color: var(--rose);
+}
+.diff-text {
+  flex: 1;
+}
+.diff-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px 4px calc(3.2em + 22px);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--tx3);
+  cursor: pointer;
+}
+.diff-more:hover {
+  color: var(--tx2);
+  text-decoration: underline;
+}
+
+/* Indented rather than boxed: the nesting is shown by the offset, so the rows
+   inside stay as quiet as the group heading above them. */
+.tool-group-body {
+  border-top: 1px solid var(--line);
+  padding: 2px 0 4px 14px;
+  display: flex;
+  flex-direction: column;
+}
+.tool-group-body .tool-card {
+  border: none;
+  background: transparent;
+}
+.tool-group-body .tool-card:hover,
+.tool-group-body .tool-summary:hover {
+  background: var(--surf2);
+}
+.tool-group-body .tool-diff {
+  border-radius: 8px;
+  margin: 2px 0 6px;
+}
+
+/* A settled approval reads as a receipt, not as a question — same folded shape
+   as a finished tool call so a turn's history is one consistent stack. */
+/* An answered approval is history like any finished call, so it wears the same
+   borderless row rather than staying a boxed card. */
+/* Two classes, because `.perm-card` in chat.css is bundled later and a single
+   class here loses the cascade to it — the settled card kept its panel. */
+.perm-card.perm-card-settled {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  max-width: 660px;
+}
+.perm-card-settled .perm-icon {
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+.perm-settled-body {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .tool-error {
   padding: 8px 12px;
@@ -546,6 +870,13 @@
   font-size: 11.5px;
   color: var(--tx3);
 }
+.mention-head .mono {
+  color: var(--ac);
+}
+.mention-empty {
+  padding: 6px 9px 10px;
+  font-size: 11.5px;
+}
 .mention-row {
   display: flex;
   align-items: center;
@@ -573,6 +904,16 @@
   font-weight: 700;
   color: var(--tx2);
 }
+/* Same footprint as the initial it replaces, so a roster of agents with and
+   without art still lines up. */
+.mention-avatar-img {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--surf2);
+  object-fit: cover;
+}
 .mention-text {
   flex: 1;
   display: flex;
@@ -592,27 +933,10 @@
 
 /* ================= session panel ================= */
 
-.session-panel {
-  width: 330px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 18px 16px;
-  background: var(--bg2);
-  border-left: 1px solid var(--line);
-}
-
-.panel-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 13px;
-  background: var(--surf);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-}
+/* The right-hand panel is gone: its sections became widgets (see
+   components/widgets), so the chat runs to the far edge and the same sections
+   now float over it, collapse to bubbles and resize. The `.panel-*` rules below
+   survive because the widget panes reuse the row styling. */
 
 .panel-head {
   display: flex;
@@ -1250,6 +1574,101 @@
 }
 .preset-select {
   min-width: 110px;
+  flex: 1;
+}
+/* `.rail-rename` is sized for the 248px rail, where it fills the row. Dropped
+   into this toolbar it collapsed to a sliver you could not read what you were
+   typing in, so it gets the same footprint as the select it replaces.
+   Two classes deep on purpose: shell.css is bundled *after* screens.css, so a
+   single-class rule here loses the tie to `.rail-rename { min-width: 0 }`. */
+.preset-row .preset-rename {
+  flex: 1 1 auto;
+  min-width: 140px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+/* The manage buttons are icon-only, so they need to be square rather than the
+   pill shape `.folder-chip` takes when it carries a label. */
+.preset-row .folder-chip {
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.preset-row .folder-chip:hover {
+  border-color: var(--line2);
+}
+
+/* The drop zone is a real target now, so it needs a hover-while-dragging state —
+   without one there is no way to tell it will accept the file. */
+.drop-target[data-hot='true'] {
+  border-color: var(--ac);
+  background: var(--acs);
+  color: var(--ac);
+}
+
+/* Everything sitting in the mascot folder, assigned or not. */
+.sprite-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sprite-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surf);
+}
+.sprite-file img {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  background: var(--surf2);
+}
+.sprite-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--tx2);
+}
+.sprite-file .cell-select {
+  flex-shrink: 0;
+  max-width: 96px;
+}
+.sprite-file-drop {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.sprite-file-drop:hover {
+  background: color-mix(in srgb, var(--rose) 16%, transparent);
+  color: var(--rose);
+}
+
+/* A field whose control sits beside a button rather than filling the row. */
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.field-grow {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Composer sticker picker. Sits above the composer so it reads as coming out of
@@ -1528,4 +1947,104 @@
   line-height: 1.6;
   color: var(--tx2);
   white-space: pre-wrap;
+}
+
+/* --- unsaved-changes bar (agent loadout) ---------------------------------- */
+
+/* Sticks to the bottom of the scrolling body. The editor grows with the
+   Instructions field, so a save control parked at the end of the card would be
+   furthest away precisely when the edit is largest. */
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
+  border-radius: var(--r-card);
+  background: color-mix(in srgb, var(--ac) 10%, var(--surf));
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow);
+}
+.save-bar-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--tx2);
+}
+.save-bar-text strong {
+  color: var(--tx);
+  font-weight: 600;
+}
+
+/* Import/export result line. Uses the warn banner's shape but is usually good
+   news, so it carries a dismiss rather than sitting there permanently. */
+.bundle-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* A chip that is also a button — the folder path in the session header, which
+   opens the picker. */
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  max-width: 260px;
+  font-family: inherit;
+}
+.chip-btn:hover {
+  background: var(--surf2);
+  color: var(--tx);
+}
+.chip-btn .repo-path {
+  max-width: 200px;
+}
+
+/* Session facts, behind one icon. Model, billing and memory never change while
+   you are in a session, so they do not earn permanent header width. */
+.head-info-wrap {
+  position: relative;
+}
+.head-info {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 60;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 13px;
+  background: var(--surf);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+.head-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 11.5px;
+}
+.head-info-note {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* The keyboard's position in the mention picker. Distinct from :hover so the
+   two never disagree — moving the mouse sets the same index rather than
+   painting a second highlight somewhere else in the list. */
+.mention-row[data-active='true'] {
+  background: var(--acs);
 }

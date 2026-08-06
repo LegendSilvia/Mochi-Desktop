@@ -4,6 +4,8 @@ import type {
   AppSettings,
   AssetLibrary,
   MascotState,
+  SpriteSlot,
+  PersistedState,
   ServerInfo,
   Session,
   StickerMode,
@@ -56,6 +58,8 @@ export interface State {
    * and then dropped on the floor.
    */
   pendingSend: string | null
+  /** The running tour, or null. Steps are indexes into its definition. */
+  tour: { id: string; step: number } | null
 }
 
 export type Action =
@@ -85,11 +89,18 @@ export type Action =
   | { type: 'new-type'; value: Session['type'] }
   | { type: 'burst'; burst: StickerBurst | null }
   | { type: 'pending-send'; text: string | null }
+  | { type: 'sync'; payload: PersistedState }
+  | { type: 'tour-start'; id: string }
+  | { type: 'tour-step'; step: number }
+  | { type: 'tour-end' }
 
 export interface FireStickerOptions {
   stickerId?: string | null
   caption?: string
   modes?: StickerMode[]
+  /** Which set of generated lines to speak from. `finish` reports on work,
+   *  `poke` reacts to being prodded. Defaults to `finish`. */
+  voice?: 'finish' | 'poke'
 }
 
 export interface Store extends State {
@@ -99,7 +110,7 @@ export interface Store extends State {
   agentById: (id: string) => AgentLoadout | undefined
   stickerSrc: (id: string | null) => string | null
   soundSrc: (id: string | null) => string | null
-  spriteSrc: (state: MascotState) => string | null
+  spriteSrc: (state: SpriteSlot) => string | null
   /** Fire a sticker + sound as one event. The single entry point — M1-10. */
   fireSticker: (opts?: FireStickerOptions) => void
   reloadLibrary: () => void

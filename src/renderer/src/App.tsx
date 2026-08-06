@@ -10,6 +10,7 @@ import { Agents } from './screens/Agents'
 import { MascotStudio } from './screens/MascotStudio'
 import { Stickers } from './screens/Stickers'
 import { SettingsModal } from './screens/settings/SettingsModal'
+import { TourLayer } from './components/tour/TourLayer'
 import { hasMod } from './lib/platform'
 import './components/shell/shell.css'
 import './screens/screens.css'
@@ -87,6 +88,7 @@ function Shell(): React.JSX.Element {
       {/* The mascot now lives in its own always-on-top window so it can float
           over the desktop rather than only over Mochi — see main/mascot-window. */}
       <CommandPalette />
+      <TourLayer />
       <Shortcuts />
     </div>
   )

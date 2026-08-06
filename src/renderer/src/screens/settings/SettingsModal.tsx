@@ -10,6 +10,8 @@ import { NotesPane } from './NotesPane'
 import { ToolsPane } from './ToolsPane'
 import { RagPane } from './RagPane'
 import { WipPane } from './WipPane'
+import { LogPane } from './LogPane'
+import { OverlayPane } from './OverlayPane'
 import './settings.css'
 
 const NAV: Array<{ group: string; items: Array<{ key: Screen; label: string }> }> = [
@@ -17,7 +19,8 @@ const NAV: Array<{ group: string; items: Array<{ key: Screen; label: string }> }
     group: 'You',
     items: [
       { key: 'models', label: 'Models & providers' },
-      { key: 'defaults', label: 'Defaults' }
+      { key: 'defaults', label: 'Defaults' },
+      { key: 'overlay', label: 'Desktop overlay' }
     ]
   },
   {
@@ -57,7 +60,7 @@ const NAV: Array<{ group: string; items: Array<{ key: Screen; label: string }> }
 const isWip = (s: Screen): boolean => WIP_SCREENS.includes(s)
 
 export function SettingsModal(): React.JSX.Element {
-  const { screen, dispatch } = useStore()
+  const { screen, dispatch, settings } = useStore()
 
   const close = (): void => dispatch({ type: 'screen', screen: 'chat' })
 
@@ -71,12 +74,18 @@ export function SettingsModal(): React.JSX.Element {
   }, [])
 
   const pane = ((): React.JSX.Element => {
+    // Traces & evals is still a WIP placeholder, but with developer mode on the
+    // debug log is real and lives here — it is the same question ("what did the
+    // run actually do") answered at the depth we can answer it today.
+    if (screen === 'ops' && settings.devMode) return <LogPane />
     if (isWip(screen)) return <WipPane screen={screen} />
     switch (screen) {
       case 'models':
         return <ModelsPane />
       case 'defaults':
         return <DefaultsPane />
+      case 'overlay':
+        return <OverlayPane />
       case 'memory':
         return <MemoryPane />
       case 'notes':

@@ -1,71 +1,44 @@
 import type { AgentLoadout, AppSettings, Session, StickerRule } from './types'
 
 /**
- * Seed data matching the design handoff. Sprout is the default agent; the Start
- * screen relies on a default being present so its button is never dead on arrival.
+ * First-run state.
+ *
+ * Deliberately empty: a fresh install has no agents, no sessions and no sticker
+ * rules, so nothing on screen is invented history. The Agents screen builds the
+ * first loadout from scratch (see `create()` there) and promotes it to default,
+ * and the Start screen shows an empty state until one exists.
  *
  * Model strings are Mastra model-router format (`provider/model`). Verify names
  * against the live registry before changing them — see M12-04.
  */
-export const DEFAULT_AGENTS: AgentLoadout[] = [
-  {
-    id: 'sprout',
-    name: 'Sprout',
-    description: 'build buddy — reads the repo, writes the patch',
-    instructions:
-      'You are Sprout, a warm and plain-spoken build buddy for a solo developer.\n' +
-      'Read before you write. Explain what you changed in one or two sentences.\n' +
-      'When tests pass, say so plainly. When you are unsure, say that instead of guessing.',
-    expectedOutput: 'A short answer, then the diff or the command that does the work.',
-    model: 'anthropic/claude-sonnet-4-6',
-    toolIds: ['sendSticker', 'setMascotState'],
-    isDefault: true,
-    chattiness: 7,
-    stickerFrequency: 6,
-    workingMemory: true,
-    semanticRecall: true,
-    voiceReplies: false,
-    canPushWithoutAsking: false,
-    spritePreset: 'sprout'
-  },
-  {
-    id: 'kettle',
-    name: 'Kettle',
-    description: 'digs through docs and sources, answers with citations',
-    instructions:
-      'You are Kettle. You search the indexed sources before answering and you cite what you used.\n' +
-      'If the sources do not cover the question, say so rather than filling the gap from memory.',
-    expectedOutput: 'An answer with the sources it came from.',
-    model: 'openai/gpt-5-mini',
-    toolIds: ['sendSticker'],
-    isDefault: false,
-    chattiness: 4,
-    stickerFrequency: 3,
-    workingMemory: true,
-    semanticRecall: true,
-    voiceReplies: false,
-    canPushWithoutAsking: false,
-    spritePreset: 'kettle'
-  },
-  {
-    id: 'moss',
-    name: 'Moss',
-    description: 'quiet — short answers, no chatter',
-    instructions:
-      'You are Moss. Answer in as few words as the question allows. No preamble, no summary.',
-    expectedOutput: 'The shortest correct answer.',
-    model: 'anthropic/claude-haiku-4-5',
-    toolIds: [],
-    isDefault: false,
-    chattiness: 1,
-    stickerFrequency: 1,
-    workingMemory: false,
-    semanticRecall: false,
-    voiceReplies: false,
-    canPushWithoutAsking: false,
-    spritePreset: 'moss'
-  }
-]
+export const DEFAULT_AGENTS: AgentLoadout[] = []
+
+/**
+ * Matches semantic recall pulls in per turn.
+ *
+ * Also the fallback for loadouts saved before the setting existed, which is why
+ * it lives here rather than as a literal at each use site.
+ */
+export const DEFAULT_RECALL_TOP_K = 5
+
+/** The loadout the Agents screen builds when there is nothing to clone from. */
+export const BLANK_AGENT: Omit<AgentLoadout, 'id' | 'name'> = {
+  description: 'a fresh loadout — tell it who it is',
+  instructions: '',
+  expectedOutput: '',
+  model: 'anthropic/claude-sonnet-4-6',
+  toolIds: ['sendSticker', 'setMascotState'],
+  isDefault: false,
+  chattiness: 5,
+  stickerFrequency: 4,
+  workingMemory: true,
+  semanticRecall: false,
+  recallTopK: DEFAULT_RECALL_TOP_K,
+  recallScope: 'thread',
+  voiceReplies: false,
+  canPushWithoutAsking: false,
+  spritePreset: 'sprout'
+}
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
@@ -78,7 +51,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     idleMotion: 'breathe',
     size: 112,
     opacity: 1,
-    visible: true,
+    // Off on a fresh install: with no artwork yet the mascot renders an `art?`
+    // placeholder, and a placeholder floating over the desktop is not a welcome.
+    visible: false,
     stickerModes: ['chat', 'bubble', 'overlay'],
     stickerRate: 'often',
     bounceOnDrop: true,
@@ -88,7 +63,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     talksUnprompted: 4,
     bubbleStyle: 'soft'
   },
-  defaultAgentId: 'sprout',
+  // Empty until the first loadout is created — the Agents screen promotes it.
+  defaultAgentId: '',
   defaultSessionType: 'normal',
   spendCap: 50,
   warnAt80Percent: true,
@@ -104,132 +80,28 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // quota is worse than being a little slower.
   delegationMode: 'capped',
   delegationLimit: 2,
+  // Enough for a genuine round trip and a follow-up. Longer than that is a
+  // loop rather than a conversation — see `tagChainLimit`.
+  tagChainLimit: 4,
   fallbackToOllamaOffline: false,
   storageProvider: 'libsql',
   agentMayPickStickers: true,
   mcpServers: [],
   // Off by default: skills are read off the filesystem, and turning that on
   // without asking would quietly widen what the agent can reach.
-  skills: { enabled: false, allow: 'all' }
+  skills: { enabled: false, allow: 'all' },
+  userName: '',
+  toursSeen: []
 }
 
-/** The rules table from the handoff, armed on first launch. */
-export const DEFAULT_RULES: StickerRule[] = [
-  {
-    id: 'r-tests-green',
-    when: 'tests go green',
-    event: 'tests-green',
-    stickerId: 'nice-work',
-    soundId: 'ta-daa',
-    showAs: 'overlay',
-    howOften: 'always',
-    enabled: true
-  },
-  {
-    id: 'r-task-done',
-    when: 'long task finishes',
-    event: 'task-finished',
-    stickerId: 'party',
-    soundId: 'chime-soft',
-    showAs: 'bubble',
-    howOften: 'always',
-    enabled: true
-  },
-  {
-    id: 'r-thanks',
-    when: 'i say thank you',
-    event: 'thanked',
-    stickerId: 'blush',
-    soundId: null,
-    showAs: 'chat',
-    howOften: 'always',
-    enabled: true
-  },
-  {
-    id: 'r-tool-error',
-    when: 'a tool errors',
-    event: 'tool-error',
-    stickerId: 'oh-no',
-    soundId: 'uh-oh',
-    showAs: 'bubble',
-    howOften: 'once-per-hour',
-    enabled: true
-  },
-  {
-    id: 'r-idle',
-    when: 'no input for 20 min',
-    event: 'idle-20min',
-    stickerId: 'nap',
-    soundId: null,
-    showAs: 'bubble',
-    howOften: 'once',
-    enabled: false
-  }
-]
+/**
+ * No rules on a fresh install. The table is built in Stickers & sound; nothing
+ * fires until the user arms something.
+ */
+export const DEFAULT_RULES: StickerRule[] = []
 
-const HOUR = 60 * 60 * 1000
-const now = Date.now()
-
-export const DEFAULT_SESSIONS: Session[] = [
-  {
-    id: 's-recall',
-    title: 'fix recall timeout',
-    kind: 'code',
-    type: 'normal',
-    agentId: 'sprout',
-    subagentIds: ['kettle'],
-    pinned: true,
-    busy: false,
-    updatedAt: now - HOUR,
-    branch: 'fix/recall-timeout',
-    workspacePath: 'hub'
-  },
-  {
-    id: 's-notes',
-    title: 'weekend notes',
-    kind: 'chat',
-    type: 'normal',
-    agentId: 'moss',
-    subagentIds: [],
-    pinned: true,
-    busy: false,
-    updatedAt: now - 3 * HOUR
-  },
-  {
-    id: 's-migrate',
-    title: 'migrate storage to libsql',
-    kind: 'code',
-    type: 'normal',
-    agentId: 'sprout',
-    subagentIds: [],
-    pinned: false,
-    busy: true,
-    updatedAt: now - 5 * HOUR,
-    branch: 'chore/libsql'
-  },
-  {
-    id: 's-rag',
-    title: 'what did the rag docs say',
-    kind: 'chat',
-    type: 'normal',
-    agentId: 'kettle',
-    subagentIds: [],
-    pinned: false,
-    busy: false,
-    updatedAt: now - 26 * HOUR
-  },
-  {
-    id: 's-sticker',
-    title: 'sticker rules brainstorm',
-    kind: 'chat',
-    type: 'scratch',
-    agentId: 'sprout',
-    subagentIds: [],
-    pinned: false,
-    busy: false,
-    updatedAt: now - 5 * 24 * HOUR
-  }
-]
+/** No invented history — the rail starts empty until a real session is started. */
+export const DEFAULT_SESSIONS: Session[] = []
 
 /** Alternative accents offered as a tweak in the handoff. */
 export const ACCENT_OPTIONS = ['#9dc98a', '#a9b8e2', '#e0b487', '#9ec9c4', '#c9a8d4']

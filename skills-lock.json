@@ -29,7 +29,7 @@
       "source": "mastra-ai/skills",
       "sourceType": "github",
       "skillPath": "skills/mastra/SKILL.md",
-      "computedHash": "6482dad39fb72d1fe9d02078c15c3ee708774fd026a8557b4c7dc37fb554977a"
+      "computedHash": "fb441925625ae056b2d7d76c736c357c57e62901ee75d3da4dcf2feb19c635c9"
     },
     "receiving-code-review": {
       "source": "obra/superpowers",
