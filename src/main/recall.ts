@@ -232,41 +232,46 @@ export async function recallContext(
     }
   }
 
-  // `perPage: 0` because semantic hits are the entire point here — without it
-  // recall also returns a page of recent messages, which the Agent SDK already
-  // has and would only duplicate.
-  const own = await attempt('own', () =>
+  /*
+   * The agent's own recall, giving up its context window rather than the query.
+   *
+   * `messageRange` widens each hit to the messages either side of it, and once
+   * two agents have ever shared a thread, a neighbour can belong to the other
+   * one. This query has to name a resource — resource scope requires it — and
+   * `recall` turns that into an expectation its MessageList enforces, so one
+   * such neighbour threw "Received input message with wrong resourceId" and
+   * cost every hit, not just that one.
+   *
+   * The window is worth a second round-trip to keep: a bare match without the
+   * question it answered is a fragment the model has to guess the context of.
+   * So it is asked for, and only dropped when it is what broke.
+   *
+   * This was first gated on "is *this* session shared", which was the wrong
+   * question — resource scope reaches across sessions, so the mixed thread is
+   * usually some *other* conversation the hit came from.
+   *
+   * `perPage: 0` because semantic hits are the entire point here — without it
+   * recall also returns a page of recent messages, which the Agent SDK already
+   * has and would only duplicate.
+   */
+  const scope = loadout.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
+  const ownQuery = (
+    messageRange: number
+  ): Promise<{ messages?: MastraDBMessage[] }> =>
     memory.recall({
       threadId: opts.threadId,
       resourceId: opts.resourceId,
       vectorSearchString: opts.prompt,
       perPage: 0,
-      /*
-       * No surrounding messages in a shared conversation.
-       *
-       * `messageRange` widens each hit to its neighbours, and in a thread with
-       * more than one agent in it a neighbour is very often somebody else's
-       * reply. This query names a resource — resource scope requires one — and
-       * `recall` turns that into an expectation its MessageList enforces, so a
-       * hit that happened to sit next to another agent's line threw
-       * "Received input message with wrong resourceId" and cost the whole
-       * query. The context is not lost: the shared query below covers this
-       * thread with its full window and no expectation to violate.
-       */
-      ...(opts.shared
-        ? {
-            threadConfig: {
-              semanticRecall: {
-                topK,
-                messageRange: 0,
-                scope:
-                  loadout.recallScope === 'resource' ? ('resource' as const) : ('thread' as const)
-              }
-            }
-          }
-        : {})
+      threadConfig: { semanticRecall: { topK, messageRange, scope } }
     })
-  )
+
+  let own: MastraDBMessage[]
+  try {
+    own = (await ownQuery(2)).messages ?? []
+  } catch {
+    own = await attempt('own', () => ownQuery(0))
+  }
 
   /*
    * The shared half of a conversation with more than one agent in it.
