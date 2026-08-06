@@ -5,7 +5,9 @@ import { ModelRouterEmbeddingModel } from '@mastra/core/llm'
 import { Memory } from '@mastra/memory'
 import { TaskSignalProvider } from '@mastra/core/signals'
 import { LibSQLStore, LibSQLVector } from '@mastra/libsql'
-import { chatRoute } from '@mastra/ai-sdk'
+import { handleChatStream, type ChatStreamHandlerParams } from '@mastra/ai-sdk'
+import { registerApiRoute } from '@mastra/core/server'
+import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
 import { docTools, mochiTools, type MochiToolId } from './tools/mochi-tools'
 import { DEFAULT_AGENTS, DEFAULT_RECALL_TOP_K } from '../shared/defaults'
 import type { AgentLoadout } from '../shared/types'
@@ -248,6 +250,76 @@ export interface CreateMastraOptions {
   loadoutFor?: (id: string) => AgentLoadout | undefined
 }
 
+/**
+ * `/chat/:agentId`, but the reply says who wrote it.
+ *
+ * `chatRoute` takes no `messageMetadata`, so every reply from this backend
+ * arrived unattributed and the transcript had to guess the speaker from the tag
+ * on the question. That guess is right until it matters: the moment an agent on
+ * an API key is tagged into someone else's conversation, "whoever was tagged
+ * last" is not who answered.
+ *
+ * `handleChatStream` — the function `chatRoute` is a thin wrapper around — does
+ * take it, so this is that wrapper with one option added rather than a new
+ * protocol. It stays inside `apiRoutes` so Mastra still owns the path, the auth
+ * and the request context.
+ */
+function speakerAwareChatRoute(): ReturnType<typeof registerApiRoute> {
+  return registerApiRoute('/chat/:agentId', {
+    method: 'POST',
+    handler: async (c) => {
+      const agentId = c.req.param('agentId')
+      /*
+       * Typed for the v5 arm, which is what the renderer posts.
+       *
+       * `handleChatStream` is overloaded on the AI SDK's v5-vs-v6 message shape,
+       * and both of those types are internal to `@mastra/ai-sdk` — so neither
+       * arm can be named from here, and the default (their union) matches
+       * neither overload. `never` is the narrowest thing assignable to both, so
+       * it picks the v5 overload without claiming a shape we cannot see. The
+       * body is JSON off the wire regardless; the version is settled at runtime
+       * by `handleChatStream` defaulting to v5, which is what
+       * `DefaultChatTransport` speaks.
+       */
+      const params = (await c.req.json()) as ChatStreamHandlerParams<never>
+      const stream = await handleChatStream({
+        mastra: c.get('mastra'),
+        agentId,
+        params: {
+          ...params,
+          requestContext: c.get('requestContext') ?? params.requestContext,
+          // Without this a stop from the renderer detaches the reader and leaves
+          // the turn running, which `chatRoute` handles and a hand-rolled route
+          // would otherwise forget.
+          abortSignal: c.req.raw.signal
+        },
+        /*
+         * Called on start and finish. The id comes from the path, so it names
+         * the agent that actually ran rather than the one the message was
+         * addressed to — those differ the moment a tag is wrong.
+         *
+         * The assertion is the other half of pinning the message type above:
+         * with it pinned, `InferUIMessageMetadata` collapses to `undefined` and
+         * the signature claims this may only return nothing. On the wire the
+         * chunk's `messageMetadata` is `unknown` and the renderer reads it off
+         * `message.metadata`, exactly as it does from the subscription route.
+         */
+        messageMetadata: (() => ({ agentId })) as unknown as () => undefined
+      })
+      return createUIMessageStreamResponse({
+        /*
+         * `@mastra/ai-sdk` bundles its own copy of the AI SDK's types, so the
+         * stream it hands back is the same object ours would be and nominally a
+         * different type — two `FinishReason` unions that differ by one member.
+         * `chatRoute` does not hit this because it also uses the bundled copy;
+         * we cannot import that one, so the cast is where the two meet.
+         */
+        stream: stream as unknown as ReadableStream<UIMessageChunk>
+      })
+    }
+  })
+}
+
 export function createMastra({
   databaseUrl,
   loadouts = DEFAULT_AGENTS,
@@ -273,7 +345,7 @@ export function createMastra({
         allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'Authorization']
       },
-      apiRoutes: [chatRoute({ path: '/chat/:agentId' })]
+      apiRoutes: [speakerAwareChatRoute()]
     }
   })
 }
