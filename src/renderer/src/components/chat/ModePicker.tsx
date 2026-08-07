@@ -46,17 +46,21 @@ export function ModePicker({
   const [autoOpen, setAutoOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
 
+  // The one way to close the menu, shared by every path that can close it —
+  // click-away, Escape, and the pill's own toggle. Closing the whole menu
+  // always closes the submenu with it: otherwise `autoOpen` survives in state
+  // and the Auto submenu reappears already expanded next time the pill opens,
+  // with no click of its own to explain it. A single shared closer is what
+  // keeps a future fourth closing path from forgetting the reset.
+  const close = (): void => {
+    setOpen(false)
+    setAutoOpen(false)
+  }
+
   // Click-away and Escape. Without these the menu survives navigating away from
   // it, which on an overlay-heavy screen leaves it floating over unrelated UI.
   useEffect(() => {
     if (!open) return
-    // Closes the whole menu, submenu included — otherwise the Auto submenu
-    // stays expanded in state and reappears open the next time the pill is
-    // clicked, with no click of its own to explain it.
-    const close = (): void => {
-      setOpen(false)
-      setAutoOpen(false)
-    }
     const onDown = (e: MouseEvent): void => {
       if (!root.current?.contains(e.target as Node)) close()
     }
@@ -76,8 +80,7 @@ export function ModePicker({
 
   const pick = (next: PermissionMode, model?: string): void => {
     onChange(next, model)
-    setOpen(false)
-    setAutoOpen(false)
+    close()
   }
 
   const summary =
@@ -91,7 +94,7 @@ export function ModePicker({
         className="mode-pill"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close() : setOpen(true))}
       >
         <ShieldCheck size={12} strokeWidth={1.9} />
         {summary}
