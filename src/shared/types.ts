@@ -5,7 +5,7 @@
  * anything it pulls in gets pulled into the preload sandbox too.
  */
 
-import type { PermissionMode } from './permission-modes'
+import type { EscalationSource, PermissionMode } from './permission-modes'
 
 /** Mascot lifecycle states. Each maps to a sprite, a motion and a sound. */
 export type MascotState =
@@ -169,6 +169,11 @@ export interface ApprovalRequest {
    *  Manual and Accept edits, where "because you asked to be asked" is the
    *  whole answer and saying it would be noise. */
   escalationReason?: string
+  /** Which policy produced `escalationReason` — the consequence table or the
+   *  chosen model. Travels beside the reason rather than being folded into its
+   *  wording, so both surfaces phrase it the same way without parsing it back
+   *  out of a sentence. Absent on a request from before this was recorded. */
+  escalationSource?: EscalationSource
 }
 
 /**

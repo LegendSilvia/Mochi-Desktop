@@ -34,6 +34,7 @@ import {
   coerceMode,
   PLAN_MODE_INSTRUCTIONS,
   toSdkPermissionMode,
+  type EscalationSource,
   type PermissionMode,
   type SdkPermissionMode
 } from '../shared/permission-modes'
@@ -1472,10 +1473,14 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
    * changing mode between turns, and the next `query()` reads the stored value.
    */
   app.post('/agent-sdk/mode', async (c) => {
-    const { id, mode } = (await c.req.json().catch(() => ({}))) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       id?: string
       mode?: string
+      /** `null` means "Auto with the native classifier", which is a real
+       *  choice and must be distinguishable from "the caller did not say". */
+      classifierModel?: string | null
     }
+    const { id, mode } = body
     if (!id) return c.json({ ok: false, live: false }, 400)
 
     const wanted = coerceMode(mode)
@@ -1483,8 +1488,30 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     if (!run) return c.json({ ok: true, live: false })
 
     try {
+      /*
+       * The mode and the classifier model come from the same snapshot.
+       *
+       * The renderer persists the session in a post-commit effect, while this
+       * POST goes out synchronously from the click. So reading
+       * `autoClassifierModel` from `load()` here could see the value from
+       * *before* the change that caused this request — and a switch between
+       * Auto-native and Auto-with-a-model changes which SDK mode is correct
+       * (`'auto'` versus `'default'`). Getting that wrong left the live SDK
+       * running its native classifier while `canUseTool` classified with a
+       * model, which is two policies deciding at once.
+       *
+       * Neither arrangement is a bypass — native Auto is a reasonable policy
+       * and anything it escalates still reaches `canUseTool` and still cards —
+       * so this is about the two sites agreeing, not about safety. The caller
+       * states the model it just chose; `load()` remains the fallback for an
+       * older renderer that sends only a mode.
+       */
       const session = load().sessions.find((s) => s.id === id)
-      await run.setPermissionMode(toSdkPermissionMode(wanted, session?.autoClassifierModel))
+      const classifierModel =
+        body.classifierModel === undefined
+          ? session?.autoClassifierModel
+          : (body.classifierModel ?? undefined)
+      await run.setPermissionMode(toSdkPermissionMode(wanted, classifierModel))
       return c.json({ ok: true, live: true })
     } catch (err) {
       // An older CLI, or a run that ended between the lookup and the call.
@@ -1826,13 +1853,21 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                  * rewrites the path below.
                  */
                 let escalationReason: string | undefined
-                const classifierModel =
-                  sessionMode(chatId) === 'auto'
-                    ? load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
-                    : undefined
+                let escalationSource: EscalationSource | undefined
 
-                if (classifierModel) {
-                  try {
+                // `sessionMode` and `load()` are inside the try, unlike the
+                // once-per-turn `resolvedMode` above: `load()` does file I/O and
+                // this runs on every single tool call, so a transient read
+                // failure here must fall through to a card rather than throw
+                // into the SDK and stall the turn on a tool nobody was asked
+                // about.
+                try {
+                  const classifierModel =
+                    sessionMode(chatId) === 'auto'
+                      ? load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
+                      : undefined
+
+                  if (classifierModel) {
                     const verdict = await classify({
                       model: classifierModel,
                       toolName,
@@ -1846,13 +1881,16 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                       return { behavior: 'deny', message: verdict.reason }
                     }
                     escalationReason = verdict.reason
-                  } catch (err) {
-                    // `classify` is written not to throw, so this is the belt to
-                    // its braces. A throw escaping into the SDK here would stall
-                    // the turn on a tool nobody was ever asked about.
-                    console.warn('[mochi] classifier threw:', err)
-                    escalationReason = 'the classifier failed'
+                    escalationSource = verdict.source
                   }
+                } catch (err) {
+                  // `classify` is written not to throw, so this is the belt to
+                  // its braces — and now also covers the settings read above.
+                  // Either way the call carries on to the card below, which is
+                  // the same answer Manual would have given.
+                  console.warn('[mochi] classifier threw:', err)
+                  escalationReason = 'the classifier failed'
+                  escalationSource = 'model'
                 }
 
                 const id = randomUUID()
@@ -1867,7 +1905,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     // Only offer "always allow" when the SDK gave us rules to
                     // apply — inventing our own would drift from its policy.
                     canAlwaysAllow: Boolean(suggestions?.length),
-                    escalationReason
+                    escalationReason,
+                    escalationSource
                   }
                 })
 
@@ -1893,7 +1932,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                   toolName: shortName,
                   target: full.slice(0, APPROVAL_TARGET_MAX),
                   truncated: full.length > APPROVAL_TARGET_MAX,
-                  escalationReason
+                  escalationReason,
+                  escalationSource
                 })
 
                 return new Promise<PermissionResult>((resolve) => {

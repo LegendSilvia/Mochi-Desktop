@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ShieldQuestion, Check, X, ExternalLink } from 'lucide-react'
+import { escalationLead } from '@shared/permission-modes'
 import type { ApprovalRequest } from '@shared/types'
 import type { MenuPlacement } from './MascotMenu'
 
@@ -77,6 +78,18 @@ export function ApprovalBubble({
         {request.target}
         {request.truncated && '…'}
       </div>
+
+      {/* Auto's reason, worded by which policy gave it — the same distinction
+          the in-thread card draws. It was being put on this payload and then
+          dropped on the floor here, which is the worst place to lose it: this
+          card exists precisely because it may be the only part of Mochi on
+          screen, and "allow this?" with no stated reason is the question this
+          whole path exists to stop asking. */}
+      {request.escalationReason && (
+        <div className="mo-approval-why meta">
+          {escalationLead(request.escalationSource)}: {request.escalationReason}
+        </div>
+      )}
 
       {request.truncated ? (
         <>

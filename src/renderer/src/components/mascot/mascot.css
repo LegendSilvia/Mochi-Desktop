@@ -431,6 +431,15 @@
 .mo-approval-note {
   font-size: 11px;
 }
+/* Why Auto stopped this call. Capped rather than left to grow: the classifier
+   writes a free-text sentence, and a long one would push the Allow and Deny
+   buttons off a card that is deliberately small. */
+.mo-approval-why {
+  font-size: 11px;
+  line-height: 1.35;
+  max-height: 44px;
+  overflow: hidden;
+}
 .mo-approval-actions {
   display: flex;
   gap: 6px;
