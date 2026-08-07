@@ -316,6 +316,29 @@ Five properties the check script pins, stated so a later edit does not lose them
 4. `reason` is non-null exactly when `verdict === 'card'`.
 5. Argument patterns match on word boundaries — `dropdown` and `undeleted` are not matches.
 
+> **Corrected during execution — the code above was wrong in three ways, and
+> the check script as written passed against all three.** Read the fix-round
+> section of `task-1-report.md` for what shipped. In summary:
+>
+> - **Patterns must be tested against each value individually, not against the
+>   values joined into one string.** A `$`-anchored rule (`\.env$`, `\.pem$`,
+>   `credentials$`, `-f\s*$`) only fires against the joined form when the
+>   sensitive value happens to be last in `Object.values()` order. So
+>   `{ path: '/app/.env', other: 'x' }` did **not** card. That is a clean bypass
+>   of the credentials rule for any untagged tool.
+> - **Hitting `flatten`'s depth cap must card, exactly as a cycle does.**
+>   Returning `[]` made content nested past depth 8 invisible to every scan, so
+>   an untagged tool got `allow` — the opposite of this module's own stated
+>   principle that unreadable input cannot be cleared.
+> - **A `..` path segment must card when a `workspaceRoot` is set.**
+>   `isAbsolutePath('../../etc/passwd')` is false, so relative escapes skipped
+>   the root check entirely.
+>
+> The lesson worth keeping: every assertion in the original check script used a
+> **single-property** object, which is precisely the shape that hides the first
+> bug. Test data that is uniformly simpler than production data proves less than
+> it appears to.
+
 - [ ] **Step 4: Run the check to verify it passes**
 
 Run: `node scripts/check-consequences.mjs`
