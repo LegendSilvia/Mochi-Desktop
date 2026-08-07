@@ -1,7 +1,16 @@
 import { useMemo } from 'react'
 import type { UIMessage } from 'ai'
 import { Markdown } from '@renderer/components/chat/Markdown'
-import { latestPlan } from './panelData'
+import { latestPlan, type PlanStatus } from './panelData'
+
+/** What the status line says for each thing a plan can be. Kept as a table
+ *  rather than inline ternaries so a fourth status is a compile error here,
+ *  not a silently-missing label. */
+const STATUS_LABEL: Record<PlanStatus, string> = {
+  approved: 'Approved',
+  declined: 'Declined',
+  waiting: 'Proposed — waiting on you'
+}
 
 /**
  * The plan this session is working to.
@@ -24,9 +33,7 @@ export function PlanPane({ messages }: { messages: UIMessage[] }): React.JSX.Ele
 
   return (
     <div className="plan-pane">
-      <div className="plan-pane-status meta">
-        {plan.approved ? 'Approved' : 'Proposed — waiting on you'}
-      </div>
+      <div className="plan-pane-status meta">{STATUS_LABEL[plan.status]}</div>
       <div className="plan-pane-body">
         <Markdown text={plan.text} />
       </div>
