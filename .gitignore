@@ -22,3 +22,7 @@ out
 
 # SDD/debug scratch — durable copies live in docs/
 .superpowers/
+
+# tsc --composite incremental state. Machine-local build output; it
+# landed in git once by accident and does not belong there.
+*.tsbuildinfo
