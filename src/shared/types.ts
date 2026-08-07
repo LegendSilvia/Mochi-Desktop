@@ -472,6 +472,11 @@ export interface PersistedState {
  * `http` points at a URL; `stdio` launches a local command. Kept deliberately
  * close to the Agent SDK's own shape so wiring it through is a rename, not a
  * translation layer that can drift.
+ *
+ * `headers` and `env` carry only the *names*. Nearly every real MCP server
+ * wants a bearer token or an API key in one of them, and this file is plain
+ * JSON in `%APPDATA%\Mochi` — so the values go to the same safeStorage-backed
+ * store the provider keys use, keyed by `mcpSecretKey()`.
  */
 export interface McpServerSpec {
   id: string
@@ -479,9 +484,13 @@ export interface McpServerSpec {
   type: 'http' | 'stdio'
   /** http only. */
   url?: string
+  /** http only. Header names; values live in the encrypted secret store. */
+  headers?: string[]
   /** stdio only. */
   command?: string
   args?: string[]
+  /** stdio only. Environment variable names; values in the secret store. */
+  env?: string[]
   enabled: boolean
 }
 

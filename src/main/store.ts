@@ -133,6 +133,67 @@ export function deleteProviderKey(provider: string): void {
   writeFileSync(KEYS_FILE(), safeStorage.encryptString(JSON.stringify(keys)))
 }
 
+/**
+ * MCP header and environment values.
+ *
+ * Same reasoning as the provider keys, and the same refusal to fall back to
+ * plaintext — a bearer token for someone's GitHub MCP server is no less a
+ * credential than an API key. Kept in its own file rather than the key map
+ * because `applyProviderKeysToEnv` treats every entry there as an environment
+ * variable name, and these are not that.
+ *
+ * Keys are `<serverId>:<header|env>:<name>`, built by `mcpSecretKey()`.
+ */
+const MCP_SECRETS_FILE = (): string => join(getPaths().userData, 'mcp-secrets.bin')
+
+export function readMcpSecrets(): KeyMap {
+  if (!safeStorage.isEncryptionAvailable()) return {}
+  try {
+    const blob = readFileSync(MCP_SECRETS_FILE())
+    return JSON.parse(safeStorage.decryptString(blob)) as KeyMap
+  } catch {
+    return {}
+  }
+}
+
+function writeMcpSecrets(secrets: KeyMap): void {
+  writeFileSync(MCP_SECRETS_FILE(), safeStorage.encryptString(JSON.stringify(secrets)))
+}
+
+export function writeMcpSecret(key: string, value: string): { ok: boolean; reason?: string } {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return {
+      ok: false,
+      reason:
+        'OS credential encryption is unavailable, so the value was not saved. ' +
+        'Mochi will not write MCP credentials to disk in plaintext.'
+    }
+  }
+  const secrets = readMcpSecrets()
+  secrets[key] = value
+  writeMcpSecrets(secrets)
+  return { ok: true }
+}
+
+export function deleteMcpSecret(key: string): void {
+  if (!safeStorage.isEncryptionAvailable()) return
+  const secrets = readMcpSecrets()
+  delete secrets[key]
+  writeMcpSecrets(secrets)
+}
+
+/** Every secret belonging to one server. Called when the server is removed, so
+ *  deleting it takes its credentials with it instead of leaving them behind for
+ *  a future server that happens to reuse the id. */
+export function deleteMcpServerSecrets(serverId: string): void {
+  if (!safeStorage.isEncryptionAvailable()) return
+  const secrets = readMcpSecrets()
+  for (const key of Object.keys(secrets)) {
+    if (key.startsWith(`${serverId}:`)) delete secrets[key]
+  }
+  writeMcpSecrets(secrets)
+}
+
 /** Push stored keys into the process env so Mastra's model router finds them. */
 export function applyProviderKeysToEnv(): void {
   const keys = readProviderKeys()

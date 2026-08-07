@@ -7,7 +7,8 @@ import type {
   McpServerConfig,
   PermissionResult,
   Query,
-  SDKUserMessage
+  SDKUserMessage,
+  SettingSource
 } from '@anthropic-ai/claude-agent-sdk'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -16,7 +17,7 @@ import { z } from 'zod'
 import { getPaths } from './paths'
 import { notifyIfAway } from './attention'
 import { bus } from '../mastra/events'
-import { load } from './store'
+import { load, readMcpSecrets } from './store'
 import { readLibrary } from './assets'
 import { addNote, search } from './rag'
 import {
@@ -28,6 +29,7 @@ import {
   writeWorkingMemory
 } from './recall'
 import { personalResource } from '../shared/memory'
+import { mcpNameError, mcpSecretKey } from '../shared/mcp'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -120,6 +122,7 @@ export async function listSubscriptionModels(appVersion: string): Promise<Subscr
       // Nothing is going to run, so the agent is given nothing to run with.
       // A models query that could touch the filesystem would be absurd.
       allowedTools: [],
+      ...filesystemAccess(),
       disallowedTools: DISALLOWED_BUILTINS
     }
   })
@@ -616,6 +619,7 @@ function buildMochiServer(
             systemPrompt: buildSystemPrompt(target, settings.userName),
             model: rest.join('/') || undefined,
             allowedTools: [],
+            ...filesystemAccess(),
             env: subscriptionEnv(appVersion),
             maxTurns: 8
           }
@@ -956,22 +960,96 @@ function buildSystemPrompt(agent: AgentLoadout, userName: string): string {
 }
 
 /**
+ * What a `query()` may read off the filesystem, from the app's own switch.
+ *
+ * Shared by every call site in this file rather than written out at the one
+ * that matters most, because "off" that only holds for the main turn is not
+ * off — a delegate turn or a title generation runs the same binary with the
+ * same access.
+ *
+ * Neither field can be omitted to mean "nothing". The SDK documents an absent
+ * `skills` as *no SDK configuration*, which leaves the CLI's defaults in force,
+ * and an absent `settingSources` loads user, project **and** local settings.
+ */
+function filesystemAccess(): { settingSources: SettingSource[]; skills: string[] | 'all' } {
+  const { settings } = load()
+  return {
+    // The open folder's settings and CLAUDE.md, and nothing wider.
+    settingSources: ['project'],
+    skills: settings.skills?.enabled ? settings.skills.allow : []
+  }
+}
+
+/**
+ * The stored values for a server's header or environment slots.
+ *
+ * Only the names are in settings.json; a slot whose value is missing from the
+ * secret store is left out rather than sent empty, because an empty
+ * `Authorization` header is a 401 the user has to go and decode, while an
+ * absent one at least fails saying what it wanted.
+ */
+function secretValues(
+  secrets: Record<string, string>,
+  serverId: string,
+  slot: 'header' | 'env',
+  names: string[] | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of names ?? []) {
+    const value = secrets[mcpSecretKey(serverId, slot, name)]
+    if (value) out[name] = value
+  }
+  return out
+}
+
+/**
  * User-configured MCP servers, in the Agent SDK's own shape.
  *
  * Only enabled ones are passed, and a server missing the field its transport
  * needs is skipped rather than handed over half-formed — the SDK's failure for
  * that is a stalled startup, which is far harder to read than an absent tool.
+ *
+ * The name is checked here as well as in the Tools pane. `mochi` is the key of
+ * Mochi's own in-process server, so a user server that took it replaced every
+ * built-in tool *and* inherited their entries in the auto-approve list — the
+ * one case where a bad name is not merely a broken server. A settings.json
+ * written by hand, or by a build that predates the check, has to be refused
+ * here or the UI check is decoration.
  */
 function userMcpServers(): Record<string, McpServerConfig> {
   const { settings } = load()
+  const secrets = readMcpSecrets()
   const out: Record<string, McpServerConfig> = {}
+  const taken: string[] = []
+
   for (const server of settings.mcpServers ?? []) {
     if (!server.enabled) continue
-    if (server.type === 'http' && server.url) {
-      out[server.name] = { type: 'http', url: server.url }
-    } else if (server.type === 'stdio' && server.command) {
-      out[server.name] = { type: 'stdio', command: server.command, args: server.args ?? [] }
+    const name = server.name.trim()
+    const problem = mcpNameError(name, taken)
+    if (problem) {
+      console.warn(`[mochi] MCP server "${server.name}" skipped: ${problem}`)
+      continue
     }
+
+    if (server.type === 'http' && server.url) {
+      const headers = secretValues(secrets, server.id, 'header', server.headers)
+      out[name] = {
+        type: 'http',
+        url: server.url,
+        ...(Object.keys(headers).length ? { headers } : {})
+      }
+    } else if (server.type === 'stdio' && server.command) {
+      const env = secretValues(secrets, server.id, 'env', server.env)
+      out[name] = {
+        type: 'stdio',
+        command: server.command,
+        args: server.args ?? [],
+        ...(Object.keys(env).length ? { env } : {})
+      }
+    } else {
+      continue
+    }
+    taken.push(name)
   }
   return out
 }
@@ -1351,6 +1429,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
             'You write short, warm, concrete one-liners in a given character voice. ' +
             'You never explain yourself and never number your output.',
           allowedTools: [],
+          ...filesystemAccess(),
           env: subscriptionEnv(appVersion),
           maxTurns: 1
         }
@@ -1391,6 +1470,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         options: {
           systemPrompt: 'You write short, concrete titles. You never explain yourself.',
           allowedTools: [],
+          ...filesystemAccess(),
           env: subscriptionEnv(appVersion),
           /*
            * The quick-jobs model, not the conversation one.
@@ -1582,19 +1662,20 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               model: modelName || undefined,
               ...(workspace.cwd ? { cwd: workspace.cwd } : {}),
               // Built per turn so its tools know whose memory they write to.
+              // `mochi` goes in last: `userMcpServers` already refuses the name,
+              // and this makes the built-in tools unloseable even if that check
+              // is ever relaxed or a new reserved name is missed.
               mcpServers: {
+                ...userMcpServers(),
                 mochi: buildMochiServer(
                   appVersion,
                   memoryKeys && agent ? { loadout: agent, ...memoryKeys } : null,
                   agentId
-                ),
-                ...userMcpServers()
+                )
               },
-              // Skills live on the filesystem, so they stay off until asked for —
-              // enabling them silently would widen what the agent can reach.
-              ...(settings.skills?.enabled
-                ? { skills: settings.skills.allow, settingSources: ['project' as const] }
-                : {}),
+              // Skills live on the filesystem, so they stay off until asked for
+              // — enabling them silently would widen what the agent can reach.
+              ...filesystemAccess(),
               // Note: this is the SDK's *auto-approve* list, not a restriction
               // list — see docs/debug-permission-prompt.md.
               allowedTools: AUTO_APPROVED,

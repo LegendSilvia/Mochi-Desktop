@@ -1852,16 +1852,66 @@
 .mcp-row:last-of-type {
   border-bottom: none;
 }
+.mcp-entry:not(:last-of-type) {
+  border-bottom: 1px solid var(--line);
+}
+.mcp-entry .mcp-row {
+  border-bottom: none;
+}
+/* The name is the disclosure control for the credentials below it, so it is a
+   button — stripped back to reading as the text it replaced. */
 .mcp-text {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  align-items: flex-start;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
 }
 .mcp-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12.5px;
   color: var(--tx);
+}
+.mcp-warn {
+  padding: 0 0 8px;
+  color: var(--rose);
+}
+.mcp-secrets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.mcp-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+}
+.mcp-secret-row .meta {
+  margin-left: auto;
+}
+.mcp-secret-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mcp-secret-add .field-input {
+  flex: 1;
+  min-width: 0;
 }
 .mcp-text .meta {
   font-size: 10.5px;
