@@ -58,7 +58,12 @@ const ARGUMENT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bdrop\b/i, reason: 'the arguments contain “drop”' },
   { pattern: /\bdelete\b/i, reason: 'the arguments contain “delete”' },
   { pattern: /\btruncate\b/i, reason: 'the arguments contain “truncate”' },
-  { pattern: /\brm\s+-[a-z]*[rf]/i, reason: 'the arguments contain a recursive remove' },
+  {
+    // Long flags as well as short ones: `rm --recursive --force ./x` is the
+    // same command as `rm -rf ./x` and was not matched at all.
+    pattern: /\brm\s+(-[a-z]*[rf]|--recursive\b|--force\b|--dir\b)/i,
+    reason: 'the arguments contain a recursive remove'
+  },
   { pattern: /--force\b|\bpush\s+--force|-f\b\s*$/i, reason: 'the arguments force an operation' },
   { pattern: /\bformat\s+[a-z]:/i, reason: 'the arguments format a drive' },
   {
@@ -76,7 +81,13 @@ const ARGUMENT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 const ALWAYS_CARD_PATHS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /(^|[\\/])\.env(\.|$)/i, reason: 'it touches an environment file' },
   { pattern: /[\\/]\.ssh[\\/]|id_rsa|id_ed25519/i, reason: 'it touches an SSH key' },
-  { pattern: /[\\/]\.aws[\\/]|credentials$/i, reason: 'it touches stored credentials' },
+  {
+    // `credentials` with no extension is the AWS shape; the same file outside
+    // `.aws/` is usually `credentials.json` (gcloud, service accounts, a dozen
+    // CI tools) and was matched by neither half of the old rule.
+    pattern: /[\\/]\.aws[\\/]|\bcredentials(\.(json|ya?ml|ini|toml|txt))?$/i,
+    reason: 'it touches stored credentials'
+  },
   {
     pattern: /[\\/]AppData[\\/]Roaming[\\/]Mochi[\\/]/i,
     reason: 'it touches Mochi’s own configuration'
@@ -89,18 +100,31 @@ export function assess(
   input: unknown,
   opts?: { workspaceRoot?: string }
 ): Consequence {
-  const tags = TOOL_TAGS[toolName] ?? []
+  // `Object.hasOwn`, not a bare index: `TOOL_TAGS['__proto__']` walks the
+  // prototype chain and hands back an object, and `TOOL_TAGS['constructor']`
+  // hands back a function — neither is an array, so `tags.find` below threw
+  // and `assess` broke its own contract of always returning a `Consequence`.
+  // A later phase calls this where it is the whole decision, and a throw there
+  // is not a card, it is an unhandled rejection in a permission check.
+  const tags = Object.hasOwn(TOOL_TAGS, toolName) ? TOOL_TAGS[toolName] : []
 
   /*
-   * Every string and number the call carries, flattened to a list and tested
-   * one value at a time — never joined into a single string.
+   * Every string and number the call carries — and every object *key* it
+   * carries — flattened and tested one unit at a time.
    *
    * A `$`-anchored pattern tested against a joined string only fires when the
-   * matching value happens to land last in `Object.values()` enumeration
-   * order, which is an accident of object shape, not a security property: a
-   * `.env` path in an early property was invisible to `credentials$` and
-   * `-f\b\s*$` whenever a sibling property came after it. Testing each value
-   * on its own makes every rule below order-independent.
+   * matching value happens to land last in enumeration order, which is an
+   * accident of object shape, not a security property: a `.env` path in an
+   * early property was invisible to `credentials$` and `-f\b\s*$` whenever a
+   * sibling property came after it. Testing each unit on its own makes every
+   * rule below order-independent, and that stays the primary pass.
+   *
+   * `scan.joined` is the second pass, and it exists because per-value testing
+   * alone is blind in the other direction: `{cmd:'rm', args:['-rf','./build']}`
+   * carries no single value containing `rm -rf`, so every `\s`-containing
+   * rule missed an argv-shaped call entirely. Running both passes is strictly
+   * narrowing — the joined string is only ever an extra thing to card on — so
+   * it reintroduces none of the order-dependence the per-value pass fixed.
    *
    * A failure to read the input is not a reason to wave the call through — an
    * argument you cannot read is an argument you cannot clear — so the catch
@@ -108,15 +132,15 @@ export function assess(
    * skip every scan below. Hitting `flatten`'s depth cap is the same kind of
    * failure and throws for the same reason.
    */
-  let values: string[]
+  let scan: Scan
   try {
-    values = flatten(input)
+    scan = flatten(input)
   } catch {
     return { verdict: 'card', reason: 'its arguments could not be read', tags }
   }
 
   for (const rule of ALWAYS_CARD_PATHS) {
-    if (values.some((value) => rule.pattern.test(value))) {
+    if (scan.units.some((unit) => rule.pattern.test(unit))) {
       return { verdict: 'card', reason: rule.reason, tags }
     }
   }
@@ -127,20 +151,32 @@ export function assess(
   // does not know — but a relative path that climbs with `..` is trying to
   // leave regardless of where it started, so that cards without needing to be
   // resolved.
+  //
+  // `climbsOut` therefore sits *outside* the root check, unlike the absolute
+  // comparison below it. It needs no root by construction, and gating it
+  // behind one meant `{p:'../../etc/passwd'}` with no folder open was an
+  // ordinary allow — the one case where the agent has least context about
+  // where it is standing.
+  for (const unit of scan.units) {
+    if (climbsOut(unit)) {
+      return { verdict: 'card', reason: 'it climbs outside the open folder', tags }
+    }
+  }
+
   const root = opts?.workspaceRoot
   if (root) {
-    for (const value of values) {
-      if (climbsOut(value)) {
-        return { verdict: 'card', reason: 'it climbs outside the open folder', tags }
-      }
-      if (isAbsolutePath(value) && !within(root, value)) {
+    for (const unit of scan.units) {
+      if (isAbsolutePath(unit) && !within(root, unit)) {
         return { verdict: 'card', reason: 'it reaches outside the open folder', tags }
       }
     }
   }
 
   for (const rule of ARGUMENT_PATTERNS) {
-    if (values.some((value) => rule.pattern.test(value))) {
+    if (scan.units.some((unit) => rule.pattern.test(unit))) {
+      return { verdict: 'card', reason: rule.reason, tags }
+    }
+    if (scan.joined.some((line) => rule.pattern.test(line))) {
       return { verdict: 'card', reason: rule.reason, tags }
     }
   }
@@ -152,65 +188,196 @@ export function assess(
 }
 
 /**
- * Zero-width and non-printing characters, stripped from a value before
- * anything else looks at it.
+ * Zero-width and format characters: **deleted**.
  *
  * `dr` + a zero-width space + `op` reads as `drop` — to a human on a card, or
  * to a model deciding whether to call this tool again — but is not the
- * substring `drop`, so no pattern below would ever match it. Covers the
- * zero-width joiners (U+200B–U+200D), the byte-order mark / zero-width
- * no-break space (U+FEFF), and the C0/C1 control ranges (U+0000–U+001F,
- * U+007F–U+009F). `String.prototype.trim()` catches none of these — it only
- * removes characters with the Unicode `White_Space` property, which these
- * are not — so a value ending in one of them still defeated every
- * `$`-anchored rule even after values were trimmed. Stripped from the whole
- * value, not only the ends: the same character mid-string defeats a
- * substring or word rule exactly as well as one at the boundary defeats an
- * anchor. Written entirely with `\u` escapes rather than the literal
- * characters, so an editor or a diff view cannot silently mangle the one
- * line that exists to catch exactly that kind of tampering.
+ * substring `drop`, so no pattern above would ever match it. Deleting is the
+ * only normalisation that recovers the word, and it is safe here because none
+ * of these characters ever separates two tokens for a shell, an SQL parser or
+ * a filesystem: they render as nothing and mean nothing. Covers the zero-width
+ * space and joiners (U+200B–U+200D), the byte-order mark / zero-width no-break
+ * space (U+FEFF), the soft hyphen (U+00AD) and the word joiner (U+2060).
+ * `String.prototype.trim()` catches none of these — it only removes characters
+ * with the Unicode `White_Space` property, which these are not — so a value
+ * ending in one still defeated every `$`-anchored rule even after values were
+ * trimmed. Written entirely with `\u` escapes rather than the literal
+ * characters, so an editor or a diff view cannot silently mangle the one line
+ * that exists to catch exactly that kind of tampering.
  */
-// eslint-disable-next-line no-control-regex -- the C0/C1 ranges are the point of this pattern, not an accident; see the comment above.
-const INVISIBLE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g
+const ZERO_WIDTH_CHARS = /[\u00AD\u200B-\u200D\u2060\uFEFF]/g
 
 /**
- * Every string and number anywhere in the input, flattened, stripped of
- * invisible characters, and trimmed.
+ * Whitespace-class control characters: **replaced with a single space**.
  *
- * Normalised here, once, so every rule in `assess` — the `$`-anchored
- * patterns and the word-boundary patterns alike — looks at the same string
+ * Tab, LF, VT, FF and CR (U+0009–U+000D). These were previously deleted along
+ * with everything else non-printing, which welded the end of one line onto the
+ * start of the next: `cd /tmp` + LF + `rm -rf ./cache` became
+ * `cd /tmprm -rf ./cache`, so `\brm\s+-[a-z]*[rf]` had no `rm` on a word
+ * boundary left to match, and an ordinary two-line shell script came back
+ * `allow`. `rm` + TAB + `-rf /` failed the same way, with nothing left for
+ * `\s+` to match at all. The trigger was never a crafted character; it was
+ * a newline in a multi-line command.
+ *
+ * These are exactly the characters whose whole job is to separate tokens, so
+ * for them the two intents do not conflict: a space preserves the boundary the
+ * character was there to create, and no word is ever split by one that was not
+ * already two words.
+ */
+// eslint-disable-next-line no-control-regex -- tab, LF, VT, FF and CR are the point of this pattern, not an accident; see the comment above.
+const WHITESPACE_CONTROLS = /[\u0009-\u000D]/g
+
+/**
+ * The remaining C0/C1 controls: **both readings kept**.
+ *
+ * U+0000–U+0008, U+000E–U+001F and U+007F–U+009F. Here the two intents above
+ * genuinely conflict, and there is no single answer that is right for both:
+ *
+ *   - `dr` + NUL + `op` is the zero-width attack again, and only *deleting*
+ *     the character recovers the word `drop`.
+ *   - `cd /tmp` + NUL + `rm -rf .` is the newline attack again, and only
+ *     *replacing* it with a space keeps `rm` on a word boundary.
+ *
+ * Choosing either alone leaves the other exploitable, and choosing per
+ * character would be guessing at how some downstream shell, parser or
+ * filesystem happens to treat a control byte — a guess this module has no
+ * business making, and exactly the kind of guess that produced the earlier
+ * bugs in this class. So both readings of the value are built and every rule
+ * is tested against both: the call cards if *either* reading is dangerous.
+ * That is the fail-closed direction, and the cost is bounded, because the two
+ * readings differ only for a value that actually contains one of these
+ * characters — which ordinary arguments never do.
+ */
+// eslint-disable-next-line no-control-regex -- the C0/C1 ranges are the point of this pattern, not an accident; see the comment above.
+const AMBIGUOUS_CONTROLS = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F]/g
+
+/**
+ * One string, as every reading of it that a rule should be tested against.
+ *
+ * Returns a single reading when the two agree — the ordinary case, and the
+ * only case for any argument that does not carry a control character — and two
+ * when an ambiguous control makes them differ.
+ *
+ * Also adds a percent-decoded reading: `%2e%2e%2f` is `../` to every URL-aware
+ * consumer of a path, while `climbsOut` sees nothing whatsoever in the encoded
+ * form. Decoded once rather than to a fixed point, because one pass is what an
+ * ordinary consumer does; `decodeURIComponent` throws on a malformed escape,
+ * which is not a decodable path to anything else either, and the raw value has
+ * already been added by then, so nothing goes unscanned.
+ */
+function readings(value: string): string[] {
+  const out: string[] = []
+  const add = (raw: string): void => {
+    const base = raw.replace(ZERO_WIDTH_CHARS, '').replace(WHITESPACE_CONTROLS, ' ')
+    const deleted = base.replace(AMBIGUOUS_CONTROLS, '').trim()
+    const spaced = base.replace(AMBIGUOUS_CONTROLS, ' ').trim()
+    if (!out.includes(deleted)) out.push(deleted)
+    if (!out.includes(spaced)) out.push(spaced)
+  }
+  add(value)
+  if (value.includes('%')) {
+    try {
+      const decoded = decodeURIComponent(value)
+      if (decoded !== value) add(decoded)
+    } catch {
+      // Not decodable, so not a path to anything else either.
+    }
+  }
+  return out
+}
+
+/** What a flattened input offers the rules in `assess`. */
+interface Scan {
+  /**
+   * Every string the call carries — values *and* object keys — in every
+   * reading of each. The primary pass, and order-independent by construction.
+   */
+  units: string[]
+  /**
+   * The values only, in encounter order, joined with a single space; one entry
+   * per reading. Keys are deliberately absent: a key name sitting between two
+   * values would break the very adjacency this pass exists to see, turning
+   * `{cmd:'rm', args:['-rf','x']}` into `cmd rm args -rf x` and hiding
+   * `rm -rf` all over again. Array indices are absent for the same reason.
+   */
+  joined: string[]
+}
+
+/**
+ * Every string and number anywhere in the input, normalised.
+ *
+ * Normalised here, once, so every rule in `assess` — the `$`-anchored patterns
+ * and the word-boundary patterns alike — looks at the same string
  * `isAbsolutePath` and `climbsOut` were already normalising on their own.
  * Before the trim was centralised, a trailing space or newline on a value
- * defeated every `$`-anchored rule (`\.pem$`, `credentials$`, `-f\s*$`, the
- * `.env` rule's `$` alternative) while the path checks, which trimmed
+ * defeated every `$`-anchored rule (`\.pem$`, `credentials$`, `-f\s*$`,
+ * the `.env` rule's `$` alternative) while the path checks, which trimmed
  * independently, stayed unaffected — two paths reading the same value and
- * disagreeing about what it was. The same gap existed one level down for
- * characters `trim()` does not strip at all; see `INVISIBLE_CHARS`.
+ * disagreeing about what it was.
+ *
+ * Object *keys* are walked as well as values. `Object.values()` alone meant a
+ * path-keyed map — a batch writer's `{files:{'/home/u/.ssh/id_rsa': '…'}}`, an
+ * env map, a header map, all ordinary MCP shapes — carried its filenames
+ * somewhere nothing ever looked, which defeated `ALWAYS_CARD_PATHS` outright
+ * despite this module documenting those as firing "whatever the tags or the
+ * tool". A key is read at the same depth as the child it names, so the cap
+ * counts it the same way, and it is a string, so the cycle guard has nothing
+ * to track for it.
  *
  * `seen` tracks the current path only — deleted on the way back out — so an
  * object referenced twice is fine and only a genuine cycle throws. Depth is
  * capped, and hitting the cap throws rather than truncating silently: content
  * past the cap is content this function never actually read, and unread
- * content must card for the same reason a cyclic object does, not fall
- * through to an empty scan that defaults to `allow`. The cap is not a claim
- * that deep nesting is inherently more dangerous — it is where "unreadable"
- * starts.
+ * content must card for the same reason a cyclic object does, not fall through
+ * to an empty scan that defaults to `allow`. The cap is not a claim that deep
+ * nesting is inherently more dangerous — it is where "unreadable" starts.
  */
-function flatten(value: unknown, seen = new Set<unknown>(), depth = 0): string[] {
-  if (depth > 8) throw new Error('input too deep to read')
-  if (value === null || value === undefined) return []
-  if (typeof value === 'string') return [value.replace(INVISIBLE_CHARS, '').trim()]
-  if (typeof value === 'number' || typeof value === 'boolean') return [String(value)]
-  if (typeof value !== 'object') return []
-  if (seen.has(value)) throw new Error('cyclic input')
+function flatten(input: unknown): Scan {
+  const units: string[] = []
+  /** One entry per value: that value's readings, in encounter order. */
+  const ordered: string[][] = []
 
-  seen.add(value)
-  const out: string[] = []
-  for (const child of Object.values(value as Record<string, unknown>)) {
-    out.push(...flatten(child, seen, depth + 1))
+  const walk = (value: unknown, seen: Set<unknown>, depth: number): void => {
+    if (depth > 8) throw new Error('input too deep to read')
+    if (value === null || value === undefined) return
+    if (typeof value === 'string') {
+      const variants = readings(value)
+      units.push(...variants)
+      ordered.push(variants)
+      return
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      units.push(String(value))
+      ordered.push([String(value)])
+      return
+    }
+    if (typeof value !== 'object') return
+    if (seen.has(value)) throw new Error('cyclic input')
+
+    seen.add(value)
+    if (Array.isArray(value)) {
+      for (const child of value) walk(child, seen, depth + 1)
+    } else {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        // A key counts against the cap exactly as its child does, so a key one
+        // level past it is unread content and throws, never a silent skip.
+        if (depth + 1 > 8) throw new Error('input too deep to read')
+        // Scanned, but never joined — see `Scan.joined`.
+        units.push(...readings(key))
+        walk(child, seen, depth + 1)
+      }
+    }
+    seen.delete(value)
   }
-  seen.delete(value)
-  return out
+
+  walk(input, new Set<unknown>(), 0)
+
+  // One joined line per reading: the first reading of every value, and the
+  // last reading of every value. These are the same line unless some value
+  // carried an ambiguous control, in which case both are tested.
+  const first = ordered.map((v) => v[0]).join(' ')
+  const last = ordered.map((v) => v[v.length - 1]).join(' ')
+  return { units, joined: first === last ? [first] : [first, last] }
 }
 
 /** `C:\x`, `/x` — the shapes that can be compared to a root without guessing
