@@ -89,6 +89,9 @@ export interface SubscriptionModel {
   id: string
   label: string
   hint: string
+  /** Whether this model can run the SDK's native Auto classifier. Off the
+   *  SDK's own model list; absent on rows from a CLI too old to report it. */
+  supportsAutoMode?: boolean
 }
 
 /** Spawning a subprocess to read a list that changes a few times a year is

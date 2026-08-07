@@ -158,6 +158,9 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       // matters most before anything has happened.
       permissions: true,
       tasks: latestTasks(ctx.messages).length > 0,
+      // No plan data exists yet — Task 5 wires the real source. False keeps an
+      // always-empty bubble from auto-appearing on every session in the meantime.
+      plan: false,
       navigator: Boolean(folder),
       editor: Boolean(folder),
       terminal: true,

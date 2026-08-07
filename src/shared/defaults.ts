@@ -90,6 +90,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Off by default: skills are read off the filesystem, and turning that on
   // without asking would quietly widen what the agent can reach.
   skills: { enabled: false, allow: 'all' },
+  // Manual, because the modes that ask less are the ones a user should turn on
+  // deliberately rather than discover after something has already run.
+  defaultMode: 'manual',
   userName: '',
   toursSeen: []
 }

@@ -9,7 +9,8 @@ import {
   SquareTerminal,
   Search,
   BookOpen,
-  ListChecks
+  ListChecks,
+  ClipboardList
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { WidgetKind, WidgetGeom } from '@shared/types'
@@ -42,6 +43,7 @@ export const WIDGETS: Record<WidgetKind, WidgetMeta> = {
   rules: { label: 'Rules', icon: Sparkles, auto: true, size: { w: 320, h: 240 } },
   permissions: { label: 'Permissions', icon: ShieldCheck, auto: true, size: { w: 300, h: 190 } },
   tasks: { label: 'Tasks', icon: ListChecks, auto: true, size: { w: 340, h: 300 } },
+  plan: { label: 'Plan', icon: ClipboardList, auto: true, size: { w: 360, h: 340 } },
   navigator: {
     label: 'Files',
     icon: FolderTree,
@@ -83,6 +85,7 @@ export const WIDGETS: Record<WidgetKind, WidgetMeta> = {
 /** The order tool widgets are offered in, and the order their bubbles stack. */
 export const TOOL_KINDS: WidgetKind[] = ['navigator', 'editor', 'terminal', 'search', 'skills']
 export const PANEL_KINDS: WidgetKind[] = [
+  'plan',
   'tasks',
   'activity',
   'files',
