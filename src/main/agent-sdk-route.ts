@@ -30,6 +30,12 @@ import {
 } from './recall'
 import { personalResource } from '../shared/memory'
 import { mcpNameError, mcpSecretKey } from '../shared/mcp'
+import {
+  coerceMode,
+  PLAN_MODE_INSTRUCTIONS,
+  toSdkPermissionMode,
+  type PermissionMode
+} from '../shared/permission-modes'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -138,7 +144,8 @@ export async function listSubscriptionModels(appVersion: string): Promise<Subscr
         // Router form, so the value means the same thing on both backends.
         id: `anthropic/${m.resolvedModel ?? m.value}`,
         label: m.displayName || m.value,
-        hint: m.description || 'available on your Claude subscription'
+        hint: m.description || 'available on your Claude subscription',
+        supportsAutoMode: m.supportsAutoMode
       }))
     // Aliases resolve onto the same wire id ('sonnet' and 'claude-sonnet-5'),
     // and two rows that set the identical value is a choice with no meaning.
@@ -984,6 +991,24 @@ function filesystemAccess(): { settingSources: SettingSource[]; skills: string[]
 }
 
 /**
+ * The mode a session is in, and what to hand the SDK for it.
+ *
+ * Read from the persisted session, never from the request body. The body is
+ * renderer-supplied, and a body that could name its own permission mode would
+ * be a permission system that asks the thing being restrained what it should be
+ * restrained by. The folder is already resolved this way for the same reason.
+ */
+function sessionMode(sessionId: string): PermissionMode {
+  const { sessions, settings } = load()
+  const stored = sessions.find((s) => s.id === sessionId)?.mode ?? settings.defaultMode
+  const mode = coerceMode(stored)
+  if (stored !== undefined && stored !== mode) {
+    console.warn(`[mochi] session ${sessionId} asked for mode "${String(stored)}" — using manual`)
+  }
+  return mode
+}
+
+/**
  * The stored values for a server's header or environment slots.
  *
  * Only the names are in settings.json; a slot whose value is missing from the
@@ -1392,6 +1417,41 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
   })
 
   /**
+   * Change a session's mode while it is running.
+   *
+   * The persisted session is the source of truth and the renderer has already
+   * written it; this is only what makes the change take effect *now* rather
+   * than on the next turn. `setPermissionMode` is streaming-input only, which
+   * `inputChannel` already satisfies.
+   *
+   * A session with no live run is not an error — it is the ordinary case of
+   * changing mode between turns, and the next `query()` reads the stored value.
+   */
+  app.post('/agent-sdk/mode', async (c) => {
+    const { id, mode } = (await c.req.json().catch(() => ({}))) as {
+      id?: string
+      mode?: string
+    }
+    if (!id) return c.json({ ok: false, live: false }, 400)
+
+    const wanted = coerceMode(mode)
+    const run = liveRuns.get(id)
+    if (!run) return c.json({ ok: true, live: false })
+
+    try {
+      const session = load().sessions.find((s) => s.id === id)
+      await run.setPermissionMode(toSdkPermissionMode(wanted, session?.autoClassifierModel))
+      return c.json({ ok: true, live: true })
+    } catch (err) {
+      // An older CLI, or a run that ended between the lookup and the call.
+      // Neither is worth failing the request: the stored mode still applies to
+      // the next turn.
+      console.warn('[mochi] setPermissionMode failed:', err)
+      return c.json({ ok: true, live: false })
+    }
+  })
+
+  /**
    * Lines for the mascot to say, written in the agent's own voice.
    *
    * Called when a loadout is saved, so the cost is one short generation per edit
@@ -1679,6 +1739,14 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               // Skills live on the filesystem, so they stay off until asked for
               // — enabling them silently would widen what the agent can reach.
               ...filesystemAccess(),
+              // The session's mode. `allowDangerouslySkipPermissions` is never
+              // set, so even a mapping bug cannot reach bypass — the SDK
+              // refuses that mode without it.
+              permissionMode: toSdkPermissionMode(
+                sessionMode(chatId),
+                load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
+              ),
+              planModeInstructions: PLAN_MODE_INSTRUCTIONS,
               // Note: this is the SDK's *auto-approve* list, not a restriction
               // list — see docs/debug-permission-prompt.md.
               allowedTools: AUTO_APPROVED,
