@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronRight, ShieldCheck } from 'lucide-react'
 import {
-  MODE_HINTS,
   MODE_LABELS,
   PERMISSION_MODES,
+  modeHint,
   nativeAutoBlocked,
   type PermissionMode
 } from '@shared/permission-modes'
@@ -103,6 +103,16 @@ export function ModePicker({
       {open && (
         <div className="mode-menu" role="menu">
           <span className="mode-menu-head">Mode</span>
+          {backend === 'mastra' && (
+            // Phase 1 wires modes into the subscription backend only — see
+            // `modeHint`. Said once here rather than trusting the per-row
+            // hint alone to carry it, since a hint that merely stops making a
+            // claim still reads as "probably fine" at a glance.
+            <p className="meta mode-blocked">
+              This agent runs on the API-key backend, where modes do not take
+              effect yet. Picking one stores it for later.
+            </p>
+          )}
           {PERMISSION_MODES.map((m, i) => {
             const isAuto = m === 'auto'
             return (
@@ -114,7 +124,7 @@ export function ModePicker({
                   onClick={() => (isAuto ? setAutoOpen((v) => !v) : pick(m))}
                 >
                   <span className="mode-menu-label">{MODE_LABELS[m]}</span>
-                  <span className="meta mode-menu-hint">{MODE_HINTS[m]}</span>
+                  <span className="meta mode-menu-hint">{modeHint(m, backend)}</span>
                   {isAuto ? (
                     <ChevronRight size={12} strokeWidth={2} />
                   ) : mode === m ? (

@@ -277,7 +277,8 @@ export function ToolGroup({
   baseUrl,
   staleApprovals,
   settledApprovals,
-  sessionId,
+  agentName,
+  onModeChange,
   planFollowOn
 }: {
   parts: WorkPart[]
@@ -285,9 +286,14 @@ export function ToolGroup({
   staleApprovals: Set<string>
   /** Answered elsewhere — on the desktop card, or in another window. */
   settledApprovals: string[]
-  /** The session, so approving a plan card grouped in here can also switch its
-   *  mode — same reason `PermissionCard` itself takes this. */
-  sessionId?: string
+  /** Who is asking — forwarded to each grouped `PermissionCard` the same way
+   *  the direct one in `Session.tsx` gets it. A Plan-mode agent almost always
+   *  reads before proposing, so this grouped path is the card most users
+   *  actually see. */
+  agentName?: string
+  /** Approving a plan card grouped in here can also switch the session's mode
+   *  — forwarded through to `PermissionCard`, same reason it takes this. */
+  onModeChange?: (mode: PermissionMode) => void
   /** What approving a plan drops into. */
   planFollowOn?: PermissionMode
 }): React.JSX.Element {
@@ -363,9 +369,10 @@ export function ToolGroup({
                 key={req?.id ?? i}
                 request={req}
                 baseUrl={baseUrl}
+                agentName={agentName}
                 stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
                 onAnswered={(id) => setAnswered((prev) => [...prev, id])}
-                sessionId={sessionId}
+                onModeChange={onModeChange}
                 planFollowOn={planFollowOn}
               />
             )

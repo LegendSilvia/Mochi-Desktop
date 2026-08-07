@@ -49,6 +49,10 @@ export interface WidgetContext {
   rules: StickerRule[]
   stickerSrc: (id: string | null) => string | null
   onAddAgent: () => void
+  /** Which backend this agent's turns actually run on. The Permissions widget
+   *  needs it to say whether the session's mode is enforced or only stored —
+   *  modes are implemented on the subscription backend and not yet on Mastra. */
+  backend: 'subscription' | 'mastra'
   /** The chat itself. Passed as children because a docked widget takes real
    *  layout space beside it — the chat has to be a sibling of the docks, not
    *  something they float over. */
@@ -259,6 +263,7 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
             canPush={Boolean(ctx.agent.canPushWithoutAsking)}
             folder={folder}
             mode={coerceMode(ctx.session.mode)}
+            backend={ctx.backend}
           />
         )
       default:

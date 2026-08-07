@@ -43,7 +43,12 @@ import { MessageActions } from '@renderer/components/chat/MessageActions'
 import { AskDock, type PendingAsk } from '@renderer/components/chat/AskDock'
 import { PermissionCard, type PermissionRequest } from '@renderer/components/chat/PermissionCard'
 import { ModePicker, type ModePickerModel } from '@renderer/components/chat/ModePicker'
-import { PERMISSION_MODES, coerceMode, type PermissionMode } from '@shared/permission-modes'
+import {
+  PERMISSION_MODES,
+  coerceMode,
+  nativeAutoBlocked,
+  type PermissionMode
+} from '@shared/permission-modes'
 import * as devlog from '@renderer/lib/devlog'
 import { useAgentArt } from '@renderer/lib/useAgentArt'
 import './screens.css'
@@ -53,6 +58,11 @@ import '@renderer/components/widgets/widgets.css'
  *  how much of a turn a session switch or a window close can cost — see the
  *  persistence block below. */
 const STREAM_SAVE_MS = 700
+
+/** What approving a plan drops the session into. One constant rather than the
+ *  literal at each `PermissionCard`/`ToolGroup` call site, so the two paths
+ *  cannot drift apart. */
+const PLAN_FOLLOW_ON_MODE: PermissionMode = 'acceptEdits'
 
 interface AskInput {
   question?: string
@@ -186,7 +196,14 @@ export function Session(): React.JSX.Element {
    */
   const [subscriptionModels, setSubscriptionModels] = useState<ModePickerModel[]>([])
   useEffect(() => {
-    void window.mochi?.anthropicModels().then((rows) => setSubscriptionModels(rows))
+    void window.mochi
+      ?.anthropicModels()
+      .then((rows) => setSubscriptionModels(rows))
+      .catch(() => {
+        // No subscription, or the call to it failed. The Auto submenu falls
+        // back to an empty model list rather than the picker rejecting on
+        // every mount.
+      })
   }, [])
 
   /*
@@ -1177,6 +1194,17 @@ export function Session(): React.JSX.Element {
 
   const subagents = activeSession.subagentIds.map(agentById).filter(Boolean)
 
+  /**
+   * Whether the `4` shortcut (native Auto) is reachable right now — the same
+   * check `ModePicker` makes for its own Native row. Computed here too so the
+   * shortcut and the menu can never disagree about which digits are live.
+   */
+  const nativeBlocked = nativeAutoBlocked({
+    backend: onSubscription ? 'subscription' : 'mastra',
+    supportsAutoMode: subscriptionModels.find((m) => m.id === (agent?.model ?? ''))
+      ?.supportsAutoMode
+  })
+
   return (
     <WidgetHost
       session={activeSession}
@@ -1188,6 +1216,7 @@ export function Session(): React.JSX.Element {
       rules={rules}
       stickerSrc={stickerSrc}
       onAddAgent={() => dispatch({ type: 'toggle', key: 'mentionOpen', value: true })}
+      backend={onSubscription ? 'subscription' : 'mastra'}
     >
       <div className="session-main">
         <header className="session-head">
@@ -1521,8 +1550,9 @@ export function Session(): React.JSX.Element {
                           baseUrl={server.baseUrl}
                           staleApprovals={staleApprovals}
                           settledApprovals={settledApprovals}
-                          sessionId={activeSession?.id}
-                          planFollowOn="acceptEdits"
+                          agentName={agent.name}
+                          onModeChange={setMode}
+                          planFollowOn={PLAN_FOLLOW_ON_MODE}
                         />
                       )
                     }
@@ -1542,8 +1572,8 @@ export function Session(): React.JSX.Element {
                                 baseUrl={server.baseUrl}
                                 agentName={agent.name}
                                 stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
-                                sessionId={activeSession?.id}
-                                planFollowOn="acceptEdits"
+                                onModeChange={setMode}
+                                planFollowOn={PLAN_FOLLOW_ON_MODE}
                               />
                             ) : null
                           }
@@ -1696,16 +1726,30 @@ export function Session(): React.JSX.Element {
                  * starts with one — "1. first thing" would silently switch to Manual and
                  * lose the character. An empty box is unambiguous: there is nothing there
                  * a digit could belong to.
+                 *
+                 * `isComposing` matters for the same reason: an IME mid-composition — say,
+                 * typing a Japanese word — can pass a bare digit through as a candidate
+                 * keystroke, and that is not the user asking for a mode switch either.
+                 *
+                 * `4` is native Auto, and it is skipped whenever `nativeBlocked` is set —
+                 * the same condition that greys the Native row out in the menu itself. The
+                 * shortcut used to reach past that: a model with no `supportsAutoMode`, or
+                 * the Mastra backend, allowed keys 1–3 to work and 4 to switch anyway.
                  */
+                const shortcutMode =
+                  /^[1-4]$/.test(e.key) && !(e.key === '4' && nativeBlocked)
+                    ? PERMISSION_MODES[Number(e.key) - 1]
+                    : null
                 if (
                   !e.ctrlKey &&
                   !e.metaKey &&
                   !e.altKey &&
+                  !e.nativeEvent.isComposing &&
                   e.currentTarget.value === '' &&
-                  /^[1-4]$/.test(e.key)
+                  shortcutMode
                 ) {
                   e.preventDefault()
-                  setMode(PERMISSION_MODES[Number(e.key) - 1])
+                  setMode(shortcutMode)
                   return
                 }
                 // While the picker is filtering a typed `@name`, Enter takes the
@@ -1764,11 +1808,7 @@ export function Session(): React.JSX.Element {
             <div className="composer-bar">
               <ModePicker
                 mode={coerceMode(activeSession?.mode)}
-                backend={
-                  preferSubscription && agent?.model.startsWith('anthropic/')
-                    ? 'subscription'
-                    : 'mastra'
-                }
+                backend={onSubscription ? 'subscription' : 'mastra'}
                 models={subscriptionModels}
                 currentModelId={agent?.model ?? ''}
                 classifierModel={activeSession?.autoClassifierModel}

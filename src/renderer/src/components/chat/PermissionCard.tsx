@@ -34,7 +34,7 @@ export function PermissionCard({
   agentName,
   stale = false,
   onAnswered,
-  sessionId,
+  onModeChange,
   planFollowOn
 }: {
   request: PermissionRequest
@@ -56,8 +56,15 @@ export function PermissionCard({
    * not recoverable either, since the answer was never written to the message.
    */
   stale?: boolean
-  /** The session, so approving a plan can also switch its mode. */
-  sessionId?: string
+  /**
+   * Approving a plan also switches the session's mode. This is `Session.tsx`'s
+   * `setMode`, which persists the mode to the store *and* posts it to the live
+   * run — passed down rather than the card POSTing `/agent-sdk/mode` itself,
+   * because a POST with no matching store write left the mode pill and the
+   * Permissions widget still showing Plan while the run had moved on, and the
+   * next turn's `load()` dropped it straight back to Plan.
+   */
+  onModeChange?: (mode: PermissionMode) => void
   /** What approving a plan drops into. */
   planFollowOn?: PermissionMode
 }): React.JSX.Element {
@@ -105,15 +112,14 @@ export function PermissionCard({
   if (planText && !stale && sent === null) {
     const follow = planFollowOn ?? 'acceptEdits'
     const approve = (): void => {
-      if (sessionId) {
-        void fetch(`${baseUrl}/agent-sdk/mode`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: sessionId, mode: follow })
-        }).catch(() => {
-          // The mode is still persisted by the picker's own write; worst case
-          // the switch lands on the next turn rather than this one.
-        })
+      // The permission itself must go through even if switching the mode
+      // throws — a plan the user approved is not something to leave hanging
+      // because the mode change had trouble.
+      try {
+        onModeChange?.(follow)
+      } catch {
+        // setMode's own fetch already swallows the run-not-live case; this is
+        // only a guard against the callback itself misbehaving.
       }
       answer('allow')
     }

@@ -34,7 +34,8 @@ import {
   coerceMode,
   PLAN_MODE_INSTRUCTIONS,
   toSdkPermissionMode,
-  type PermissionMode
+  type PermissionMode,
+  type SdkPermissionMode
 } from '../shared/permission-modes'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
@@ -550,7 +551,21 @@ function buildMochiServer(
   appVersion: string,
   memory?: MemoryContext | null,
   /** Whose server this is. Only used to stop an agent handing work to itself. */
-  selfId?: string
+  selfId?: string,
+  /**
+   * The parent turn's resolved SDK mode, so `delegate` can hand it to the
+   * sub-`query()` it spawns.
+   *
+   * Without this the sub-agent got no `permissionMode` (defaulting to
+   * `'default'`) and no `canUseTool`, which — per
+   * docs/debug-permission-prompt.md — is the configuration where the SDK has
+   * nobody to ask and a write simply stalls. That made "Plan mode changes
+   * nothing" true only because sub-agent writes hung, not because a rule
+   * stopped them. Plan mode's read-only enforcement is the SDK's own ("no
+   * execution of tools"), so handing it down is enough — no `canUseTool`
+   * needed on the sub-query.
+   */
+  parentMode?: SdkPermissionMode
 ): ReturnType<typeof createSdkMcpServer> {
   /**
    * Hand a subtask to another loadout.
@@ -631,7 +646,11 @@ function buildMochiServer(
             allowedTools: [],
             ...filesystemAccess(),
             env: subscriptionEnv(appVersion),
-            maxTurns: 8
+            maxTurns: 8,
+            // The parent turn's mode, so a Plan-mode turn spawns a Plan-mode
+            // worker instead of one the SDK silently stalls on writes for —
+            // see the note on `parentMode` above.
+            permissionMode: parentMode
           }
         })) {
           const message = raw as SdkMessage
@@ -1713,6 +1732,13 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
 
         const base = resume ? prompt : replayPrompt(body.messages, prompt)
         const opening = [known, recalled, ...referenced, base].filter(Boolean).join('\n\n---\n\n')
+        // Resolved once and reused for both the turn's own permissionMode and
+        // what `delegate` hands its sub-query — see the note on
+        // `buildMochiServer`'s `parentMode` parameter.
+        const resolvedMode = toSdkPermissionMode(
+          sessionMode(chatId),
+          load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
+        )
         /** The reply as the user sees it, kept so the exchange can be filed for
          *  later recall — the Agent SDK keeps its own transcript, and Mastra
          *  would otherwise never hear a word of this conversation. */
@@ -1757,7 +1783,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 mochi: buildMochiServer(
                   appVersion,
                   memoryKeys && agent ? { loadout: agent, ...memoryKeys } : null,
-                  agentId
+                  agentId,
+                  resolvedMode
                 )
               },
               // Skills live on the filesystem, so they stay off until asked for
@@ -1766,10 +1793,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               // The session's mode. `allowDangerouslySkipPermissions` is never
               // set, so even a mapping bug cannot reach bypass — the SDK
               // refuses that mode without it.
-              permissionMode: toSdkPermissionMode(
-                sessionMode(chatId),
-                load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
-              ),
+              permissionMode: resolvedMode,
               planModeInstructions: PLAN_MODE_INSTRUCTIONS,
               // Note: this is the SDK's *auto-approve* list, not a restriction
               // list — see docs/debug-permission-prompt.md.

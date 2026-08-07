@@ -7,6 +7,9 @@ import {
 } from 'file:///C:/Development/Mochi-Desktop/src/shared/permission-modes.ts'
 
 let fail = 0
+// Plain JS, run directly with `node` — a `: void` annotation here would be a
+// syntax error at runtime, so the rule is silenced rather than satisfied.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 const eq = (label, got, want) => {
   const a = JSON.stringify(got)
   const b = JSON.stringify(want)

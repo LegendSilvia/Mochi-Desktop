@@ -58,6 +58,25 @@ export function toSdkPermissionMode(
 }
 
 /**
+ * The hint shown for a mode — honest about whether it does anything.
+ *
+ * Every mode is implemented on the subscription backend (`agent-sdk-route.ts`)
+ * and none of them on the Mastra/API-key backend yet — that is Phase 3. The
+ * subscription hints ("edits run, commands still ask") are claims about
+ * enforcement that is simply absent there, so showing them on that backend
+ * told the user a mode was working when nothing was checking anything.
+ * Selecting a mode there still stores it, for when Phase 3 lands — same
+ * reason the Auto submenu lets you pick an inactive classifier model rather
+ * than hiding it.
+ */
+export function modeHint(mode: PermissionMode, backend: 'subscription' | 'mastra'): string {
+  if (backend === 'mastra') {
+    return 'not enforced yet on this backend — Phase 3'
+  }
+  return MODE_HINTS[mode]
+}
+
+/**
  * Why the native classifier cannot be used, or null when it can.
  *
  * Two reasons, and the picker shows whichever applies rather than greying the

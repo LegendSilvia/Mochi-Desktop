@@ -185,7 +185,19 @@ export interface MochiApi {
   openrouterModels: (opts: { modality?: 'text' | 'embeddings'; q?: string }) => Promise<
     Array<{ id: string; label: string; hint: string }>
   >
-  anthropicModels: () => Promise<Array<{ id: string; label: string; hint: string }>>
+  anthropicModels: () => Promise<
+    Array<{
+      id: string
+      label: string
+      hint: string
+      /** Whether this model can run the SDK's native Auto classifier — see
+       *  `SubscriptionModel` in `agent-sdk-route.ts`, which is what this
+       *  actually returns. Left off here before, so the field type-checked
+       *  only because the consumer declared it optional — a rename upstream
+       *  would have silently disabled the Native Auto row with no error. */
+      supportsAutoMode?: boolean
+    }>
+  >
   memoryGet: (agentId: string) => Promise<string>
   memorySet: (agentId: string, text: string) => Promise<boolean>
   /** File contents, so a diff can number its lines. Null when unreadable. */
