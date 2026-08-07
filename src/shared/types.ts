@@ -164,6 +164,11 @@ export interface ApprovalRequest {
   /** True when `target` had to be cut. Approving a command you can only half
    *  read is worse than being sent to the window that shows all of it. */
   truncated: boolean
+  /** Why this reached a card rather than running. Set when Auto escalated it —
+   *  the consequence table's rule, or the classifier's own words. Absent in
+   *  Manual and Accept edits, where "because you asked to be asked" is the
+   *  whole answer and saying it would be noise. */
+  escalationReason?: string
 }
 
 /**

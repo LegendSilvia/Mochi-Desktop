@@ -39,6 +39,7 @@ import {
 } from '../shared/permission-modes'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
+import { classify } from './classifier'
 
 /**
  * The subscription backend.
@@ -1815,6 +1816,45 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                * else parks until the renderer answers.
                */
               canUseTool: async (toolName, toolInput, { signal, suggestions, blockedPath }) => {
+                /*
+                 * Auto with a chosen model: that model answers first.
+                 *
+                 * Only this arm. Native Auto (no model named) is the SDK's own
+                 * classifier and never reaches here, and Manual and Accept
+                 * edits must arrive at the card exactly as they did before —
+                 * which is why this returns early or falls through, and never
+                 * rewrites the path below.
+                 */
+                let escalationReason: string | undefined
+                const classifierModel =
+                  sessionMode(chatId) === 'auto'
+                    ? load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
+                    : undefined
+
+                if (classifierModel) {
+                  try {
+                    const verdict = await classify({
+                      model: classifierModel,
+                      toolName,
+                      input: toolInput,
+                      workspaceRoot: workspace.cwd || undefined,
+                      signal,
+                      appVersion
+                    })
+                    if (verdict.decision === 'allow') return { behavior: 'allow' }
+                    if (verdict.decision === 'deny') {
+                      return { behavior: 'deny', message: verdict.reason }
+                    }
+                    escalationReason = verdict.reason
+                  } catch (err) {
+                    // `classify` is written not to throw, so this is the belt to
+                    // its braces. A throw escaping into the SDK here would stall
+                    // the turn on a tool nobody was ever asked about.
+                    console.warn('[mochi] classifier threw:', err)
+                    escalationReason = 'the classifier failed'
+                  }
+                }
+
                 const id = randomUUID()
                 writer.write({
                   type: 'data-permission',
@@ -1826,7 +1866,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     blockedPath: blockedPath ?? null,
                     // Only offer "always allow" when the SDK gave us rules to
                     // apply — inventing our own would drift from its policy.
-                    canAlwaysAllow: Boolean(suggestions?.length)
+                    canAlwaysAllow: Boolean(suggestions?.length),
+                    escalationReason
                   }
                 })
 
@@ -1851,7 +1892,8 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                   agentName: agent?.name ?? 'The agent',
                   toolName: shortName,
                   target: full.slice(0, APPROVAL_TARGET_MAX),
-                  truncated: full.length > APPROVAL_TARGET_MAX
+                  truncated: full.length > APPROVAL_TARGET_MAX,
+                  escalationReason
                 })
 
                 return new Promise<PermissionResult>((resolve) => {
