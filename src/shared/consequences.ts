@@ -152,7 +152,15 @@ export function assess(
 }
 
 /**
- * Every string and number anywhere in the input, flattened.
+ * Every string and number anywhere in the input, flattened and trimmed.
+ *
+ * Trimmed here, once, so every rule in `assess` — the `$`-anchored patterns
+ * included — looks at the same string `isAbsolutePath` and `climbsOut` were
+ * already normalising on their own. Before this, a trailing space or newline
+ * on a value defeated every `$`-anchored rule (`\.pem$`, `credentials$`,
+ * `-f\s*$`, the `.env` rule's `$` alternative) while the path checks, which
+ * trimmed independently, stayed unaffected — two paths reading the same
+ * value and disagreeing about what it was.
  *
  * `seen` tracks the current path only — deleted on the way back out — so an
  * object referenced twice is fine and only a genuine cycle throws. Depth is
@@ -166,7 +174,7 @@ export function assess(
 function flatten(value: unknown, seen = new Set<unknown>(), depth = 0): string[] {
   if (depth > 8) throw new Error('input too deep to read')
   if (value === null || value === undefined) return []
-  if (typeof value === 'string') return [value]
+  if (typeof value === 'string') return [value.trim()]
   if (typeof value === 'number' || typeof value === 'boolean') return [String(value)]
   if (typeof value !== 'object') return []
   if (seen.has(value)) throw new Error('cyclic input')
@@ -181,23 +189,29 @@ function flatten(value: unknown, seen = new Set<unknown>(), depth = 0): string[]
 }
 
 /** `C:\x`, `/x` — the shapes that can be compared to a root without guessing
- *  at a working directory. */
+ *  at a working directory. Takes an already-trimmed value, per `flatten` —
+ *  this does not trim again, so there is exactly one place a value's
+ *  whitespace is decided, not two agreeing by coincidence. */
 function isAbsolutePath(value: string): boolean {
-  return /^([A-Za-z]:[\\/]|[\\/])/.test(value.trim())
+  return /^([A-Za-z]:[\\/]|[\\/])/.test(value)
 }
 
 /** A `..` path segment, either slash style, at the start of the value or
  *  after a slash — the shape that climbs out of wherever a relative path
- *  started, whether or not the path as a whole is absolute. */
+ *  started, whether or not the path as a whole is absolute. Takes an
+ *  already-trimmed value, same reason as `isAbsolutePath` above. */
 function climbsOut(value: string): boolean {
-  return /(^|[\\/])\.\.([\\/]|$)/.test(value.trim())
+  return /(^|[\\/])\.\.([\\/]|$)/.test(value)
 }
 
 /** Windows-first: `C:/work` and `C:\work` are the same directory, and case
- *  does not distinguish two paths on this platform. */
+ *  does not distinguish two paths on this platform. `candidate` is an
+ *  already-trimmed value, per `flatten`; `root` is `opts.workspaceRoot`,
+ *  supplied directly by the caller rather than flattened from the tool's own
+ *  arguments, so it is still trimmed here rather than assumed clean. */
 function within(root: string, candidate: string): boolean {
-  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  const norm = (p: string): string => p.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   const r = norm(root)
-  const c = norm(candidate.trim())
+  const c = norm(candidate)
   return c === r || c.startsWith(`${r}/`)
 }

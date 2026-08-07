@@ -160,5 +160,33 @@ eq(
   'card'
 )
 
+// Fix round 2: a trailing space or newline must not defeat a `$`-anchored
+// rule. ALWAYS_CARD_PATHS and ARGUMENT_PATTERNS tested the raw value while
+// isAbsolutePath/climbsOut tested value.trim() — one untrimmed value could
+// pass the credential rules and still be judged "inside the workspace" by
+// the path rules a moment later. Every value is now trimmed once, in
+// `flatten`, before any rule sees it.
+eq(
+  'key file cards with trailing space',
+  v('mcp__fs__read', { path: '/home/u/secret.pem ' }),
+  'card'
+)
+eq(
+  'key file cards with trailing newline',
+  v('mcp__fs__read', { path: '/home/u/secret.pem' + String.fromCharCode(10) }),
+  'card'
+)
+eq('env file cards with trailing space', v('mcp__fs__read', { path: '/app/.env ' }), 'card')
+eq(
+  'force push cards with trailing space',
+  v('mcp__git__run', { cmd: 'git push -f ' }),
+  'card'
+)
+eq(
+  'force push cards with trailing newline',
+  v('mcp__git__run', { cmd: 'git push -f' + String.fromCharCode(10) }),
+  'card'
+)
+
 console.log(fail ? `\n${fail} FAILED` : '\nall passed')
 process.exit(fail ? 1 : 0)
