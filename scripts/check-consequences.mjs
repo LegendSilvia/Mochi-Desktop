@@ -177,14 +177,28 @@ eq(
   'card'
 )
 eq('env file cards with trailing space', v('mcp__fs__read', { path: '/app/.env ' }), 'card')
-eq(
-  'force push cards with trailing space',
-  v('mcp__git__run', { cmd: 'git push -f ' }),
-  'card'
-)
+eq('force push cards with trailing space', v('mcp__git__run', { cmd: 'git push -f ' }), 'card')
 eq(
   'force push cards with trailing newline',
   v('mcp__git__run', { cmd: 'git push -f' + String.fromCharCode(10) }),
+  'card'
+)
+
+// Fix round 3: trim() strips ASCII whitespace but not zero-width or
+// non-printing characters, so a value ending in one still defeated every
+// `$`-anchored rule, and one in the middle of a word still defeated a
+// substring or word-boundary rule. Built with String.fromCharCode, not a
+// literal escape, so this file stays readable and cannot be silently
+// mangled by an editor or a diff view.
+const ZWSP = String.fromCharCode(0x200b) // zero-width space
+eq(
+  'key file cards with a trailing zero-width space',
+  v('mcp__fs__read', { path: '/home/u/secret.pem' + ZWSP }),
+  'card'
+)
+eq(
+  'drop with a zero-width space inside still cards',
+  v('mcp__x__y', { s: 'please ' + 'dr' + ZWSP + 'op the table' }),
   'card'
 )
 

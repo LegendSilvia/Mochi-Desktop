@@ -152,15 +152,40 @@ export function assess(
 }
 
 /**
- * Every string and number anywhere in the input, flattened and trimmed.
+ * Zero-width and non-printing characters, stripped from a value before
+ * anything else looks at it.
  *
- * Trimmed here, once, so every rule in `assess` — the `$`-anchored patterns
- * included — looks at the same string `isAbsolutePath` and `climbsOut` were
- * already normalising on their own. Before this, a trailing space or newline
- * on a value defeated every `$`-anchored rule (`\.pem$`, `credentials$`,
- * `-f\s*$`, the `.env` rule's `$` alternative) while the path checks, which
- * trimmed independently, stayed unaffected — two paths reading the same
- * value and disagreeing about what it was.
+ * `dr` + a zero-width space + `op` reads as `drop` — to a human on a card, or
+ * to a model deciding whether to call this tool again — but is not the
+ * substring `drop`, so no pattern below would ever match it. Covers the
+ * zero-width joiners (U+200B–U+200D), the byte-order mark / zero-width
+ * no-break space (U+FEFF), and the C0/C1 control ranges (U+0000–U+001F,
+ * U+007F–U+009F). `String.prototype.trim()` catches none of these — it only
+ * removes characters with the Unicode `White_Space` property, which these
+ * are not — so a value ending in one of them still defeated every
+ * `$`-anchored rule even after values were trimmed. Stripped from the whole
+ * value, not only the ends: the same character mid-string defeats a
+ * substring or word rule exactly as well as one at the boundary defeats an
+ * anchor. Written entirely with `\u` escapes rather than the literal
+ * characters, so an editor or a diff view cannot silently mangle the one
+ * line that exists to catch exactly that kind of tampering.
+ */
+// eslint-disable-next-line no-control-regex -- the C0/C1 ranges are the point of this pattern, not an accident; see the comment above.
+const INVISIBLE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g
+
+/**
+ * Every string and number anywhere in the input, flattened, stripped of
+ * invisible characters, and trimmed.
+ *
+ * Normalised here, once, so every rule in `assess` — the `$`-anchored
+ * patterns and the word-boundary patterns alike — looks at the same string
+ * `isAbsolutePath` and `climbsOut` were already normalising on their own.
+ * Before the trim was centralised, a trailing space or newline on a value
+ * defeated every `$`-anchored rule (`\.pem$`, `credentials$`, `-f\s*$`, the
+ * `.env` rule's `$` alternative) while the path checks, which trimmed
+ * independently, stayed unaffected — two paths reading the same value and
+ * disagreeing about what it was. The same gap existed one level down for
+ * characters `trim()` does not strip at all; see `INVISIBLE_CHARS`.
  *
  * `seen` tracks the current path only — deleted on the way back out — so an
  * object referenced twice is fine and only a genuine cycle throws. Depth is
@@ -174,7 +199,7 @@ export function assess(
 function flatten(value: unknown, seen = new Set<unknown>(), depth = 0): string[] {
   if (depth > 8) throw new Error('input too deep to read')
   if (value === null || value === undefined) return []
-  if (typeof value === 'string') return [value.trim()]
+  if (typeof value === 'string') return [value.replace(INVISIBLE_CHARS, '').trim()]
   if (typeof value === 'number' || typeof value === 'boolean') return [String(value)]
   if (typeof value !== 'object') return []
   if (seen.has(value)) throw new Error('cyclic input')
