@@ -522,9 +522,16 @@ eq('M9 traversal with no folder open', v('mcp__fs__read', { p: '../../etc/passwd
 // M10 — TOOL_TAGS[name] was a prototype-chain lookup, so these threw rather
 // than returning a Consequence. `assess` is documented as always returning
 // one, and a later phase calls it where it is the whole decision.
-eq('M10 __proto__ returns a verdict', v('__proto__', { a: 1 }), 'allow')
-eq('M10 constructor returns a verdict', v('constructor', { a: 1 }), 'allow')
-eq('M10 toString returns a verdict', v('toString', { a: 1 }), 'allow')
+//
+// `__proto__`, `constructor` and `toString` are not real built-in tool names
+// and are not `mcp__`-prefixed, so under the unrecognised-built-in rule they
+// now card outright — same as any other name this table has never heard of.
+// What these assertions still pin is that the lookup itself does not throw:
+// a Consequence with an array `tags`, not a walk up the prototype chain that
+// hands back an object or a function.
+eq('M10 __proto__ returns a verdict, not a throw', v('__proto__', { a: 1 }), 'card')
+eq('M10 constructor returns a verdict, not a throw', v('constructor', { a: 1 }), 'card')
+eq('M10 toString returns a verdict, not a throw', v('toString', { a: 1 }), 'card')
 eq('M10 __proto__ carries array tags', Array.isArray(assess('__proto__', { a: 1 }).tags), true)
 eq('M10 a real tag still resolves', assess('Bash', { command: 'ls' }).tags, ['execute'])
 eq('M10 __proto__ still scans arguments', v('__proto__', { q: 'drop table t' }), 'card')
@@ -550,6 +557,126 @@ eq(
   'a key past the depth cap cards',
   v('mcp__x__y', nest(9, { '/home/u/.ssh/id_rsa': 'x' })),
   'card'
+)
+
+// ─────────────────────────────────────────────────────────────────────────
+// The PowerShell gap.
+//
+// `TOOL_TAGS` named `Bash`, `KillShell` and `SlashCommand`, and the live CLI
+// on this machine offers none of the last two and, on Windows, not the first
+// either — its shell tool is `PowerShell`, which carried no tags and reached
+// `allow` with no card at all, `Remove-Item -Recurse -Force` included. Every
+// one of the ~392 assertions above used a tool name the table already knew,
+// so not one of them would have caught it: the gap was never in a rule, it
+// was in which names the table had ever heard of.
+//
+// Two things close that, and both get standing coverage here rather than one
+// bespoke assertion apiece:
+//
+//   1. Every built-in tool the live CLI actually ships is asserted against
+//      its expected verdict, so the next name the CLI adds is the thing that
+//      is missing from this list, not silently missing from `TOOL_TAGS`.
+//   2. An unrecognised *built-in* name cards; an unrecognised `mcp__` name
+//      still defers, unchanged — that is the rule that makes the next tool
+//      the CLI adds fail safe instead of repeating this exact bug.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Built-in tools that reach `assess()` at all — everything in `AUTO_APPROVED`
+// (Read, Glob, Grep, ToolSearch, WebSearch, WebFetch, …) short-circuits
+// before this table is ever consulted, so those are deliberately absent here;
+// see the comment on `TOOL_TAGS` itself.
+eq('real tool: Write', v('Write', { file_path: 'a.ts', content: 'x' }), 'card')
+eq('real tool: Edit', v('Edit', { file_path: 'a.ts' }), 'card')
+eq('real tool: NotebookEdit', v('NotebookEdit', { notebook_path: 'a.ipynb' }), 'card')
+eq('real tool: Bash', v('Bash', { command: 'echo hi' }), 'card')
+eq('real tool: PowerShell', v('PowerShell', { command: 'Get-Process' }), 'card')
+eq('real tool: Task', v('Task', { prompt: 'look something up' }), 'card')
+eq('real tool: Workflow', v('Workflow', { name: 'ship' }), 'card')
+eq('real tool: CronCreate', v('CronCreate', { schedule: '0 9 * * *' }), 'card')
+eq('real tool: CronDelete', v('CronDelete', { id: '1' }), 'card')
+eq('real tool: ScheduleWakeup', v('ScheduleWakeup', { at: 'tomorrow' }), 'card')
+eq('real tool: RemoteTrigger', v('RemoteTrigger', { target: 'x' }), 'card')
+eq('real tool: EnterWorktree', v('EnterWorktree', { name: 'feature' }), 'card')
+eq('real tool: ExitWorktree', v('ExitWorktree', {}), 'card')
+eq('real tool: Skill', v('Skill', { skill: 'graphify' }), 'card')
+eq('real tool: TaskCreate', v('TaskCreate', { title: 'x' }), 'card')
+eq('real tool: TaskUpdate', v('TaskUpdate', { id: '1', status: 'done' }), 'card')
+eq('real tool: TaskStop', v('TaskStop', { id: '1' }), 'card')
+eq('real tool: SendMessage defers', v('SendMessage', { to: 'agent-1', text: 'hi' }), 'allow')
+eq('real tool: PushNotification defers', v('PushNotification', { text: 'done' }), 'allow')
+eq('real tool: DesignSync defers', v('DesignSync', { doc: 'x' }), 'allow')
+eq('real tool: CronList defers', v('CronList', {}), 'allow')
+eq('real tool: TaskGet defers', v('TaskGet', { id: '1' }), 'allow')
+eq('real tool: TaskList defers', v('TaskList', {}), 'allow')
+eq('real tool: TaskOutput defers', v('TaskOutput', { id: '1' }), 'allow')
+eq('real tool: ReportFindings defers', v('ReportFindings', { findings: [] }), 'allow')
+
+// An unrecognised built-in name cards. An unrecognised `mcp__` name still
+// defers — that split is the whole point of the rule.
+eq('unrecognised built-in cards', v('SomeFutureTool', { a: 1 }), 'card')
+eq('unrecognised built-in cards with benign args', v('AnotherNewTool', { note: 'hello' }), 'card')
+eq('unrecognised mcp tool still defers', v('mcp__some_future_server__doThing', { a: 1 }), 'allow')
+eq(
+  'unrecognised mcp tool with benign args still defers',
+  v('mcp__weather__forecast', { city: 'Bangkok' }),
+  'allow'
+)
+
+// The Windows/PowerShell destructive vocabulary. `--force\b` does not match
+// `-Force`, and nothing previously matched `Remove-Item`, `rd /s`,
+// `Format-Volume` or the rest of this list.
+eq(
+  'PowerShell + Remove-Item -Recurse -Force cards',
+  v('PowerShell', { command: 'Remove-Item -Recurse -Force C:' + B + 'work' }),
+  'card'
+)
+eq(
+  'Remove-Item cards via the argument scan alone',
+  v('mcp__sh__run', { c: 'Remove-Item C:' + B + 'work' + B + 'x.txt' }),
+  'card'
+)
+eq(
+  'bare -Recurse cards via the argument scan',
+  v('mcp__sh__run', { c: 'Get-ChildItem -Recurse' }),
+  'card'
+)
+eq(
+  'bare -Force cards via the argument scan',
+  v('mcp__sh__run', { c: 'Install-Module Foo -Force' }),
+  'card'
+)
+eq('rd /s cards', v('mcp__sh__run', { c: 'rd /s C:' + B + 'work' }), 'card')
+eq('rmdir /s cards', v('mcp__sh__run', { c: 'rmdir /s C:' + B + 'work' }), 'card')
+eq('del /f cards', v('mcp__sh__run', { c: 'del /f C:' + B + 'work' + B + 'x.txt' }), 'card')
+eq('del /q cards', v('mcp__sh__run', { c: 'del /q C:' + B + 'work' + B + 'x.txt' }), 'card')
+eq('Format-Volume cards', v('mcp__sh__run', { c: 'Format-Volume -DriveLetter D' }), 'card')
+eq('Clear-Disk cards', v('mcp__sh__run', { c: 'Clear-Disk -Number 1' }), 'card')
+eq('Stop-Computer cards', v('mcp__sh__run', { c: 'Stop-Computer -Force' }), 'card')
+eq(
+  'Set-ExecutionPolicy cards',
+  v('mcp__sh__run', { c: 'Set-ExecutionPolicy Unrestricted' }),
+  'card'
+)
+
+// Windows vocabulary must keep the same word-boundary discipline as the Unix
+// vocabulary: a word that merely contains the letters must not card.
+eq(
+  'a word containing "force" without a dash still defers',
+  v('mcp__x__y', { s: 'please reinforce the deadline, the workforce agrees' }),
+  'allow'
+)
+eq(
+  'a word containing "recurse" without a dash still defers',
+  v('mcp__x__y', { s: 'the recursion in this function is intentional' }),
+  'allow'
+)
+
+// The other half of the contract still holds after all of the above: a
+// benign multi-line script on an untagged tool defers to the classifier.
+eq(
+  'benign multi-line PowerShell-shaped script defers',
+  v('mcp__sh__run', { c: 'Get-Process' + NL + 'Write-Host "done"' }),
+  'allow'
 )
 
 console.log(fail ? `\n${fail} FAILED` : '\nall passed')

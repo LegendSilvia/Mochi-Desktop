@@ -24,22 +24,68 @@ export interface Consequence {
 }
 
 /**
- * Tags for the tools that actually reach here.
+ * Tags for the built-in tools that actually reach here.
  *
  * Everything in `AUTO_APPROVED` short-circuits long before this, so the reads
  * and the agent's own bookkeeping are deliberately absent. A tool that is not
- * listed is not thereby safe — it is unjudged, and the classifier is exactly
- * the thing meant to judge an unfamiliar call. The argument scan and the
- * always-card rules below still apply to it.
+ * listed is not thereby safe — see the unrecognised-built-in rule in
+ * `assess()` below, which is exactly what closes that gap for a name that
+ * isn't `mcp__`-prefixed. The argument scan and the always-card rules below
+ * still apply to everything here regardless of tag.
+ *
+ * This list previously named `KillShell` and `SlashCommand`, which do not
+ * exist as built-in tools, and omitted `PowerShell` — the actual shell tool
+ * on Windows, the platform this app targets first — which reached this table
+ * with no tags at all and ran Auto-approved with no card, `rm -rf` included.
+ * Sourced from the live built-in tool list, not from memory of an older CLI.
  */
 export const TOOL_TAGS: Record<string, ToolTag[]> = {
+  // Writes.
   Write: ['write'],
   Edit: ['write'],
-  MultiEdit: ['write'],
   NotebookEdit: ['write'],
+
+  // Shells. `Bash` is kept even though this machine's CLI does not offer it,
+  // because the same code may run somewhere it does; `PowerShell` is the
+  // shell that actually reaches this table here.
   Bash: ['execute'],
-  KillShell: ['execute'],
-  SlashCommand: ['execute'],
+  PowerShell: ['execute'],
+
+  // Spawn agents that can do anything a whole session can — at least as
+  // consequential as a shell, so judged the same way.
+  Task: ['execute'],
+  Workflow: ['execute'],
+
+  // Cause work to happen later, outside this turn's supervision.
+  CronCreate: ['execute'],
+  CronDelete: ['execute'],
+  ScheduleWakeup: ['execute'],
+  RemoteTrigger: ['execute'],
+
+  // Mutate the working tree.
+  EnterWorktree: ['write'],
+  ExitWorktree: ['write'],
+
+  // Loads instructions that then act on the caller's behalf.
+  Skill: ['execute'],
+
+  // Reach outside the machine.
+  SendMessage: ['network'],
+  PushNotification: ['network'],
+  DesignSync: ['network'],
+
+  // Read-only bookkeeping.
+  CronList: ['read'],
+  TaskGet: ['read'],
+  TaskList: ['read'],
+  TaskOutput: ['read'],
+  ReportFindings: ['read'],
+
+  // Task bookkeeping that mutates state.
+  TaskCreate: ['write'],
+  TaskUpdate: ['write'],
+  TaskStop: ['write'],
+
   mcp__mochi__saveDoc: ['write'],
   mcp__mochi__searchDocs: ['read']
 }
@@ -69,6 +115,37 @@ const ARGUMENT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   {
     pattern: /\bfilter-branch\b|\breset\s+--hard\b|\bpush\b.*\bforce\b/i,
     reason: 'the arguments rewrite history'
+  },
+  /*
+   * The table above spoke only Unix — `rm -rf`, `--force` (double-dash),
+   * `format c:` — and nothing here matched `-Force` (single dash, PowerShell's
+   * own convention) or a bare `Remove-Item`. That is exactly how
+   * `PowerShell` running `Remove-Item -Recurse -Force C:\work` reached
+   * `allow`: the shell itself is now tagged `execute` and cards regardless of
+   * its arguments, but an *untagged* tool — an MCP wrapper around a Windows
+   * shell, say — carrying this same text in its arguments would not have
+   * cleared any rule below without these. Added on Windows, the platform this
+   * app targets first, for the tool population that actually runs here.
+   */
+  { pattern: /\bRemove-Item\b/i, reason: 'the arguments remove a file or folder' },
+  {
+    // Single-dash: PowerShell's flag syntax, not the `--force`/`--recursive`
+    // long-flag shape the `rm` rule above already covers.
+    pattern: /-Recurse\b|-Force\b/i,
+    reason: 'the arguments force a recursive operation'
+  },
+  {
+    pattern: /\brd\s+\/s\b|\brmdir\s+\/s\b|\bdel\s+\/[fq]\b/i,
+    reason: 'the arguments contain a recursive or forced delete'
+  },
+  {
+    pattern: /\bFormat-Volume\b|\bClear-Disk\b/i,
+    reason: 'the arguments format or clear a disk'
+  },
+  { pattern: /\bStop-Computer\b/i, reason: 'the arguments shut down the machine' },
+  {
+    pattern: /\bSet-ExecutionPolicy\b/i,
+    reason: 'the arguments change what scripts are allowed to run'
   }
 ]
 
@@ -106,7 +183,37 @@ export function assess(
   // and `assess` broke its own contract of always returning a `Consequence`.
   // A later phase calls this where it is the whole decision, and a throw there
   // is not a card, it is an unhandled rejection in a permission check.
-  const tags = Object.hasOwn(TOOL_TAGS, toolName) ? TOOL_TAGS[toolName] : []
+  const recognized = Object.hasOwn(TOOL_TAGS, toolName)
+  const tags = recognized ? TOOL_TAGS[toolName] : []
+
+  /*
+   * An unrecognised *built-in* tool cards outright — it never reaches the
+   * classifier as a defer.
+   *
+   * The population this module judges splits in two. `mcp__`-prefixed names
+   * are third-party and genuinely unknowable ahead of time; an unrecognised
+   * one keeps deferring to the classifier, same as always, and the argument
+   * scan and always-card rules below still stand as its safety net. Every
+   * other name is a built-in the CLI itself ships — a finite, versioned set —
+   * and this table is meant to have an entry for each one.
+   *
+   * This rule exists because it did not, once: `PowerShell` — the shell tool
+   * on Windows, the platform this app targets first — reached this table with
+   * no tags and no entry, `TOOL_TAGS` fell through to `[]`, and Auto ran
+   * `Remove-Item -Recurse -Force` with no card at all. Tagging `PowerShell`
+   * fixes that one tool; it does nothing for the next tool the CLI adds
+   * before this table is updated to know about it. Carding every built-in
+   * name this table has never heard of means that gap fails safe — an
+   * unfamiliar built-in is a card, not a silent allow — instead of failing
+   * open again the next time the tool list changes underneath this file.
+   */
+  if (!recognized && !toolName.startsWith('mcp__')) {
+    return {
+      verdict: 'card',
+      reason: 'Mochi does not recognise this tool and cannot judge what it can do',
+      tags
+    }
+  }
 
   /*
    * Every string and number the call carries — and every object *key* it
