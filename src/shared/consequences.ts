@@ -70,9 +70,16 @@ export const TOOL_TAGS: Record<string, ToolTag[]> = {
   Skill: ['execute'],
 
   // Reach outside the machine.
+  // Reaching outward, but only to say something. Neither changes state nor runs
+  // code, so `network` is not a carding tag and the classifier gets to judge
+  // them on their arguments — which is the whole point of having a classifier.
   SendMessage: ['network'],
   PushNotification: ['network'],
-  DesignSync: ['network'],
+  // `DesignSync` is deliberately absent. Guessing `network` for a tool nobody
+  // here can characterise is exactly the move that left `PowerShell` untagged:
+  // a confident label standing in for knowledge. Unlisted, it falls to the
+  // unrecognised-built-in rule and cards, which is the honest answer until
+  // someone can say what it syncs and to where.
 
   // Read-only bookkeeping.
   CronList: ['read'],

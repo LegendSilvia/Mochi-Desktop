@@ -1,6 +1,10 @@
 import { assess } from 'file:///C:/Development/Mochi-Desktop/src/shared/consequences.ts'
 
 let fail = 0
+// Plain JS, run directly with `node` — a `: void` annotation here would be a
+// syntax error at runtime, so the rule is silenced rather than satisfied.
+// Same treatment as scripts/check-permission-modes.mjs.
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 const eq = (label, got, want) => {
   if (JSON.stringify(got) !== JSON.stringify(want)) {
     fail++
@@ -604,7 +608,10 @@ eq('real tool: TaskUpdate', v('TaskUpdate', { id: '1', status: 'done' }), 'card'
 eq('real tool: TaskStop', v('TaskStop', { id: '1' }), 'card')
 eq('real tool: SendMessage defers', v('SendMessage', { to: 'agent-1', text: 'hi' }), 'allow')
 eq('real tool: PushNotification defers', v('PushNotification', { text: 'done' }), 'allow')
-eq('real tool: DesignSync defers', v('DesignSync', { doc: 'x' }), 'allow')
+// Deliberately untagged: nobody here can say what it syncs or to where, and a
+// confident guess is what left PowerShell untagged. It cards as an
+// unrecognised built-in until someone can characterise it.
+eq('real tool: DesignSync cards, uncharacterised', v('DesignSync', { doc: 'x' }), 'card')
 eq('real tool: CronList defers', v('CronList', {}), 'allow')
 eq('real tool: TaskGet defers', v('TaskGet', { id: '1' }), 'allow')
 eq('real tool: TaskList defers', v('TaskList', {}), 'allow')
