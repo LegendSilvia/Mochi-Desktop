@@ -1195,3 +1195,66 @@ Recorded here so the next plan does not have to rediscover it:
 - **Auto with a chosen model behaves as Manual.** `toSdkPermissionMode` returns `'default'` and nothing answers `canUseTool` differently yet. The picker will let you choose a model and the choice is stored; it has no effect until Phase 2 adds `src/main/classifier.ts`. Say so in the submenu if it ships before Phase 2.
 - **The Mastra backend ignores mode entirely.** No `requireToolApproval`, no read-only tool map, no `proposePlan`. An API-key agent behaves exactly as it does today. Phase 3.
 - **No consequence table.** Tool tags and the argument scan are Phase 2, and they are what the custom classifier's safety floor is built from.
+
+---
+
+## Known follow-ups after Phase 1 shipped
+
+Recorded from the task reviews and the final whole-branch review. Everything
+here was found, triaged and deliberately deferred — none of it is unexamined.
+
+### Needs a pass on real Windows
+
+Nothing below was verifiable from the development environment this was built in.
+
+- Mode switching mid-turn actually taking effect (`query.setPermissionMode`).
+- The plan card: markdown rendering, **Approve → Accept edits** flipping the pill,
+  **Keep planning** leaving the session in Plan.
+- The Plan widget: bubble appearing only once a plan exists, status text, surviving
+  a restart.
+- The `1`–`4` shortcuts, including that they do nothing in a non-empty composer.
+- **Whether a denied `ExitPlanMode` really does arrive with `is_error` set.** The
+  type chain is verified (`ToolResultBlockParam.is_error`, and the `ai` package's
+  own zod schema for `errorText`), but the denial's wire construction happens
+  inside a compiled subprocess. If it turns out not to be set, a declined plan
+  still reads as approved — the code is safe either way, just less informative.
+- **Whether supplying `env` to a stdio MCP server replaces or merges the child
+  environment.** The upstream MCP TS SDK uses `params.env ?? getDefaultEnvironment()`,
+  which would strip `PATH` — if Claude Code does the same, adding one credential
+  breaks a working `npx …` server.
+
+### Real, deferred
+
+- **Sub-agents spawned by `delegate` register no `canUseTool` and pass
+  `allowedTools: []`.** They now inherit the parent's permission mode, but a
+  sub-agent tool call that needs an answer has nobody to ask, and the delegate
+  `for await` has no timeout — so it stalls the parent's tool call rather than
+  failing. This predates permission modes and wants a phase of its own.
+- `resolvedMode` is snapshotted at turn start, so a plan approved mid-turn does not
+  reach delegates spawned later in that same turn. Fails in the strict direction.
+- The mode POST and the permission POST are both fire-and-forget, so their arrival
+  order at main is unordered. Harmless today.
+- The settled receipt for an approved plan falls back to `describeTarget`'s JSON
+  blob rather than anything plan-shaped. The Plan widget is the durable surface.
+- `Session.tsx` and `ui/ModelPicker.tsx` each fetch the model list. A shared hook
+  was considered and deferred; the server-side cache makes the duplication cheap.
+- `latestPlan` uses an untyped structural cast rather than `ToolUIPart` — consistent
+  with every other helper in `panelData.ts`.
+- The Mastra note reuses the `.mode-blocked` class the native-Auto reason uses; the
+  name now covers two meanings.
+
+### Behaviour change worth a release note
+
+MCP server names are now validated (`/^[A-Za-z0-9_-]+$/`, no `__`, `mochi` reserved).
+A previously-working name containing a space or a dot is now refused: main logs a
+warning and the Tools pane says the server is not handed to agents, but a user who
+never opens that pane gets no signal.
+
+### Carried into Phase 2
+
+- `/agent-sdk/mode` trusts the request body's mode rather than re-deriving it. Moot
+  today — the renderer already owns the store through `saveState`, and `coerceMode`
+  bounds the value — but revisit when the classifier reads `autoClassifierModel`.
+- "Persist first, then POST" holds in call order, but the store write reaches disk
+  through async IPC. Not reachable at human speed today; it matters once the
+  classifier reads persisted state mid-turn.
