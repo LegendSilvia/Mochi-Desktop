@@ -297,6 +297,34 @@ Inside `export interface AppSettings`, next to `skills`, add:
 
 Find `export type WidgetKind` and add `'plan'` to the union, next to `'tasks'`.
 
+Adding a member to `WidgetKind` makes the `WIDGETS` record in
+`src/renderer/src/components/widgets/registry.ts` incomplete, so its entry lands
+here too — it is metadata only and needs no component. Add `ClipboardList` to
+that file's lucide import, then the entry beside `tasks`:
+
+```ts
+  plan: { label: 'Plan', icon: ClipboardList, auto: true, size: { w: 360, h: 340 } },
+```
+
+and put `'plan'` first in `PANEL_KINDS` — a plan is what the rest of the session
+is measured against:
+
+```ts
+export const PANEL_KINDS: WidgetKind[] = [
+  'plan',
+  'tasks',
+  'activity',
+  'files',
+  'agents',
+  'rules',
+  'permissions'
+]
+```
+
+Task 5 adds the component that renders it. Until then the bubble appears and
+`WidgetHost` falls through to its `default: return null`, which is an empty
+panel rather than a crash.
+
 Find the `SubscriptionModel` interface and add:
 
 ```ts
@@ -318,12 +346,15 @@ In `src/shared/defaults.ts`, inside `DEFAULT_SETTINGS`, next to the `skills` ent
 - [ ] **Step 7: Verify the build**
 
 Run: `npm run typecheck`
-Expected: PASS. If `WidgetKind` errors with a missing case, that is Task 5's `WIDGETS` record — add a temporary `plan` entry there copying the `tasks` entry, and Task 5 replaces it.
+Expected: PASS.
+
+Run: `npx eslint src/shared/permission-modes.ts src/shared/types.ts src/shared/defaults.ts src/renderer/src/components/widgets/registry.ts`
+Expected: no errors.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/shared/permission-modes.ts scripts/check-permission-modes.mjs src/shared/types.ts src/shared/defaults.ts
+git add src/shared/permission-modes.ts scripts/check-permission-modes.mjs src/shared/types.ts src/shared/defaults.ts src/renderer/src/components/widgets/registry.ts
 git commit -m "feat: four permission modes, and no way to spell the fifth"
 ```
 
@@ -603,7 +634,14 @@ export function ModePicker({
                       )}
                     </button>
                     {nativeBlocked && <p className="meta mode-blocked">{nativeBlocked}</p>}
-                    <span className="mode-menu-head">Or a model of your own</span>
+                    {/* Phase 1 stores this choice but nothing acts on it yet —
+                        Mochi's own classifier arrives in Phase 2, and until then
+                        a named model behaves as Manual. Saying so is the
+                        difference between a setting that is not finished and a
+                        setting that is broken. */}
+                    <span className="mode-menu-head">
+                      Or a model of your own — not active yet
+                    </span>
                     {models.map((m) => (
                       <button
                         key={m.id}
@@ -1093,40 +1131,18 @@ function latestPlan(messages: UIMessage[]): { text: string; approved: boolean } 
 }
 ```
 
-- [ ] **Step 2: Register the widget**
+- [ ] **Step 2: Render it**
 
-In `registry.ts`, add `ClipboardList` to the lucide import list, add the entry beside `tasks`:
-
-```ts
-  plan: { label: 'Plan', icon: ClipboardList, auto: true, size: { w: 360, h: 340 } },
-```
-
-and add `'plan'` to `PANEL_KINDS`, first — a plan is what the rest of the session is measured against:
-
-```ts
-export const PANEL_KINDS: WidgetKind[] = [
-  'plan',
-  'tasks',
-  'activity',
-  'files',
-  'agents',
-  'rules',
-  'permissions'
-]
-```
-
-- [ ] **Step 3: Render it**
-
-In `WidgetHost.tsx`, add `PlanPane` to the panes import block and add the case beside `'tasks'`:
+Task 1 already registered the widget's metadata in `registry.ts`; this is the
+component it was waiting for. In `WidgetHost.tsx`, add `PlanPane` to the panes
+import block and add the case beside `'tasks'`:
 
 ```tsx
       case 'plan':
         return <PlanPane messages={ctx.messages} />
 ```
 
-If Task 1 Step 7 added a temporary `plan` entry to `WIDGETS`, delete it now — Step 2 is its real definition.
-
-- [ ] **Step 4: Add the styles**
+- [ ] **Step 3: Add the styles**
 
 Append to `screens.css`:
 
@@ -1148,18 +1164,18 @@ Append to `screens.css`:
 }
 ```
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 4: Verify**
 
 Run: `npx prettier --write src/renderer/src/components/widgets/panes/PlanPane.tsx`
 Run: `npm run typecheck` — Expected: PASS.
 Run: `npm run build` — Expected: builds clean.
 Run: `npx eslint src/renderer/src/components/widgets/panes/PlanPane.tsx src/renderer/src/components/widgets/registry.ts src/renderer/src/components/widgets/WidgetHost.tsx` — Expected: no errors.
 
-- [ ] **Step 6: Verify by hand — needs Windows**
+- [ ] **Step 5: Verify by hand — needs Windows**
 
 Run `npm run dev`. Confirm the Plan bubble appears once a plan exists and not before, that the plan reads as markdown, that it says "Proposed" before approval and "Approved" after, and that it survives restarting the app.
 
-- [ ] **Step 7: Run the full check and commit**
+- [ ] **Step 6: Run the full check and commit**
 
 ```bash
 node scripts/check-permission-modes.mjs
