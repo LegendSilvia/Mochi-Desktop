@@ -1296,6 +1296,30 @@ interface ContentBlock {
   input?: unknown
   tool_use_id?: string
   content?: unknown
+  // Anthropic's own `ToolResultBlockParam` (the type `MessageParam.content`
+  // actually carries) declares this — see
+  // node_modules/@anthropic-ai/sdk/resources/messages/messages.d.ts. A
+  // `canUseTool` deny is returned to the model as a `tool_result` with this
+  // set, same as any other tool failure.
+  is_error?: boolean
+}
+
+/** A denied or failed tool_result's content, coerced to the plain string the
+ *  `tool-output-error` chunk requires — unlike a success, whose `output` is
+ *  passed through as `unknown` verbatim. */
+function errorTextOf(content: unknown): string {
+  if (typeof content === 'string' && content) return content
+  if (Array.isArray(content)) {
+    const text = content
+      .map((b: unknown) => {
+        const text = (b as { text?: unknown } | null)?.text
+        return typeof text === 'string' ? text : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+    if (text) return text
+  }
+  return 'Tool call failed.'
 }
 
 /** The partial-message payload, narrowed to the parts we render. The SDK types
@@ -1978,11 +2002,26 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 // reasoning with no tool in flight. The next tool sets it again.
                 bus.emitMascotState({ state: 'thinking', note: 'thinking' })
                 if (suppressed.has(block.tool_use_id)) continue
-                writer.write({
-                  type: 'tool-output-available',
-                  toolCallId: block.tool_use_id,
-                  output: block.content ?? null
-                })
+                // `is_error` is how a denial (canUseTool's `deny`) reaches the
+                // model too — a rejection is returned as a failed tool_result,
+                // not a distinct message type — so it doubles as the signal
+                // the renderer needs to tell "declined" apart from "done".
+                // Without this branch every denial rendered as a success: the
+                // failed styling in ToolPart.tsx existed but nothing upstream
+                // ever produced the state that triggers it.
+                writer.write(
+                  block.is_error
+                    ? {
+                        type: 'tool-output-error',
+                        toolCallId: block.tool_use_id,
+                        errorText: errorTextOf(block.content)
+                      }
+                    : {
+                        type: 'tool-output-available',
+                        toolCallId: block.tool_use_id,
+                        output: block.content ?? null
+                      }
+                )
               }
             }
             }
