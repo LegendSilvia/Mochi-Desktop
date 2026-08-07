@@ -4,6 +4,7 @@ import { createUIMessageStream, createUIMessageStreamResponse } from 'ai'
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentDefinition,
+  HookCallback,
   McpServerConfig,
   PermissionResult,
   Query,
@@ -282,6 +283,57 @@ const AUTO_APPROVED = [
   'WebSearch',
   'WebFetch'
 ]
+
+/**
+ * Funnels every tool call `canUseTool` cannot see into the callback that
+ * already gates everything else.
+ *
+ * `canUseTool` is supposed to be the one gate every tool call passes through
+ * — the consequence table, the classifier, the card, all of it hangs off
+ * that callback. It turns out the SDK does not actually invoke it for every
+ * tool. `PowerShell` — the shell on Windows, which this app targets first —
+ * never reached `canUseTool` at all: reproduced in a clean temp directory
+ * with no `.claude` anywhere and `permissionMode: 'default'`, a `PowerShell`
+ * call ran with no card, in Manual mode, while a `Write` call right next to
+ * it was gated correctly. Nothing about settings, cwd, permission mode or
+ * `allowedTools` explained it — the callback simply has a coverage hole, and
+ * it is not documented which tools fall in it, so treating this as "just a
+ * PowerShell bug" would be trusting a list nobody has verified is complete.
+ *
+ * A `PreToolUse` hook does not have that hole — it fires for `PowerShell`
+ * too — and returning `permissionDecision: 'ask'` from it routes the call
+ * into `canUseTool` after all (measured: with this hook active, both `Write`
+ * and `PowerShell` reach `canUseTool`). So instead of trying to enumerate
+ * and patch every tool the SDK forgets, this hook asks for everything and
+ * lets the existing gate decide — it is a funnel in front of `canUseTool`,
+ * not a second, competing decision-maker.
+ *
+ * Two things this must never do:
+ *
+ * - Return an opinion for anything in `AUTO_APPROVED`. Those tools (`Read`,
+ *   `Grep`, and the rest) are deliberately auto-approved so the common case
+ *   doesn't interrupt anyone; returning `'ask'` for them would put a
+ *   permission card in front of every read and make the app unusable. This
+ *   is the one thing to get right here — everything else just falls through
+ *   to the card that would have appeared anyway.
+ * - Return `'deny'`. Per the SDK, a `PreToolUse` deny is enforced immediately
+ *   and bypasses `canUseTool` entirely — the same shortcut that makes this
+ *   hook necessary for `ask` would, for `deny`, skip the consequence table,
+ *   the classifier and the card's escalation reason. `ask` is the only
+ *   verdict this hook is allowed to hand back; every real decision — allow,
+ *   deny, card — stays inside `canUseTool`, unchanged.
+ */
+const preToolUseAskGate: HookCallback = async (input) => {
+  if (input.hook_event_name !== 'PreToolUse') return {}
+  if (AUTO_APPROVED.includes(input.tool_name)) return {}
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'ask',
+      permissionDecisionReason: "Routing to Mochi's permission check."
+    }
+  }
+}
 
 /**
  * What the roles are for, said in the prompt.
@@ -1827,6 +1879,11 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               // list — see docs/debug-permission-prompt.md.
               allowedTools: AUTO_APPROVED,
               disallowedTools: DISALLOWED_BUILTINS,
+              // Drags tools `canUseTool` cannot see (PowerShell, on Windows)
+              // into the callback below by asking for everything that is not
+              // already auto-approved — see `preToolUseAskGate` for why this
+              // exists and why it may only ever say `ask`.
+              hooks: { PreToolUse: [{ hooks: [preToolUseAskGate] }] },
               // Named roles for the workers a turn spawns. Without this they
               // inherit every tool the parent has, including the ones that
               // write — see SUBAGENT_ROLES.
