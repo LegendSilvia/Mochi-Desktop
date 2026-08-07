@@ -2098,3 +2098,19 @@
 .mention-row[data-active='true'] {
   background: var(--acs);
 }
+
+.plan-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+.plan-pane-status {
+  flex: none;
+}
+.plan-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}

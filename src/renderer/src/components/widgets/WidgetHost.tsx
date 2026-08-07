@@ -25,6 +25,7 @@ import { NavigatorPane } from './panes/NavigatorPane'
 import { EditorPane } from './panes/EditorPane'
 import { TerminalPane } from './panes/TerminalPane'
 import { SearchPane } from './panes/SearchPane'
+import { PlanPane } from './panes/PlanPane'
 import {
   ActivityPane,
   AgentsPane,
@@ -34,7 +35,7 @@ import {
   SkillsPane,
   TasksPane
 } from './panes/PanelPanes'
-import { foldedActivity, latestTasks } from './panes/panelData'
+import { foldedActivity, latestPlan, latestTasks } from './panes/panelData'
 import { touchedFiles } from '@renderer/lib/diffStat'
 import { coerceMode } from '@shared/permission-modes'
 
@@ -159,9 +160,7 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       // matters most before anything has happened.
       permissions: true,
       tasks: latestTasks(ctx.messages).length > 0,
-      // No plan data exists yet — Task 5 wires the real source. False keeps an
-      // always-empty bubble from auto-appearing on every session in the meantime.
-      plan: false,
+      plan: latestPlan(ctx.messages) !== null,
       navigator: Boolean(folder),
       editor: Boolean(folder),
       terminal: true,
@@ -237,6 +236,8 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
         return folder ? <SkillsPane folder={folder} /> : <NoFolder />
       case 'tasks':
         return <TasksPane messages={ctx.messages} />
+      case 'plan':
+        return <PlanPane messages={ctx.messages} />
       case 'activity':
         return <ActivityPane messages={ctx.messages} />
       case 'files':
