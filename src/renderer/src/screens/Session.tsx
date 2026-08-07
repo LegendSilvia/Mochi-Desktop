@@ -1540,6 +1540,8 @@ export function Session(): React.JSX.Element {
                                 baseUrl={server.baseUrl}
                                 agentName={agent.name}
                                 stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
+                                sessionId={activeSession?.id}
+                                planFollowOn="acceptEdits"
                               />
                             ) : null
                           }
