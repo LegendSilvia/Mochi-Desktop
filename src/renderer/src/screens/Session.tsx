@@ -1521,6 +1521,8 @@ export function Session(): React.JSX.Element {
                           baseUrl={server.baseUrl}
                           staleApprovals={staleApprovals}
                           settledApprovals={settledApprovals}
+                          sessionId={activeSession?.id}
+                          planFollowOn="acceptEdits"
                         />
                       )
                     }

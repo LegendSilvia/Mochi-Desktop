@@ -16,6 +16,7 @@ import { playSound } from '@renderer/lib/audio'
 import { formatStat, hunkOf, pathOf } from '@renderer/lib/diffStat'
 import { DiffBody } from './DiffBody'
 import { PermissionCard, type PermissionRequest } from './PermissionCard'
+import type { PermissionMode } from '@shared/permission-modes'
 import './chat.css'
 
 /** A tool call or the approval gating one — the two things a turn's work is
@@ -275,13 +276,20 @@ export function ToolGroup({
   parts,
   baseUrl,
   staleApprovals,
-  settledApprovals
+  settledApprovals,
+  sessionId,
+  planFollowOn
 }: {
   parts: WorkPart[]
   baseUrl: string
   staleApprovals: Set<string>
   /** Answered elsewhere — on the desktop card, or in another window. */
   settledApprovals: string[]
+  /** The session, so approving a plan card grouped in here can also switch its
+   *  mode — same reason `PermissionCard` itself takes this. */
+  sessionId?: string
+  /** What approving a plan drops into. */
+  planFollowOn?: PermissionMode
 }): React.JSX.Element {
   const tools = parts.filter((p): p is ToolUIPart => p.type.startsWith('tool-'))
   const approvals = parts.filter((p) => p.type === 'data-permission')
@@ -357,6 +365,8 @@ export function ToolGroup({
                 baseUrl={baseUrl}
                 stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
                 onAnswered={(id) => setAnswered((prev) => [...prev, id])}
+                sessionId={sessionId}
+                planFollowOn={planFollowOn}
               />
             )
           }
