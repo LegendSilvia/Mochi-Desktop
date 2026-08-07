@@ -36,6 +36,7 @@ import {
 } from './panes/PanelPanes'
 import { foldedActivity, latestTasks } from './panes/panelData'
 import { touchedFiles } from '@renderer/lib/diffStat'
+import { coerceMode } from '@shared/permission-modes'
 
 export interface WidgetContext {
   session: Session
@@ -252,7 +253,13 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       case 'rules':
         return <RulesPane rules={ctx.rules} stickerSrc={ctx.stickerSrc} />
       case 'permissions':
-        return <PermissionsPane canPush={Boolean(ctx.agent.canPushWithoutAsking)} folder={folder} />
+        return (
+          <PermissionsPane
+            canPush={Boolean(ctx.agent.canPushWithoutAsking)}
+            folder={folder}
+            mode={coerceMode(ctx.session.mode)}
+          />
+        )
       default:
         return null
     }

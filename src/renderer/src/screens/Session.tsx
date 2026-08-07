@@ -42,6 +42,8 @@ import { withMentions } from '@renderer/components/chat/mentions'
 import { MessageActions } from '@renderer/components/chat/MessageActions'
 import { AskDock, type PendingAsk } from '@renderer/components/chat/AskDock'
 import { PermissionCard, type PermissionRequest } from '@renderer/components/chat/PermissionCard'
+import { ModePicker, type ModePickerModel } from '@renderer/components/chat/ModePicker'
+import { PERMISSION_MODES, coerceMode, type PermissionMode } from '@shared/permission-modes'
 import * as devlog from '@renderer/lib/devlog'
 import { useAgentArt } from '@renderer/lib/useAgentArt'
 import './screens.css'
@@ -172,6 +174,20 @@ export function Session(): React.JSX.Element {
   /** Which row the arrow keys are on. Reset whenever the list changes, so a
    *  narrowing filter cannot leave the highlight past the end of it. */
   const [mentionIndex, setMentionIndex] = useState(0)
+
+  /**
+   * The subscription's own model list, for the mode picker's Auto submenu.
+   *
+   * Fetched once per mount rather than gated on a menu opening — unlike the
+   * settings-screen model picker, this one also has to answer whether the
+   * *current* model supports the native classifier before the menu is ever
+   * touched, so the summary pill can name a blocked model correctly on first
+   * render instead of after a click.
+   */
+  const [subscriptionModels, setSubscriptionModels] = useState<ModePickerModel[]>([])
+  useEffect(() => {
+    void window.mochi?.anthropicModels().then((rows) => setSubscriptionModels(rows))
+  }, [])
 
   /*
    * Approvals answered somewhere other than this card.
@@ -968,6 +984,34 @@ export function Session(): React.JSX.Element {
   }
 
   /**
+   * Change the mode.
+   *
+   * Persisted first, because the persisted session is what the next turn reads
+   * — the POST is only what makes a *running* turn switch too. Doing it the
+   * other way round would leave a turn switched and the store disagreeing if
+   * the write failed.
+   */
+  const setMode = (mode: PermissionMode, classifierModel?: string): void => {
+    if (!activeSession) return
+    dispatch({
+      type: 'sessions',
+      sessions: sessions.map((s) =>
+        s.id === activeSession.id
+          ? { ...s, mode, autoClassifierModel: mode === 'auto' ? classifierModel : undefined }
+          : s
+      )
+    })
+    if (!server) return
+    void fetch(`${server.baseUrl}/agent-sdk/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: activeSession.id, mode })
+    }).catch(() => {
+      // No live run, or the run ended. The stored mode still applies next turn.
+    })
+  }
+
+  /**
    * Typing `@` opens the picker and filters it as you keep typing.
    *
    * Previously the picker was reachable only from the toolbar button, and
@@ -1641,6 +1685,25 @@ export function Session(): React.JSX.Element {
               }
               onChange={onInputChange}
               onKeyDown={(e) => {
+                /*
+                 * 1–4 select a mode, but only in an empty composer.
+                 *
+                 * Without that guard the shortcut eats a digit out of every message that
+                 * starts with one — "1. first thing" would silently switch to Manual and
+                 * lose the character. An empty box is unambiguous: there is nothing there
+                 * a digit could belong to.
+                 */
+                if (
+                  !e.ctrlKey &&
+                  !e.metaKey &&
+                  !e.altKey &&
+                  e.currentTarget.value === '' &&
+                  /^[1-4]$/.test(e.key)
+                ) {
+                  e.preventDefault()
+                  setMode(PERMISSION_MODES[Number(e.key) - 1])
+                  return
+                }
                 // While the picker is filtering a typed `@name`, Enter takes the
                 // top match instead of sending a half-written mention.
                 if (e.key === 'Escape' && mentionOpen) {
@@ -1695,6 +1758,18 @@ export function Session(): React.JSX.Element {
               }}
             />
             <div className="composer-bar">
+              <ModePicker
+                mode={coerceMode(activeSession?.mode)}
+                backend={
+                  preferSubscription && agent?.model.startsWith('anthropic/')
+                    ? 'subscription'
+                    : 'mastra'
+                }
+                models={subscriptionModels}
+                currentModelId={agent?.model ?? ''}
+                classifierModel={activeSession?.autoClassifierModel}
+                onChange={setMode}
+              />
               <button
                 className="composer-icon"
                 aria-label="Attach a file"

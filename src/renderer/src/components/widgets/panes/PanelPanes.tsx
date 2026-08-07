@@ -5,6 +5,7 @@ import { ArtPlaceholder } from '@renderer/components/ui/Controls'
 import { touchedFiles } from '@renderer/lib/diffStat'
 import { foldedActivity, latestTasks } from './panelData'
 import type { AgentLoadout, StickerRule, WsSkill } from '@shared/types'
+import { MODE_HINTS, MODE_LABELS, type PermissionMode } from '@shared/permission-modes'
 
 export function ActivityPane({ messages }: { messages: UIMessage[] }): React.JSX.Element {
   const activity = foldedActivity(messages)
@@ -135,13 +136,19 @@ export function RulesPane({
 
 export function PermissionsPane({
   canPush,
-  folder
+  folder,
+  mode
 }: {
   canPush: boolean
   folder?: string
+  mode: PermissionMode
 }): React.JSX.Element {
   return (
     <div className="wg-rows">
+      <div className="rag-row">
+        <span className="mono">{MODE_LABELS[mode]}</span>
+        <span className="meta">{MODE_HINTS[mode]}</span>
+      </div>
       <div className="panel-chips">
         <span className="chip">read</span>
         <span className="chip">write</span>
