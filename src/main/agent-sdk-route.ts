@@ -7,7 +7,8 @@ import type {
   McpServerConfig,
   PermissionResult,
   Query,
-  SDKUserMessage
+  SDKUserMessage,
+  SettingSource
 } from '@anthropic-ai/claude-agent-sdk'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -16,7 +17,7 @@ import { z } from 'zod'
 import { getPaths } from './paths'
 import { notifyIfAway } from './attention'
 import { bus } from '../mastra/events'
-import { load } from './store'
+import { load, readMcpSecrets } from './store'
 import { readLibrary } from './assets'
 import { addNote, search } from './rag'
 import {
@@ -28,6 +29,14 @@ import {
   writeWorkingMemory
 } from './recall'
 import { personalResource } from '../shared/memory'
+import { mcpNameError, mcpSecretKey } from '../shared/mcp'
+import {
+  coerceMode,
+  PLAN_MODE_INSTRUCTIONS,
+  toSdkPermissionMode,
+  type PermissionMode,
+  type SdkPermissionMode
+} from '../shared/permission-modes'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 
@@ -87,6 +96,9 @@ export interface SubscriptionModel {
   id: string
   label: string
   hint: string
+  /** Whether this model can run the SDK's native Auto classifier. Off the
+   *  SDK's own model list; absent on rows from a CLI too old to report it. */
+  supportsAutoMode?: boolean
 }
 
 /** Spawning a subprocess to read a list that changes a few times a year is
@@ -120,6 +132,7 @@ export async function listSubscriptionModels(appVersion: string): Promise<Subscr
       // Nothing is going to run, so the agent is given nothing to run with.
       // A models query that could touch the filesystem would be absurd.
       allowedTools: [],
+      ...filesystemAccess(),
       disallowedTools: DISALLOWED_BUILTINS
     }
   })
@@ -132,7 +145,8 @@ export async function listSubscriptionModels(appVersion: string): Promise<Subscr
         // Router form, so the value means the same thing on both backends.
         id: `anthropic/${m.resolvedModel ?? m.value}`,
         label: m.displayName || m.value,
-        hint: m.description || 'available on your Claude subscription'
+        hint: m.description || 'available on your Claude subscription',
+        supportsAutoMode: m.supportsAutoMode
       }))
     // Aliases resolve onto the same wire id ('sonnet' and 'claude-sonnet-5'),
     // and two rows that set the identical value is a choice with no meaning.
@@ -537,7 +551,21 @@ function buildMochiServer(
   appVersion: string,
   memory?: MemoryContext | null,
   /** Whose server this is. Only used to stop an agent handing work to itself. */
-  selfId?: string
+  selfId?: string,
+  /**
+   * The parent turn's resolved SDK mode, so `delegate` can hand it to the
+   * sub-`query()` it spawns.
+   *
+   * Without this the sub-agent got no `permissionMode` (defaulting to
+   * `'default'`) and no `canUseTool`, which — per
+   * docs/debug-permission-prompt.md — is the configuration where the SDK has
+   * nobody to ask and a write simply stalls. That made "Plan mode changes
+   * nothing" true only because sub-agent writes hung, not because a rule
+   * stopped them. Plan mode's read-only enforcement is the SDK's own ("no
+   * execution of tools"), so handing it down is enough — no `canUseTool`
+   * needed on the sub-query.
+   */
+  parentMode?: SdkPermissionMode
 ): ReturnType<typeof createSdkMcpServer> {
   /**
    * Hand a subtask to another loadout.
@@ -616,8 +644,13 @@ function buildMochiServer(
             systemPrompt: buildSystemPrompt(target, settings.userName),
             model: rest.join('/') || undefined,
             allowedTools: [],
+            ...filesystemAccess(),
             env: subscriptionEnv(appVersion),
-            maxTurns: 8
+            maxTurns: 8,
+            // The parent turn's mode, so a Plan-mode turn spawns a Plan-mode
+            // worker instead of one the SDK silently stalls on writes for —
+            // see the note on `parentMode` above.
+            permissionMode: parentMode
           }
         })) {
           const message = raw as SdkMessage
@@ -956,22 +989,114 @@ function buildSystemPrompt(agent: AgentLoadout, userName: string): string {
 }
 
 /**
+ * What a `query()` may read off the filesystem, from the app's own switch.
+ *
+ * Shared by every call site in this file rather than written out at the one
+ * that matters most, because "off" that only holds for the main turn is not
+ * off — a delegate turn or a title generation runs the same binary with the
+ * same access.
+ *
+ * Neither field can be omitted to mean "nothing". The SDK documents an absent
+ * `skills` as *no SDK configuration*, which leaves the CLI's defaults in force,
+ * and an absent `settingSources` loads user, project **and** local settings.
+ */
+function filesystemAccess(): { settingSources: SettingSource[]; skills: string[] | 'all' } {
+  const { settings } = load()
+  return {
+    // The open folder's settings and CLAUDE.md, and nothing wider.
+    settingSources: ['project'],
+    skills: settings.skills?.enabled ? settings.skills.allow : []
+  }
+}
+
+/**
+ * The mode a session is in, and what to hand the SDK for it.
+ *
+ * Read from the persisted session, never from the request body. The body is
+ * renderer-supplied, and a body that could name its own permission mode would
+ * be a permission system that asks the thing being restrained what it should be
+ * restrained by. The folder is already resolved this way for the same reason.
+ */
+function sessionMode(sessionId: string): PermissionMode {
+  const { sessions, settings } = load()
+  const stored = sessions.find((s) => s.id === sessionId)?.mode ?? settings.defaultMode
+  const mode = coerceMode(stored)
+  if (stored !== undefined && stored !== mode) {
+    console.warn(`[mochi] session ${sessionId} asked for mode "${String(stored)}" — using manual`)
+  }
+  return mode
+}
+
+/**
+ * The stored values for a server's header or environment slots.
+ *
+ * Only the names are in settings.json; a slot whose value is missing from the
+ * secret store is left out rather than sent empty, because an empty
+ * `Authorization` header is a 401 the user has to go and decode, while an
+ * absent one at least fails saying what it wanted.
+ */
+function secretValues(
+  secrets: Record<string, string>,
+  serverId: string,
+  slot: 'header' | 'env',
+  names: string[] | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of names ?? []) {
+    const value = secrets[mcpSecretKey(serverId, slot, name)]
+    if (value) out[name] = value
+  }
+  return out
+}
+
+/**
  * User-configured MCP servers, in the Agent SDK's own shape.
  *
  * Only enabled ones are passed, and a server missing the field its transport
  * needs is skipped rather than handed over half-formed — the SDK's failure for
  * that is a stalled startup, which is far harder to read than an absent tool.
+ *
+ * The name is checked here as well as in the Tools pane. `mochi` is the key of
+ * Mochi's own in-process server, so a user server that took it replaced every
+ * built-in tool *and* inherited their entries in the auto-approve list — the
+ * one case where a bad name is not merely a broken server. A settings.json
+ * written by hand, or by a build that predates the check, has to be refused
+ * here or the UI check is decoration.
  */
 function userMcpServers(): Record<string, McpServerConfig> {
   const { settings } = load()
+  const secrets = readMcpSecrets()
   const out: Record<string, McpServerConfig> = {}
+  const taken: string[] = []
+
   for (const server of settings.mcpServers ?? []) {
     if (!server.enabled) continue
-    if (server.type === 'http' && server.url) {
-      out[server.name] = { type: 'http', url: server.url }
-    } else if (server.type === 'stdio' && server.command) {
-      out[server.name] = { type: 'stdio', command: server.command, args: server.args ?? [] }
+    const name = server.name.trim()
+    const problem = mcpNameError(name, taken)
+    if (problem) {
+      console.warn(`[mochi] MCP server "${server.name}" skipped: ${problem}`)
+      continue
     }
+
+    if (server.type === 'http' && server.url) {
+      const headers = secretValues(secrets, server.id, 'header', server.headers)
+      out[name] = {
+        type: 'http',
+        url: server.url,
+        ...(Object.keys(headers).length ? { headers } : {})
+      }
+    } else if (server.type === 'stdio' && server.command) {
+      const env = secretValues(secrets, server.id, 'env', server.env)
+      out[name] = {
+        type: 'stdio',
+        command: server.command,
+        args: server.args ?? [],
+        ...(Object.keys(env).length ? { env } : {})
+      }
+    } else {
+      continue
+    }
+    taken.push(name)
   }
   return out
 }
@@ -1190,6 +1315,30 @@ interface ContentBlock {
   input?: unknown
   tool_use_id?: string
   content?: unknown
+  // Anthropic's own `ToolResultBlockParam` (the type `MessageParam.content`
+  // actually carries) declares this — see
+  // node_modules/@anthropic-ai/sdk/resources/messages/messages.d.ts. A
+  // `canUseTool` deny is returned to the model as a `tool_result` with this
+  // set, same as any other tool failure.
+  is_error?: boolean
+}
+
+/** A denied or failed tool_result's content, coerced to the plain string the
+ *  `tool-output-error` chunk requires — unlike a success, whose `output` is
+ *  passed through as `unknown` verbatim. */
+function errorTextOf(content: unknown): string {
+  if (typeof content === 'string' && content) return content
+  if (Array.isArray(content)) {
+    const text = content
+      .map((b: unknown) => {
+        const text = (b as { text?: unknown } | null)?.text
+        return typeof text === 'string' ? text : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+    if (text) return text
+  }
+  return 'Tool call failed.'
 }
 
 /** The partial-message payload, narrowed to the parts we render. The SDK types
@@ -1311,6 +1460,41 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
   })
 
   /**
+   * Change a session's mode while it is running.
+   *
+   * The persisted session is the source of truth and the renderer has already
+   * written it; this is only what makes the change take effect *now* rather
+   * than on the next turn. `setPermissionMode` is streaming-input only, which
+   * `inputChannel` already satisfies.
+   *
+   * A session with no live run is not an error — it is the ordinary case of
+   * changing mode between turns, and the next `query()` reads the stored value.
+   */
+  app.post('/agent-sdk/mode', async (c) => {
+    const { id, mode } = (await c.req.json().catch(() => ({}))) as {
+      id?: string
+      mode?: string
+    }
+    if (!id) return c.json({ ok: false, live: false }, 400)
+
+    const wanted = coerceMode(mode)
+    const run = liveRuns.get(id)
+    if (!run) return c.json({ ok: true, live: false })
+
+    try {
+      const session = load().sessions.find((s) => s.id === id)
+      await run.setPermissionMode(toSdkPermissionMode(wanted, session?.autoClassifierModel))
+      return c.json({ ok: true, live: true })
+    } catch (err) {
+      // An older CLI, or a run that ended between the lookup and the call.
+      // Neither is worth failing the request: the stored mode still applies to
+      // the next turn.
+      console.warn('[mochi] setPermissionMode failed:', err)
+      return c.json({ ok: true, live: false })
+    }
+  })
+
+  /**
    * Lines for the mascot to say, written in the agent's own voice.
    *
    * Called when a loadout is saved, so the cost is one short generation per edit
@@ -1351,6 +1535,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
             'You write short, warm, concrete one-liners in a given character voice. ' +
             'You never explain yourself and never number your output.',
           allowedTools: [],
+          ...filesystemAccess(),
           env: subscriptionEnv(appVersion),
           maxTurns: 1
         }
@@ -1391,6 +1576,7 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
         options: {
           systemPrompt: 'You write short, concrete titles. You never explain yourself.',
           allowedTools: [],
+          ...filesystemAccess(),
           env: subscriptionEnv(appVersion),
           /*
            * The quick-jobs model, not the conversation one.
@@ -1546,6 +1732,13 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
 
         const base = resume ? prompt : replayPrompt(body.messages, prompt)
         const opening = [known, recalled, ...referenced, base].filter(Boolean).join('\n\n---\n\n')
+        // Resolved once and reused for both the turn's own permissionMode and
+        // what `delegate` hands its sub-query — see the note on
+        // `buildMochiServer`'s `parentMode` parameter.
+        const resolvedMode = toSdkPermissionMode(
+          sessionMode(chatId),
+          load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
+        )
         /** The reply as the user sees it, kept so the exchange can be filed for
          *  later recall — the Agent SDK keeps its own transcript, and Mastra
          *  would otherwise never hear a word of this conversation. */
@@ -1582,19 +1775,26 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               model: modelName || undefined,
               ...(workspace.cwd ? { cwd: workspace.cwd } : {}),
               // Built per turn so its tools know whose memory they write to.
+              // `mochi` goes in last: `userMcpServers` already refuses the name,
+              // and this makes the built-in tools unloseable even if that check
+              // is ever relaxed or a new reserved name is missed.
               mcpServers: {
+                ...userMcpServers(),
                 mochi: buildMochiServer(
                   appVersion,
                   memoryKeys && agent ? { loadout: agent, ...memoryKeys } : null,
-                  agentId
-                ),
-                ...userMcpServers()
+                  agentId,
+                  resolvedMode
+                )
               },
-              // Skills live on the filesystem, so they stay off until asked for —
-              // enabling them silently would widen what the agent can reach.
-              ...(settings.skills?.enabled
-                ? { skills: settings.skills.allow, settingSources: ['project' as const] }
-                : {}),
+              // Skills live on the filesystem, so they stay off until asked for
+              // — enabling them silently would widen what the agent can reach.
+              ...filesystemAccess(),
+              // The session's mode. `allowDangerouslySkipPermissions` is never
+              // set, so even a mapping bug cannot reach bypass — the SDK
+              // refuses that mode without it.
+              permissionMode: resolvedMode,
+              planModeInstructions: PLAN_MODE_INSTRUCTIONS,
               // Note: this is the SDK's *auto-approve* list, not a restriction
               // list — see docs/debug-permission-prompt.md.
               allowedTools: AUTO_APPROVED,
@@ -1826,11 +2026,26 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                 // reasoning with no tool in flight. The next tool sets it again.
                 bus.emitMascotState({ state: 'thinking', note: 'thinking' })
                 if (suppressed.has(block.tool_use_id)) continue
-                writer.write({
-                  type: 'tool-output-available',
-                  toolCallId: block.tool_use_id,
-                  output: block.content ?? null
-                })
+                // `is_error` is how a denial (canUseTool's `deny`) reaches the
+                // model too — a rejection is returned as a failed tool_result,
+                // not a distinct message type — so it doubles as the signal
+                // the renderer needs to tell "declined" apart from "done".
+                // Without this branch every denial rendered as a success: the
+                // failed styling in ToolPart.tsx existed but nothing upstream
+                // ever produced the state that triggers it.
+                writer.write(
+                  block.is_error
+                    ? {
+                        type: 'tool-output-error',
+                        toolCallId: block.tool_use_id,
+                        errorText: errorTextOf(block.content)
+                      }
+                    : {
+                        type: 'tool-output-available',
+                        toolCallId: block.tool_use_id,
+                        output: block.content ?? null
+                      }
+                )
               }
             }
             }

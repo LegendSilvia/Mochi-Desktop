@@ -15,7 +15,18 @@ import {
   renamePreset,
   watchAssets
 } from './assets'
-import { deleteProviderKey, load, maskKey, readProviderKeys, save, writeProviderKey } from './store'
+import {
+  deleteMcpSecret,
+  deleteMcpServerSecrets,
+  deleteProviderKey,
+  load,
+  maskKey,
+  readMcpSecrets,
+  readProviderKeys,
+  save,
+  writeMcpSecret,
+  writeProviderKey
+} from './store'
 import { getServerInfo } from './mastra-server'
 import {
   applyMascotWindowConfig,
@@ -85,6 +96,10 @@ export const IPC = {
   providersList: 'mochi:providers',
   providerSetKey: 'mochi:provider-set-key',
   providerDeleteKey: 'mochi:provider-delete-key',
+  mcpSecretNames: 'mochi:mcp-secret-names',
+  mcpSetSecret: 'mochi:mcp-set-secret',
+  mcpDeleteSecret: 'mochi:mcp-delete-secret',
+  mcpForgetServer: 'mochi:mcp-forget-server',
   presetCreate: 'mochi:preset-create',
   presetRename: 'mochi:preset-rename',
   presetDelete: 'mochi:preset-delete',
@@ -424,6 +439,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     deleteProviderKey(provider.envVar)
     delete process.env[provider.envVar]
   })
+
+  /**
+   * MCP credentials.
+   *
+   * Only ever the *keys* leave this process — the Tools pane needs to know which
+   * slots have a value stored so it can show one as set, and that is all it
+   * needs. Handing back the values would put a bearer token in the renderer for
+   * no reason at all.
+   */
+  ipcMain.handle(IPC.mcpSecretNames, (): string[] => Object.keys(readMcpSecrets()))
+
+  ipcMain.handle(IPC.mcpSetSecret, (_e, key: string, value: string) => writeMcpSecret(key, value))
+
+  ipcMain.handle(IPC.mcpDeleteSecret, (_e, key: string) => deleteMcpSecret(key))
+
+  ipcMain.handle(IPC.mcpForgetServer, (_e, serverId: string) => deleteMcpServerSecrets(serverId))
 
   /**
    * Where the overlay should catch the mouse.

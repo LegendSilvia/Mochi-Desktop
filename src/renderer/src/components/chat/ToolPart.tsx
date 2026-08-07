@@ -16,6 +16,7 @@ import { playSound } from '@renderer/lib/audio'
 import { formatStat, hunkOf, pathOf } from '@renderer/lib/diffStat'
 import { DiffBody } from './DiffBody'
 import { PermissionCard, type PermissionRequest } from './PermissionCard'
+import type { PermissionMode } from '@shared/permission-modes'
 import './chat.css'
 
 /** A tool call or the approval gating one — the two things a turn's work is
@@ -275,13 +276,26 @@ export function ToolGroup({
   parts,
   baseUrl,
   staleApprovals,
-  settledApprovals
+  settledApprovals,
+  agentName,
+  onModeChange,
+  planFollowOn
 }: {
   parts: WorkPart[]
   baseUrl: string
   staleApprovals: Set<string>
   /** Answered elsewhere — on the desktop card, or in another window. */
   settledApprovals: string[]
+  /** Who is asking — forwarded to each grouped `PermissionCard` the same way
+   *  the direct one in `Session.tsx` gets it. A Plan-mode agent almost always
+   *  reads before proposing, so this grouped path is the card most users
+   *  actually see. */
+  agentName?: string
+  /** Approving a plan card grouped in here can also switch the session's mode
+   *  — forwarded through to `PermissionCard`, same reason it takes this. */
+  onModeChange?: (mode: PermissionMode) => void
+  /** What approving a plan drops into. */
+  planFollowOn?: PermissionMode
 }): React.JSX.Element {
   const tools = parts.filter((p): p is ToolUIPart => p.type.startsWith('tool-'))
   const approvals = parts.filter((p) => p.type === 'data-permission')
@@ -355,8 +369,11 @@ export function ToolGroup({
                 key={req?.id ?? i}
                 request={req}
                 baseUrl={baseUrl}
+                agentName={agentName}
                 stale={staleApprovals.has(req?.id) || settledApprovals.includes(req?.id)}
                 onAnswered={(id) => setAnswered((prev) => [...prev, id])}
+                onModeChange={onModeChange}
+                planFollowOn={planFollowOn}
               />
             )
           }

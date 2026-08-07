@@ -5,6 +5,8 @@
  * anything it pulls in gets pulled into the preload sandbox too.
  */
 
+import type { PermissionMode } from './permission-modes'
+
 /** Mascot lifecycle states. Each maps to a sprite, a motion and a sound. */
 export type MascotState =
   | 'idle'
@@ -367,6 +369,18 @@ export interface Session {
    *  manual rename is never overwritten. */
   autoTitled?: boolean
   busy: boolean
+  /**
+   * What this session is allowed to do without asking.
+   *
+   * Per session rather than global: one session planning while another executes
+   * is the normal case, not the exotic one. Absent on sessions saved before
+   * this existed — the store merges shallowly and does not backfill — so every
+   * reader goes through `coerceMode`.
+   */
+  mode?: PermissionMode
+  /** Only meaningful when `mode` is `'auto'`. Absent means the native
+   *  classifier; a model id means Mochi's own (Phase 2). */
+  autoClassifierModel?: string
   /** Epoch ms. Drives the Today / Yesterday / Last week grouping. */
   updatedAt: number
   /** Mastra memory thread id. Absent for `scratch` sessions, which save nothing. */
@@ -444,6 +458,8 @@ export interface AppSettings {
    * a list restricts it to those names.
    */
   skills: { enabled: boolean; allow: string[] | 'all' }
+  /** What a newly created session starts in. */
+  defaultMode: PermissionMode
   /** What agents call the user. Empty means no name is set. */
   userName: string
   /** Ids of tours already completed or skipped. */
@@ -472,6 +488,11 @@ export interface PersistedState {
  * `http` points at a URL; `stdio` launches a local command. Kept deliberately
  * close to the Agent SDK's own shape so wiring it through is a rename, not a
  * translation layer that can drift.
+ *
+ * `headers` and `env` carry only the *names*. Nearly every real MCP server
+ * wants a bearer token or an API key in one of them, and this file is plain
+ * JSON in `%APPDATA%\Mochi` — so the values go to the same safeStorage-backed
+ * store the provider keys use, keyed by `mcpSecretKey()`.
  */
 export interface McpServerSpec {
   id: string
@@ -479,9 +500,13 @@ export interface McpServerSpec {
   type: 'http' | 'stdio'
   /** http only. */
   url?: string
+  /** http only. Header names; values live in the encrypted secret store. */
+  headers?: string[]
   /** stdio only. */
   command?: string
   args?: string[]
+  /** stdio only. Environment variable names; values in the secret store. */
+  env?: string[]
   enabled: boolean
 }
 
@@ -602,6 +627,7 @@ export type WidgetKind =
   | 'search'
   | 'skills'
   | 'tasks'
+  | 'plan'
 
 /** Position and size in chat-relative pixels. Absent until the user drags. */
 export interface WidgetGeom {

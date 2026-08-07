@@ -25,6 +25,7 @@ import { NavigatorPane } from './panes/NavigatorPane'
 import { EditorPane } from './panes/EditorPane'
 import { TerminalPane } from './panes/TerminalPane'
 import { SearchPane } from './panes/SearchPane'
+import { PlanPane } from './panes/PlanPane'
 import {
   ActivityPane,
   AgentsPane,
@@ -34,8 +35,9 @@ import {
   SkillsPane,
   TasksPane
 } from './panes/PanelPanes'
-import { foldedActivity, latestTasks } from './panes/panelData'
+import { foldedActivity, latestPlan, latestTasks } from './panes/panelData'
 import { touchedFiles } from '@renderer/lib/diffStat'
+import { coerceMode } from '@shared/permission-modes'
 
 export interface WidgetContext {
   session: Session
@@ -47,6 +49,10 @@ export interface WidgetContext {
   rules: StickerRule[]
   stickerSrc: (id: string | null) => string | null
   onAddAgent: () => void
+  /** Which backend this agent's turns actually run on. The Permissions widget
+   *  needs it to say whether the session's mode is enforced or only stored —
+   *  modes are implemented on the subscription backend and not yet on Mastra. */
+  backend: 'subscription' | 'mastra'
   /** The chat itself. Passed as children because a docked widget takes real
    *  layout space beside it — the chat has to be a sibling of the docks, not
    *  something they float over. */
@@ -158,6 +164,7 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       // matters most before anything has happened.
       permissions: true,
       tasks: latestTasks(ctx.messages).length > 0,
+      plan: latestPlan(ctx.messages) !== null,
       navigator: Boolean(folder),
       editor: Boolean(folder),
       terminal: true,
@@ -233,6 +240,8 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
         return folder ? <SkillsPane folder={folder} /> : <NoFolder />
       case 'tasks':
         return <TasksPane messages={ctx.messages} />
+      case 'plan':
+        return <PlanPane messages={ctx.messages} />
       case 'activity':
         return <ActivityPane messages={ctx.messages} />
       case 'files':
@@ -249,7 +258,14 @@ export function WidgetHost(ctx: WidgetContext): React.JSX.Element {
       case 'rules':
         return <RulesPane rules={ctx.rules} stickerSrc={ctx.stickerSrc} />
       case 'permissions':
-        return <PermissionsPane canPush={Boolean(ctx.agent.canPushWithoutAsking)} folder={folder} />
+        return (
+          <PermissionsPane
+            canPush={Boolean(ctx.agent.canPushWithoutAsking)}
+            folder={folder}
+            mode={coerceMode(ctx.session.mode)}
+            backend={ctx.backend}
+          />
+        )
       default:
         return null
     }

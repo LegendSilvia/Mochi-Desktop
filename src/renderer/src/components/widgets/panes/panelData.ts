@@ -105,3 +105,60 @@ export function latestTasks(messages: UIMessage[]): TaskRow[] {
   }
   return []
 }
+
+/** What became of a proposed plan. `waiting` is the safe default: anything
+ *  this file cannot positively identify as approved or declined reads as
+ *  still waiting on an answer, never as approved. */
+export type PlanStatus = 'approved' | 'declined' | 'waiting'
+
+export interface PlanInfo {
+  text: string
+  status: PlanStatus
+}
+
+/**
+ * The most recent ExitPlanMode call, and what became of it.
+ *
+ * Shared by PlanPane (what to render) and WidgetHost's `hasData` (whether the
+ * Plan bubble is worth showing at all), so the two can never disagree about
+ * what counts as "a plan exists". The last call wins: an agent that re-plans
+ * supersedes its own earlier plan.
+ *
+ * ExitPlanMode has nothing of its own that can fail — its only route to
+ * `output-error` is `canUseTool`'s deny path in agent-sdk-route.ts (declined,
+ * timed out, or the run was stopped), so an errored call is read as declined
+ * rather than as some unrelated fault. Every other state — still streaming,
+ * only the input has landed, an approval requested but not yet responded to,
+ * or a state this file has never seen — reads as `waiting`, on purpose: an
+ * unconfirmed answer must never be shown as approved.
+ */
+export function latestPlan(messages: UIMessage[]): PlanInfo | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const parts = messages[i].parts ?? []
+    for (let j = parts.length - 1; j >= 0; j--) {
+      const part = parts[j] as unknown as {
+        type: string
+        state?: string
+        input?: Record<string, unknown>
+      }
+      if (typeof part.type !== 'string' || !part.type.startsWith('tool-')) continue
+      if (part.type !== 'tool-ExitPlanMode') continue
+      const input = part.input
+      // Same two field names, same order, as PermissionCard's planOf — so the
+      // widget and the permission card can never disagree about what the
+      // plan is.
+      const text = ['plan', 'content']
+        .map((k) => input?.[k])
+        .find((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+      if (!text) continue
+      const status: PlanStatus =
+        part.state === 'output-available'
+          ? 'approved'
+          : part.state === 'output-error'
+            ? 'declined'
+            : 'waiting'
+      return { text, status }
+    }
+  }
+  return null
+}

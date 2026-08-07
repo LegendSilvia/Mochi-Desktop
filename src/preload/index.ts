@@ -60,6 +60,10 @@ const IPC = {
   providersList: 'mochi:providers',
   providerSetKey: 'mochi:provider-set-key',
   providerDeleteKey: 'mochi:provider-delete-key',
+  mcpSecretNames: 'mochi:mcp-secret-names',
+  mcpSetSecret: 'mochi:mcp-set-secret',
+  mcpDeleteSecret: 'mochi:mcp-delete-secret',
+  mcpForgetServer: 'mochi:mcp-forget-server',
   presetCreate: 'mochi:preset-create',
   presetRename: 'mochi:preset-rename',
   presetDelete: 'mochi:preset-delete',
@@ -181,7 +185,19 @@ export interface MochiApi {
   openrouterModels: (opts: { modality?: 'text' | 'embeddings'; q?: string }) => Promise<
     Array<{ id: string; label: string; hint: string }>
   >
-  anthropicModels: () => Promise<Array<{ id: string; label: string; hint: string }>>
+  anthropicModels: () => Promise<
+    Array<{
+      id: string
+      label: string
+      hint: string
+      /** Whether this model can run the SDK's native Auto classifier — see
+       *  `SubscriptionModel` in `agent-sdk-route.ts`, which is what this
+       *  actually returns. Left off here before, so the field type-checked
+       *  only because the consumer declared it optional — a rename upstream
+       *  would have silently disabled the Native Auto row with no error. */
+      supportsAutoMode?: boolean
+    }>
+  >
   memoryGet: (agentId: string) => Promise<string>
   memorySet: (agentId: string, text: string) => Promise<boolean>
   /** File contents, so a diff can number its lines. Null when unreadable. */
@@ -204,6 +220,13 @@ export interface MochiApi {
   providers: () => Promise<ProviderAccount[]>
   setProviderKey: (id: string, key: string) => Promise<{ ok: boolean; reason?: string }>
   deleteProviderKey: (id: string) => Promise<void>
+  /** Which MCP header/env slots have a stored value. Names only — the values
+   *  stay in the main process. Keys are built by `mcpSecretKey()`. */
+  mcpSecretNames: () => Promise<string[]>
+  mcpSetSecret: (key: string, value: string) => Promise<{ ok: boolean; reason?: string }>
+  mcpDeleteSecret: (key: string) => Promise<void>
+  /** Drop every credential belonging to a server. Called when it is removed. */
+  mcpForgetServer: (serverId: string) => Promise<void>
   onLibraryChanged: (cb: () => void) => () => void
   onStickerFired: (cb: (p: StickerFiredPayload) => void) => () => void
   onMascotState: (cb: (p: MascotStatePayload) => void) => () => void
@@ -301,6 +324,10 @@ const api: MochiApi = {
   providers: () => ipcRenderer.invoke(IPC.providersList),
   setProviderKey: (id, key) => ipcRenderer.invoke(IPC.providerSetKey, id, key),
   deleteProviderKey: (id) => ipcRenderer.invoke(IPC.providerDeleteKey, id),
+  mcpSecretNames: () => ipcRenderer.invoke(IPC.mcpSecretNames),
+  mcpSetSecret: (key, value) => ipcRenderer.invoke(IPC.mcpSetSecret, key, value),
+  mcpDeleteSecret: (key) => ipcRenderer.invoke(IPC.mcpDeleteSecret, key),
+  mcpForgetServer: (serverId) => ipcRenderer.invoke(IPC.mcpForgetServer, serverId),
   presetCreate: (name) => ipcRenderer.invoke(IPC.presetCreate, name),
   presetRename: (from, to) => ipcRenderer.invoke(IPC.presetRename, from, to),
   presetDelete: (name) => ipcRenderer.invoke(IPC.presetDelete, name),

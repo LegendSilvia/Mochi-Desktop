@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { ShieldQuestion, Check, X, Infinity as InfinityIcon, ChevronRight } from 'lucide-react'
+import {
+  ShieldQuestion,
+  Check,
+  X,
+  Infinity as InfinityIcon,
+  ChevronRight,
+  ClipboardList
+} from 'lucide-react'
+import { Markdown } from './Markdown'
+import { MODE_LABELS, type PermissionMode } from '@shared/permission-modes'
 import './chat.css'
 
 /**
@@ -24,7 +33,9 @@ export function PermissionCard({
   baseUrl,
   agentName,
   stale = false,
-  onAnswered
+  onAnswered,
+  onModeChange,
+  planFollowOn
 }: {
   request: PermissionRequest
   baseUrl: string
@@ -45,6 +56,17 @@ export function PermissionCard({
    * not recoverable either, since the answer was never written to the message.
    */
   stale?: boolean
+  /**
+   * Approving a plan also switches the session's mode. This is `Session.tsx`'s
+   * `setMode`, which persists the mode to the store *and* posts it to the live
+   * run — passed down rather than the card POSTing `/agent-sdk/mode` itself,
+   * because a POST with no matching store write left the mode pill and the
+   * Permissions widget still showing Plan while the run had moved on, and the
+   * next turn's `load()` dropped it straight back to Plan.
+   */
+  onModeChange?: (mode: PermissionMode) => void
+  /** What approving a plan drops into. */
+  planFollowOn?: PermissionMode
 }): React.JSX.Element {
   const [sent, setSent] = useState<'allow' | 'deny' | null>(null)
 
@@ -75,6 +97,56 @@ export function PermissionCard({
   const target = describeTarget(request.input) || request.blockedPath || ''
   const reason =
     request.blockedPath && request.blockedPath !== target ? request.blockedPath : null
+
+  /*
+   * A plan is not a permission question, even though it arrives as one.
+   *
+   * The CLI ends plan mode by calling ExitPlanMode, which lands here like any
+   * other gated tool. Rendering it as "may I run ExitPlanMode" would show the
+   * user a tool name and hide the only thing that matters, which is the plan
+   * itself — so it gets a card of its own, and Approve does two things at once:
+   * resolves the permission and moves the session out of Plan, so the agent
+   * carries on in the same turn instead of waiting to be told again.
+   */
+  const planText = request.toolName === 'ExitPlanMode' ? planOf(request.input) : null
+  if (planText && !stale && sent === null) {
+    const follow = planFollowOn ?? 'acceptEdits'
+    const approve = (): void => {
+      // The permission itself must go through even if switching the mode
+      // throws — a plan the user approved is not something to leave hanging
+      // because the mode change had trouble.
+      try {
+        onModeChange?.(follow)
+      } catch {
+        // setMode's own fetch already swallows the run-not-live case; this is
+        // only a guard against the callback itself misbehaving.
+      }
+      answer('allow')
+    }
+    return (
+      <div className="perm-card plan-card" data-done={false}>
+        <div className="perm-head">
+          <ClipboardList size={14} strokeWidth={1.9} />
+          <span>
+            <strong>{agentName ?? 'This agent'}</strong> has a plan
+          </span>
+        </div>
+        <div className="plan-body">
+          <Markdown text={planText} />
+        </div>
+        <div className="perm-actions">
+          <button className="pill-primary" onClick={approve}>
+            <Check size={13} strokeWidth={2.4} />
+            Approve → {MODE_LABELS[follow]}
+          </button>
+          <button className="pill-ghost" onClick={() => answer('deny')}>
+            <X size={13} strokeWidth={2.2} />
+            Keep planning
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   /*
    * A settled approval folds away.
@@ -163,4 +235,15 @@ function describeTarget(input: Record<string, unknown> | undefined): string {
   const json = JSON.stringify(input)
   if (!json || json === '{}') return ''
   return json.length > 120 ? `${json.slice(0, 117)}…` : json
+}
+
+/** The plan out of an ExitPlanMode call. The SDK names the field `plan`; older
+ *  CLIs have been seen to send `content`, so both are read before giving up. */
+function planOf(input: Record<string, unknown> | undefined): string | null {
+  if (!input) return null
+  for (const key of ['plan', 'content']) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return null
 }
