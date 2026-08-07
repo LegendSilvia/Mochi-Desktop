@@ -42,6 +42,7 @@ import {
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
 import { classify } from './classifier'
+import { assess } from '../shared/consequences'
 
 /**
  * The subscription backend.
@@ -336,6 +337,58 @@ const preToolUseAskGate: HookCallback = async (input) => {
 }
 
 /**
+ * `PreToolUse` gate for the sub-`query()` a `delegate` call spawns.
+ *
+ * The main turn's gate (`preToolUseAskGate`, above) funnels ungated calls into
+ * `canUseTool`, which parks a promise until the renderer answers with a card.
+ * A delegated worker has no renderer watching it and no user to show a card
+ * to — wiring `canUseTool` onto the sub-query would park that same promise
+ * with nothing able to ever resolve it, hanging the parent's `delegate` tool
+ * call until `APPROVAL_TIMEOUT_MS` and then failing anyway. So `canUseTool`
+ * stays off this sub-query, on purpose — this hook is the entire gate.
+ *
+ * Same policy as the main turn, a different outcome, because the reachable
+ * outcomes differ: the main turn can turn an ungated call into a question;
+ * a sub-agent can only turn it into a "no". Anything in `AUTO_APPROVED`
+ * still runs free — reads and the agent's own bookkeeping, exactly as for
+ * the main turn, because a delegated researcher needs those to do anything
+ * at all. Everything else is denied, unconditionally.
+ *
+ * `assess()` is called below, but only to word the denial, never to decide
+ * it — do not let that drift. `verdict === 'card'` and `verdict === 'allow'`
+ * both end in `permissionDecision: 'deny'` here; the table's `allow` means
+ * "no objection, it's the classifier's turn to decide," and there is no
+ * classifier and no user in this sub-query, so the honest reading of
+ * "allow" is still "no." The two verdicts get different reason text so a
+ * denial for an unremarkable tool does not read the same as a denial for a
+ * `.ssh` path, but neither one is allowed to produce anything other than
+ * `deny`. This makes a delegated worker effectively read-only, which is
+ * exactly what the `researcher` role in `SUBAGENT_ROLES` already promises —
+ * the parent agent can still do the write itself, with a card, so nothing
+ * becomes impossible, it just stops happening unsupervised.
+ */
+const delegateSubagentDenyGate: HookCallback = async (input) => {
+  if (input.hook_event_name !== 'PreToolUse') return {}
+  if (AUTO_APPROVED.includes(input.tool_name)) return {}
+
+  const table = assess(input.tool_name, input.tool_input)
+  const reason =
+    table.verdict === 'card'
+      ? `Delegated workers cannot do this: ${table.reason}. Hand this step back to the ` +
+        `agent that delegated to you instead of retrying it.`
+      : `Delegated workers cannot do this: there is no user here to approve it. Hand this ` +
+        `step back to the agent that delegated to you instead of retrying it.`
+
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason
+    }
+  }
+}
+
+/**
  * What the roles are for, said in the prompt.
  *
  * A capability the model does not know about is one it will not reach for: it
@@ -611,13 +664,19 @@ function buildMochiServer(
    * sub-`query()` it spawns.
    *
    * Without this the sub-agent got no `permissionMode` (defaulting to
-   * `'default'`) and no `canUseTool`, which — per
+   * `'default'`) and no gate at all, which — per
    * docs/debug-permission-prompt.md — is the configuration where the SDK has
    * nobody to ask and a write simply stalls. That made "Plan mode changes
    * nothing" true only because sub-agent writes hung, not because a rule
-   * stopped them. Plan mode's read-only enforcement is the SDK's own ("no
-   * execution of tools"), so handing it down is enough — no `canUseTool`
-   * needed on the sub-query.
+   * stopped them.
+   *
+   * Handing down `parentMode` is still not the whole story, and the comment
+   * that used to live here claiming it was is exactly what this note
+   * replaces. Plan mode's read-only enforcement really is the SDK's own ("no
+   * execution of tools") — true only for Plan. Every other mode needs its own
+   * gate on the sub-query, which is what `delegateSubagentDenyGate` is for:
+   * see the note on that hook, and on where it is wired into `query()` below,
+   * for why the gate is a `PreToolUse` hook and not `canUseTool`.
    */
   parentMode?: SdkPermissionMode
 ): ReturnType<typeof createSdkMcpServer> {
@@ -704,7 +763,12 @@ function buildMochiServer(
             // The parent turn's mode, so a Plan-mode turn spawns a Plan-mode
             // worker instead of one the SDK silently stalls on writes for —
             // see the note on `parentMode` above.
-            permissionMode: parentMode
+            permissionMode: parentMode,
+            // No `canUseTool` here, deliberately — a sub-agent has no user to
+            // ask and that would hang. This hook is the whole gate for every
+            // other mode; see `delegateSubagentDenyGate` for what it does and
+            // why it may only ever deny.
+            hooks: { PreToolUse: [{ hooks: [delegateSubagentDenyGate] }] }
           }
         })) {
           const message = raw as SdkMessage
