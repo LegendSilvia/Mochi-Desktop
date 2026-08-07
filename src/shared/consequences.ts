@@ -92,12 +92,21 @@ export function assess(
   const tags = TOOL_TAGS[toolName] ?? []
 
   /*
-   * Everything the call carries, as one searchable body of text.
+   * Every string and number the call carries, flattened to a list and tested
+   * one value at a time — never joined into a single string.
    *
-   * A failure to read it is not a reason to wave the call through — an
+   * A `$`-anchored pattern tested against a joined string only fires when the
+   * matching value happens to land last in `Object.values()` enumeration
+   * order, which is an accident of object shape, not a security property: a
+   * `.env` path in an early property was invisible to `credentials$` and
+   * `-f\b\s*$` whenever a sibling property came after it. Testing each value
+   * on its own makes every rule below order-independent.
+   *
+   * A failure to read the input is not a reason to wave the call through — an
    * argument you cannot read is an argument you cannot clear — so the catch
-   * cards rather than continuing with an empty string, which would silently
-   * skip every scan below.
+   * cards rather than continuing with an empty list, which would silently
+   * skip every scan below. Hitting `flatten`'s depth cap is the same kind of
+   * failure and throws for the same reason.
    */
   let values: string[]
   try {
@@ -105,18 +114,25 @@ export function assess(
   } catch {
     return { verdict: 'card', reason: 'its arguments could not be read', tags }
   }
-  const text = values.join('\n')
 
   for (const rule of ALWAYS_CARD_PATHS) {
-    if (rule.pattern.test(text)) return { verdict: 'card', reason: rule.reason, tags }
+    if (values.some((value) => rule.pattern.test(value))) {
+      return { verdict: 'card', reason: rule.reason, tags }
+    }
   }
 
-  // Only absolute paths are judged against the root. A relative path is the
-  // ordinary case inside a workspace, and resolving one here would be guessing
-  // at a working directory this module deliberately does not know.
+  // Only absolute paths are judged against the root by direct comparison. A
+  // relative path is the ordinary case inside a workspace, and resolving one
+  // here would be guessing at a working directory this module deliberately
+  // does not know — but a relative path that climbs with `..` is trying to
+  // leave regardless of where it started, so that cards without needing to be
+  // resolved.
   const root = opts?.workspaceRoot
   if (root) {
     for (const value of values) {
+      if (climbsOut(value)) {
+        return { verdict: 'card', reason: 'it climbs outside the open folder', tags }
+      }
       if (isAbsolutePath(value) && !within(root, value)) {
         return { verdict: 'card', reason: 'it reaches outside the open folder', tags }
       }
@@ -124,7 +140,9 @@ export function assess(
   }
 
   for (const rule of ARGUMENT_PATTERNS) {
-    if (rule.pattern.test(text)) return { verdict: 'card', reason: rule.reason, tags }
+    if (values.some((value) => rule.pattern.test(value))) {
+      return { verdict: 'card', reason: rule.reason, tags }
+    }
   }
 
   const carding = tags.find((t) => CARDING_TAGS.includes(t))
@@ -138,11 +156,16 @@ export function assess(
  *
  * `seen` tracks the current path only — deleted on the way back out — so an
  * object referenced twice is fine and only a genuine cycle throws. Depth is
- * capped because a deeply nested argument is not more dangerous than a shallow
- * one, and an unbounded walk on hostile input is its own problem.
+ * capped, and hitting the cap throws rather than truncating silently: content
+ * past the cap is content this function never actually read, and unread
+ * content must card for the same reason a cyclic object does, not fall
+ * through to an empty scan that defaults to `allow`. The cap is not a claim
+ * that deep nesting is inherently more dangerous — it is where "unreadable"
+ * starts.
  */
 function flatten(value: unknown, seen = new Set<unknown>(), depth = 0): string[] {
-  if (depth > 8 || value === null || value === undefined) return []
+  if (depth > 8) throw new Error('input too deep to read')
+  if (value === null || value === undefined) return []
   if (typeof value === 'string') return [value]
   if (typeof value === 'number' || typeof value === 'boolean') return [String(value)]
   if (typeof value !== 'object') return []
@@ -161,6 +184,13 @@ function flatten(value: unknown, seen = new Set<unknown>(), depth = 0): string[]
  *  at a working directory. */
 function isAbsolutePath(value: string): boolean {
   return /^([A-Za-z]:[\\/]|[\\/])/.test(value.trim())
+}
+
+/** A `..` path segment, either slash style, at the start of the value or
+ *  after a slash — the shape that climbs out of wherever a relative path
+ *  started, whether or not the path as a whole is absolute. */
+function climbsOut(value: string): boolean {
+  return /(^|[\\/])\.\.([\\/]|$)/.test(value.trim())
 }
 
 /** Windows-first: `C:/work` and `C:\work` are the same directory, and case
