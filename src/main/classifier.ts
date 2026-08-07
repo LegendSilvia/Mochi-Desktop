@@ -158,9 +158,17 @@ export async function classify(opts: ClassifyOptions): Promise<ClassifierVerdict
   try {
     const text = await runClassifierModel(prompt, opts, model)
     return parseVerdict(text)
-  } catch {
+  } catch (err) {
     // Timeout, abort, a model that is not reachable, anything at all. A
     // classifier that is down must never become a classifier that says yes.
+    //
+    // But it must SAY so. This catch used to be bare, which made a classifier
+    // failing on every single call indistinguishable from one working and
+    // deciding to ask — the card reads the same either way. The first run on
+    // real hardware hit exactly that: every call escalated, and the reason why
+    // was thrown away here. Said once per distinct message, so a persistent
+    // failure is visible without a line per tool call.
+    warnClassifierFailure(err)
     return { decision: 'ask', reason: 'the classifier could not be reached', source: 'model' }
   }
 }
@@ -193,6 +201,21 @@ function sdkModelName(routerId: string): string | null {
  * feature that quietly does nothing while the UI says it is working is exactly
  * how the unstripped model id survived four reviews.
  */
+/**
+ * Why the classifier failed, said once per distinct message.
+ *
+ * Per-call logging would be a line for every tool call the mode is on for; no
+ * logging at all is how a classifier that failed on all of them looked exactly
+ * like one that was working and choosing to ask.
+ */
+const warnedFailures = new Set<string>()
+function warnClassifierFailure(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err)
+  if (warnedFailures.has(message)) return
+  warnedFailures.add(message)
+  console.warn(`[mochi] Auto classifier failed, so every call will ask: ${message}`)
+}
+
 const warnedModels = new Set<string>()
 function warnUnusableModel(routerId: string): void {
   if (warnedModels.has(routerId)) return
