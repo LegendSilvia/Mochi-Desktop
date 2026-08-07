@@ -50,11 +50,18 @@ export function ModePicker({
   // it, which on an overlay-heavy screen leaves it floating over unrelated UI.
   useEffect(() => {
     if (!open) return
+    // Closes the whole menu, submenu included — otherwise the Auto submenu
+    // stays expanded in state and reappears open the next time the pill is
+    // clicked, with no click of its own to explain it.
+    const close = (): void => {
+      setOpen(false)
+      setAutoOpen(false)
+    }
     const onDown = (e: MouseEvent): void => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
+      if (!root.current?.contains(e.target as Node)) close()
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') close()
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
