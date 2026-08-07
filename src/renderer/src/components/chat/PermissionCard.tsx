@@ -26,6 +26,11 @@ export interface PermissionRequest {
   input?: Record<string, unknown>
   blockedPath?: string | null
   canAlwaysAllow?: boolean
+  /** Why this reached a card rather than running. Set only in Auto: a rule
+   *  from the consequence table (e.g. "it touches an SSH key") or the
+   *  classifier model's own sentence explaining its call. Absent in Manual
+   *  and Accept edits, where the mode itself is the whole answer. */
+  escalationReason?: string
 }
 
 export function PermissionCard({
@@ -197,6 +202,17 @@ export function PermissionCard({
         </span>
       </div>
       {target && <div className="perm-target mono">{target}</div>}
+      {/*
+       * Escalation first, blocked path second — the escalation reason is Auto
+       * saying specifically why *this* call stopped; the blocked path is the
+       * more general "you touched something sensitive" that the SDK itself
+       * would say regardless of mode. Worded apart on purpose: a rule reads as
+       * a rule ("it touches an SSH key"), the classifier's own sentence reads
+       * as a judgement call, and the difference is the point.
+       */}
+      {request.escalationReason && (
+        <div className="perm-reason meta">Auto stopped this: {request.escalationReason}</div>
+      )}
       {reason && (
         <div className="perm-reason meta">
           Stopped because it touches <span className="mono">{reason}</span>

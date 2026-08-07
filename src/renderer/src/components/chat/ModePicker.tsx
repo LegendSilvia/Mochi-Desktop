@@ -147,12 +147,10 @@ export function ModePicker({
                       {mode === 'auto' && !classifierModel && <Check size={12} strokeWidth={2.4} />}
                     </button>
                     {nativeBlocked && <p className="meta mode-blocked">{nativeBlocked}</p>}
-                    {/* Phase 1 stores this choice but nothing acts on it yet —
-                        Mochi's own classifier arrives in Phase 2, and until then
-                        a named model behaves as Manual. Saying so is the
-                        difference between a setting that is not finished and a
-                        setting that is broken. */}
-                    <span className="mode-menu-head">Or a model of your own — not active yet</span>
+                    <span className="mode-menu-head">
+                      Or a model of your own — it judges each call the safety rules did not
+                      already stop
+                    </span>
                     {models.map((m) => (
                       <button
                         key={m.id}
