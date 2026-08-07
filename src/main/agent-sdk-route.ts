@@ -71,7 +71,7 @@ import type { AgentLoadout, MascotState } from '../shared/types'
  */
 const SHADOWING_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']
 
-function subscriptionEnv(appVersion: string): Record<string, string | undefined> {
+export function subscriptionEnv(appVersion: string): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env }
   for (const key of SHADOWING_VARS) delete env[key]
   env.CLAUDE_AGENT_SDK_CLIENT_APP = `mochi/${appVersion}`
