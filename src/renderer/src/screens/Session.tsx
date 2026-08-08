@@ -1022,7 +1022,16 @@ export function Session(): React.JSX.Element {
     void fetch(`${server.baseUrl}/agent-sdk/mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: activeSession.id, mode })
+      // The model goes with the mode, and `null` says "native" rather than
+      // saying nothing: the store write above lands in a post-commit effect, so
+      // main reading its own copy could still see the previous choice and put
+      // the live SDK on a different policy from the one `canUseTool` is about
+      // to apply. Sending both makes the two decide from one snapshot.
+      body: JSON.stringify({
+        id: activeSession.id,
+        mode,
+        classifierModel: mode === 'auto' ? (classifierModel ?? null) : null
+      })
     }).catch(() => {
       // No live run, or the run ended. The stored mode still applies next turn.
     })

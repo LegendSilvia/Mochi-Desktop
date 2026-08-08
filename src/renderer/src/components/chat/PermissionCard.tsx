@@ -8,7 +8,12 @@ import {
   ClipboardList
 } from 'lucide-react'
 import { Markdown } from './Markdown'
-import { MODE_LABELS, type PermissionMode } from '@shared/permission-modes'
+import {
+  MODE_LABELS,
+  escalationLead,
+  type EscalationSource,
+  type PermissionMode
+} from '@shared/permission-modes'
 import './chat.css'
 
 /**
@@ -26,6 +31,13 @@ export interface PermissionRequest {
   input?: Record<string, unknown>
   blockedPath?: string | null
   canAlwaysAllow?: boolean
+  /** Why this reached a card rather than running. Set only in Auto: a rule
+   *  from the consequence table (e.g. "it touches an SSH key") or the
+   *  classifier model's own sentence explaining its call. Absent in Manual
+   *  and Accept edits, where the mode itself is the whole answer. */
+  escalationReason?: string
+  /** Which of the two said so. Drives the wording, not just the text. */
+  escalationSource?: EscalationSource
 }
 
 export function PermissionCard({
@@ -197,6 +209,24 @@ export function PermissionCard({
         </span>
       </div>
       {target && <div className="perm-target mono">{target}</div>}
+      {/*
+       * Escalation first, blocked path second — the escalation reason is Auto
+       * saying specifically why *this* call stopped; the blocked path is the
+       * more general "you touched something sensitive" that the SDK itself
+       * would say regardless of mode.
+       *
+       * The lead-in names which of Auto's two policies spoke, because they are
+       * different things to act on. A safety rule is fixed and applies whatever
+       * model you pick, so the answer is to look at what the call touches. The
+       * classifier is a judgement, so the answer might be a different model —
+       * or simply reading its sentence and deciding it is wrong. One prefix for
+       * both hid that distinction behind identical wording.
+       */}
+      {request.escalationReason && (
+        <div className="perm-reason meta">
+          {escalationLead(request.escalationSource)}: {request.escalationReason}
+        </div>
+      )}
       {reason && (
         <div className="perm-reason meta">
           Stopped because it touches <span className="mono">{reason}</span>

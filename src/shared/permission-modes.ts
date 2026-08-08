@@ -38,8 +38,16 @@ export type SdkPermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto'
  * classifier runs, which is what `'auto'` means to it. Naming a model instead
  * selects Mochi's classifier, which works by leaving the SDK in `'default'` and
  * answering `canUseTool` ourselves — so from the SDK's side that is an ordinary
- * prompting session. Mochi's classifier arrives in Phase 2; until then a named
- * model simply behaves as Manual, which is the safe direction to be wrong in.
+ * prompting session.
+ *
+ * That classifier is live as of Phase 2, so a named model no longer behaves as
+ * Manual. It now judges each call that `assess()` in `shared/consequences.ts`
+ * did not already stop, and only an explicit `allow` from it runs without a
+ * card. The table's `card` is not something it can appeal, and everything else
+ * it can produce — `ask`, an answer that will not parse, a timeout, a model
+ * this backend cannot run — arrives at the same card Manual would have shown.
+ * A named model is therefore never looser than Manual; it is only quieter about
+ * the calls both would have allowed.
  */
 export function toSdkPermissionMode(
   mode: PermissionMode,
@@ -55,6 +63,35 @@ export function toSdkPermissionMode(
     default:
       return 'default'
   }
+}
+
+/**
+ * Which of Auto's two policies stopped a call.
+ *
+ * `table` is `shared/consequences.ts` — a fixed rule that applies to everyone
+ * and that the classifier model was not even consulted about. `model` is the
+ * model the user chose in the Auto submenu: its own judgement, or its failure
+ * to give one.
+ */
+export type EscalationSource = 'table' | 'model'
+
+/**
+ * How a card introduces the reason it is showing.
+ *
+ * The design spec asks that a card say whether a *safety check* or the
+ * *classifier* stopped it, and one string with one prefix cannot: "Auto stopped
+ * this: it touches an SSH key" and "Auto stopped this: I am not sure what this
+ * script does" read as the same kind of event, when in fact one is a rule the
+ * user cannot change by picking a different model and the other is a judgement
+ * that a different model might make differently.
+ *
+ * The fallback wording is for a card from before this was recorded — a session
+ * restored from disk — where claiming either source would be inventing one.
+ */
+export function escalationLead(source?: EscalationSource): string {
+  if (source === 'table') return 'A safety rule stopped this'
+  if (source === 'model') return 'The classifier stopped this'
+  return 'Auto stopped this'
 }
 
 /**

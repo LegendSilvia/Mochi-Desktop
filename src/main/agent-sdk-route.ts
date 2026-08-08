@@ -4,6 +4,7 @@ import { createUIMessageStream, createUIMessageStreamResponse } from 'ai'
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentDefinition,
+  HookCallback,
   McpServerConfig,
   PermissionResult,
   Query,
@@ -34,11 +35,14 @@ import {
   coerceMode,
   PLAN_MODE_INSTRUCTIONS,
   toSdkPermissionMode,
+  type EscalationSource,
   type PermissionMode,
   type SdkPermissionMode
 } from '../shared/permission-modes'
 import { MASCOT_STATES } from '../shared/types'
 import type { AgentLoadout, MascotState } from '../shared/types'
+import { classify } from './classifier'
+import { assess } from '../shared/consequences'
 
 /**
  * The subscription backend.
@@ -71,7 +75,7 @@ import type { AgentLoadout, MascotState } from '../shared/types'
  */
 const SHADOWING_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']
 
-function subscriptionEnv(appVersion: string): Record<string, string | undefined> {
+export function subscriptionEnv(appVersion: string): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env }
   for (const key of SHADOWING_VARS) delete env[key]
   env.CLAUDE_AGENT_SDK_CLIENT_APP = `mochi/${appVersion}`
@@ -280,6 +284,109 @@ const AUTO_APPROVED = [
   'WebSearch',
   'WebFetch'
 ]
+
+/**
+ * Funnels every tool call `canUseTool` cannot see into the callback that
+ * already gates everything else.
+ *
+ * `canUseTool` is supposed to be the one gate every tool call passes through
+ * — the consequence table, the classifier, the card, all of it hangs off
+ * that callback. It turns out the SDK does not actually invoke it for every
+ * tool. `PowerShell` — the shell on Windows, which this app targets first —
+ * never reached `canUseTool` at all: reproduced in a clean temp directory
+ * with no `.claude` anywhere and `permissionMode: 'default'`, a `PowerShell`
+ * call ran with no card, in Manual mode, while a `Write` call right next to
+ * it was gated correctly. Nothing about settings, cwd, permission mode or
+ * `allowedTools` explained it — the callback simply has a coverage hole, and
+ * it is not documented which tools fall in it, so treating this as "just a
+ * PowerShell bug" would be trusting a list nobody has verified is complete.
+ *
+ * A `PreToolUse` hook does not have that hole — it fires for `PowerShell`
+ * too — and returning `permissionDecision: 'ask'` from it routes the call
+ * into `canUseTool` after all (measured: with this hook active, both `Write`
+ * and `PowerShell` reach `canUseTool`). So instead of trying to enumerate
+ * and patch every tool the SDK forgets, this hook asks for everything and
+ * lets the existing gate decide — it is a funnel in front of `canUseTool`,
+ * not a second, competing decision-maker.
+ *
+ * Two things this must never do:
+ *
+ * - Return an opinion for anything in `AUTO_APPROVED`. Those tools (`Read`,
+ *   `Grep`, and the rest) are deliberately auto-approved so the common case
+ *   doesn't interrupt anyone; returning `'ask'` for them would put a
+ *   permission card in front of every read and make the app unusable. This
+ *   is the one thing to get right here — everything else just falls through
+ *   to the card that would have appeared anyway.
+ * - Return `'deny'`. Per the SDK, a `PreToolUse` deny is enforced immediately
+ *   and bypasses `canUseTool` entirely — the same shortcut that makes this
+ *   hook necessary for `ask` would, for `deny`, skip the consequence table,
+ *   the classifier and the card's escalation reason. `ask` is the only
+ *   verdict this hook is allowed to hand back; every real decision — allow,
+ *   deny, card — stays inside `canUseTool`, unchanged.
+ */
+const preToolUseAskGate: HookCallback = async (input) => {
+  if (input.hook_event_name !== 'PreToolUse') return {}
+  if (AUTO_APPROVED.includes(input.tool_name)) return {}
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'ask',
+      permissionDecisionReason: "Routing to Mochi's permission check."
+    }
+  }
+}
+
+/**
+ * `PreToolUse` gate for the sub-`query()` a `delegate` call spawns.
+ *
+ * The main turn's gate (`preToolUseAskGate`, above) funnels ungated calls into
+ * `canUseTool`, which parks a promise until the renderer answers with a card.
+ * A delegated worker has no renderer watching it and no user to show a card
+ * to — wiring `canUseTool` onto the sub-query would park that same promise
+ * with nothing able to ever resolve it, hanging the parent's `delegate` tool
+ * call until `APPROVAL_TIMEOUT_MS` and then failing anyway. So `canUseTool`
+ * stays off this sub-query, on purpose — this hook is the entire gate.
+ *
+ * Same policy as the main turn, a different outcome, because the reachable
+ * outcomes differ: the main turn can turn an ungated call into a question;
+ * a sub-agent can only turn it into a "no". Anything in `AUTO_APPROVED`
+ * still runs free — reads and the agent's own bookkeeping, exactly as for
+ * the main turn, because a delegated researcher needs those to do anything
+ * at all. Everything else is denied, unconditionally.
+ *
+ * `assess()` is called below, but only to word the denial, never to decide
+ * it — do not let that drift. `verdict === 'card'` and `verdict === 'allow'`
+ * both end in `permissionDecision: 'deny'` here; the table's `allow` means
+ * "no objection, it's the classifier's turn to decide," and there is no
+ * classifier and no user in this sub-query, so the honest reading of
+ * "allow" is still "no." The two verdicts get different reason text so a
+ * denial for an unremarkable tool does not read the same as a denial for a
+ * `.ssh` path, but neither one is allowed to produce anything other than
+ * `deny`. This makes a delegated worker effectively read-only, which is
+ * exactly what the `researcher` role in `SUBAGENT_ROLES` already promises —
+ * the parent agent can still do the write itself, with a card, so nothing
+ * becomes impossible, it just stops happening unsupervised.
+ */
+const delegateSubagentDenyGate: HookCallback = async (input) => {
+  if (input.hook_event_name !== 'PreToolUse') return {}
+  if (AUTO_APPROVED.includes(input.tool_name)) return {}
+
+  const table = assess(input.tool_name, input.tool_input)
+  const reason =
+    table.verdict === 'card'
+      ? `Delegated workers cannot do this: ${table.reason}. Hand this step back to the ` +
+        `agent that delegated to you instead of retrying it.`
+      : `Delegated workers cannot do this: there is no user here to approve it. Hand this ` +
+        `step back to the agent that delegated to you instead of retrying it.`
+
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason
+    }
+  }
+}
 
 /**
  * What the roles are for, said in the prompt.
@@ -557,13 +664,19 @@ function buildMochiServer(
    * sub-`query()` it spawns.
    *
    * Without this the sub-agent got no `permissionMode` (defaulting to
-   * `'default'`) and no `canUseTool`, which — per
+   * `'default'`) and no gate at all, which — per
    * docs/debug-permission-prompt.md — is the configuration where the SDK has
    * nobody to ask and a write simply stalls. That made "Plan mode changes
    * nothing" true only because sub-agent writes hung, not because a rule
-   * stopped them. Plan mode's read-only enforcement is the SDK's own ("no
-   * execution of tools"), so handing it down is enough — no `canUseTool`
-   * needed on the sub-query.
+   * stopped them.
+   *
+   * Handing down `parentMode` is still not the whole story, and the comment
+   * that used to live here claiming it was is exactly what this note
+   * replaces. Plan mode's read-only enforcement really is the SDK's own ("no
+   * execution of tools") — true only for Plan. Every other mode needs its own
+   * gate on the sub-query, which is what `delegateSubagentDenyGate` is for:
+   * see the note on that hook, and on where it is wired into `query()` below,
+   * for why the gate is a `PreToolUse` hook and not `canUseTool`.
    */
   parentMode?: SdkPermissionMode
 ): ReturnType<typeof createSdkMcpServer> {
@@ -650,7 +763,12 @@ function buildMochiServer(
             // The parent turn's mode, so a Plan-mode turn spawns a Plan-mode
             // worker instead of one the SDK silently stalls on writes for —
             // see the note on `parentMode` above.
-            permissionMode: parentMode
+            permissionMode: parentMode,
+            // No `canUseTool` here, deliberately — a sub-agent has no user to
+            // ask and that would hang. This hook is the whole gate for every
+            // other mode; see `delegateSubagentDenyGate` for what it does and
+            // why it may only ever deny.
+            hooks: { PreToolUse: [{ hooks: [delegateSubagentDenyGate] }] }
           }
         })) {
           const message = raw as SdkMessage
@@ -1471,10 +1589,14 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
    * changing mode between turns, and the next `query()` reads the stored value.
    */
   app.post('/agent-sdk/mode', async (c) => {
-    const { id, mode } = (await c.req.json().catch(() => ({}))) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       id?: string
       mode?: string
+      /** `null` means "Auto with the native classifier", which is a real
+       *  choice and must be distinguishable from "the caller did not say". */
+      classifierModel?: string | null
     }
+    const { id, mode } = body
     if (!id) return c.json({ ok: false, live: false }, 400)
 
     const wanted = coerceMode(mode)
@@ -1482,8 +1604,30 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
     if (!run) return c.json({ ok: true, live: false })
 
     try {
+      /*
+       * The mode and the classifier model come from the same snapshot.
+       *
+       * The renderer persists the session in a post-commit effect, while this
+       * POST goes out synchronously from the click. So reading
+       * `autoClassifierModel` from `load()` here could see the value from
+       * *before* the change that caused this request — and a switch between
+       * Auto-native and Auto-with-a-model changes which SDK mode is correct
+       * (`'auto'` versus `'default'`). Getting that wrong left the live SDK
+       * running its native classifier while `canUseTool` classified with a
+       * model, which is two policies deciding at once.
+       *
+       * Neither arrangement is a bypass — native Auto is a reasonable policy
+       * and anything it escalates still reaches `canUseTool` and still cards —
+       * so this is about the two sites agreeing, not about safety. The caller
+       * states the model it just chose; `load()` remains the fallback for an
+       * older renderer that sends only a mode.
+       */
       const session = load().sessions.find((s) => s.id === id)
-      await run.setPermissionMode(toSdkPermissionMode(wanted, session?.autoClassifierModel))
+      const classifierModel =
+        body.classifierModel === undefined
+          ? session?.autoClassifierModel
+          : (body.classifierModel ?? undefined)
+      await run.setPermissionMode(toSdkPermissionMode(wanted, classifierModel))
       return c.json({ ok: true, live: true })
     } catch (err) {
       // An older CLI, or a run that ended between the lookup and the call.
@@ -1799,6 +1943,11 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
               // list — see docs/debug-permission-prompt.md.
               allowedTools: AUTO_APPROVED,
               disallowedTools: DISALLOWED_BUILTINS,
+              // Drags tools `canUseTool` cannot see (PowerShell, on Windows)
+              // into the callback below by asking for everything that is not
+              // already auto-approved — see `preToolUseAskGate` for why this
+              // exists and why it may only ever say `ask`.
+              hooks: { PreToolUse: [{ hooks: [preToolUseAskGate] }] },
               // Named roles for the workers a turn spawns. Without this they
               // inherit every tool the parent has, including the ones that
               // write — see SUBAGENT_ROLES.
@@ -1815,6 +1964,56 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                * else parks until the renderer answers.
                */
               canUseTool: async (toolName, toolInput, { signal, suggestions, blockedPath }) => {
+                /*
+                 * Auto with a chosen model: that model answers first.
+                 *
+                 * Only this arm. Native Auto (no model named) is the SDK's own
+                 * classifier and never reaches here, and Manual and Accept
+                 * edits must arrive at the card exactly as they did before —
+                 * which is why this returns early or falls through, and never
+                 * rewrites the path below.
+                 */
+                let escalationReason: string | undefined
+                let escalationSource: EscalationSource | undefined
+
+                // `sessionMode` and `load()` are inside the try, unlike the
+                // once-per-turn `resolvedMode` above: `load()` does file I/O and
+                // this runs on every single tool call, so a transient read
+                // failure here must fall through to a card rather than throw
+                // into the SDK and stall the turn on a tool nobody was asked
+                // about.
+                try {
+                  const classifierModel =
+                    sessionMode(chatId) === 'auto'
+                      ? load().sessions.find((s) => s.id === chatId)?.autoClassifierModel
+                      : undefined
+
+                  if (classifierModel) {
+                    const verdict = await classify({
+                      model: classifierModel,
+                      toolName,
+                      input: toolInput,
+                      workspaceRoot: workspace.cwd || undefined,
+                      signal,
+                      appVersion
+                    })
+                    if (verdict.decision === 'allow') return { behavior: 'allow' }
+                    if (verdict.decision === 'deny') {
+                      return { behavior: 'deny', message: verdict.reason }
+                    }
+                    escalationReason = verdict.reason
+                    escalationSource = verdict.source
+                  }
+                } catch (err) {
+                  // `classify` is written not to throw, so this is the belt to
+                  // its braces — and now also covers the settings read above.
+                  // Either way the call carries on to the card below, which is
+                  // the same answer Manual would have given.
+                  console.warn('[mochi] classifier threw:', err)
+                  escalationReason = 'the classifier failed'
+                  escalationSource = 'model'
+                }
+
                 const id = randomUUID()
                 writer.write({
                   type: 'data-permission',
@@ -1826,7 +2025,9 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                     blockedPath: blockedPath ?? null,
                     // Only offer "always allow" when the SDK gave us rules to
                     // apply — inventing our own would drift from its policy.
-                    canAlwaysAllow: Boolean(suggestions?.length)
+                    canAlwaysAllow: Boolean(suggestions?.length),
+                    escalationReason,
+                    escalationSource
                   }
                 })
 
@@ -1851,7 +2052,9 @@ export function registerAgentSdkRoute(app: MochiHono, appVersion: string): void 
                   agentName: agent?.name ?? 'The agent',
                   toolName: shortName,
                   target: full.slice(0, APPROVAL_TARGET_MAX),
-                  truncated: full.length > APPROVAL_TARGET_MAX
+                  truncated: full.length > APPROVAL_TARGET_MAX,
+                  escalationReason,
+                  escalationSource
                 })
 
                 return new Promise<PermissionResult>((resolve) => {
